@@ -13,36 +13,101 @@ const materialGallery: Record<
   { name: string; image: string }[]
 > = {
   Granitos: [
-    { name: "Neblina Gris", image: "/images/cocina1.jpg" },
-    { name: "Arena Suave", image: "/images/cocina2.jpg" },
-    { name: "Grafito Claro", image: "/images/cocina3.jpg" },
-    { name: "Marfil Pulido", image: "/images/cocina8.jpg" },
-    { name: "Basalto Satinado", image: "/images/cocina5.jpg" },
+    { name: "Neblina Gris", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Arena Suave", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Grafito Claro", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Marfil Pulido", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Basalto Satinado", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Pizarra Natural", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Gris Niebla", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Azul Hielo", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Ceniza Volcanica", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Sombra Grafito", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Perla Clara", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Arena Bruma", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Terra Suave", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Lava Mate", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Gris Silver", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Blanco Polar", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Bruma Azul", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Sal Nieve", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Humo Claro", image: "/images/acabados/granito-placeholder.svg" },
+    { name: "Canto Piedra", image: "/images/acabados/granito-placeholder.svg" },
   ],
   Maderas: [
-    { name: "Roble Nórdico", image: "/images/cocina6.jpg" },
-    { name: "Nogal Tostado", image: "/images/cocina7.jpg" },
-    { name: "Olmo Natural", image: "/images/cocina8.jpg" },
-    { name: "Cedro Claro", image: "/images/cocina9.jpg" },
-    { name: "Fresno Humo", image: "/images/cocina10.jpg" },
+    { name: "Roble Nordico", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Nogal Tostado", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Olmo Natural", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Cedro Claro", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Fresno Humo", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Teca Arena", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Abedul Suave", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Maple Claro", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Haya Miel", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Cerezo Satin", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Nogal Tierra", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Alamo Natural", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Pino Bruma", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Roble Gris", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Encino Claro", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Eucalipto Mate", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Cedro Dorado", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Nogal Urbano", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Olivo Suave", image: "/images/acabados/madera-placeholder.svg" },
+    { name: "Roble Tostado", image: "/images/acabados/madera-placeholder.svg" },
   ],
   Melaminas: [
-    { name: "Lino Perla", image: "/images/cocina11.jpg" },
-    { name: "Piedra Mate", image: "/images/cocina12.jpg" },
-    { name: "Ceniza Sutil", image: "/images/render1.jpg" },
-    { name: "Trigo Satinado", image: "/images/render2.jpg" },
-    { name: "Nieve Texturizada", image: "/images/render3.jpg" },
+    { name: "Lino Perla", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Piedra Mate", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Ceniza Sutil", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Trigo Satinado", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Nieve Texturizada", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Gris Urbano", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Beige Arena", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Blanco Algodon", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Marfil Nube", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Piedra Humo", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Lino Natural", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Tierra Suave", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Cemento Claro", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Ceniza Mate", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Gris Perla", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Arena Gris", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Duna Clara", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Hielo Suave", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Piedra Polar", image: "/images/acabados/melamina-placeholder.svg" },
+    { name: "Grafito Mate", image: "/images/acabados/melamina-placeholder.svg" },
   ],
   Colores: [
-    { name: "Guinda Profundo", image: "/images/render4.jpg" },
-    { name: "Verde Salvia", image: "/images/render5.jpg" },
-    { name: "Azul Plomo", image: "/images/render6.jpg" },
-    { name: "Arena Clara", image: "/images/cocina37.jpg" },
-    { name: "Gris Perla", image: "/images/cocina2.jpg" },
+    { name: "Guinda Profundo", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Verde Salvia", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Azul Plomo", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Arena Clara", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Gris Perla", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Azul Humo", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Ocre Suave", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Terracota", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Grafito", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Negro Mate", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Blanco Roto", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Marfil Suave", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Azul Noche", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Verde Oliva", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Rojo Vino", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Beige Calido", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Gris Humo", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Azul Acero", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Verde Niebla", image: "/images/acabados/color-placeholder.svg" },
+    { name: "Lavanda Suave", image: "/images/acabados/color-placeholder.svg" },
   ],
 };
 
-const partnerLogos = ["Hettich", "Blum", "Arauco", "Miele"];
+const partnerLogos = [
+  { name: "Hettich", src: "/images/aliados/hettich.svg" },
+  { name: "Eclipse Stainless", src: "/images/aliados/eclipse-stainless.svg" },
+  { name: "Miele", src: "/images/aliados/miele.svg" },
+  { name: "Schock", src: "/images/aliados/schock.svg" },
+];
 
 const fadeInUp = {
   initial: { opacity: 0, y: 18 },
@@ -75,15 +140,21 @@ export default function AcabadosPage() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {partnerLogos.map((logo) => (
               <div
-                key={logo}
-                className="group flex h-16 min-w-[140px] items-center justify-center rounded-3xl bg-surface px-6 shadow-lg grayscale opacity-50 transition duration-300 hover:scale-110 hover:opacity-100 hover:grayscale-0"
+                key={logo.name}
+                className="flex h-24 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition duration-300 hover:shadow-md"
               >
-                <span className="text-sm font-semibold tracking-wide text-secondary transition group-hover:text-primary">
-                  {logo}
-                </span>
+                <div className="relative h-full w-full">
+                  <Image
+                    src={logo.src}
+                    alt={logo.name}
+                    fill
+                    className="object-contain"
+                    sizes="(min-width: 768px) 160px, 45vw"
+                  />
+                </div>
               </div>
             ))}
           </div>

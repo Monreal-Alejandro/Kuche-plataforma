@@ -1,78 +1,415 @@
+ "use client";
+
+import { useMemo, useState } from "react";
+
 export default function BookingSection() {
+  const weekDays = ["L", "M", "M", "J", "V", "S", "D"];
+  const monthNames = [
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre",
+  ];
+  const timeSlots = ["10:00", "12:00", "16:00"];
+  const today = new Date();
+  const todayStart = useMemo(
+    () => new Date(today.getFullYear(), today.getMonth(), today.getDate()),
+    [today],
+  );
+  const [currentMonth, setCurrentMonth] = useState(
+    new Date(today.getFullYear(), today.getMonth(), 1),
+  );
+  const [selectedDate, setSelectedDate] = useState<Date | null>(today);
+  const [selectedTime, setSelectedTime] = useState<string>("12:00");
+  const [location, setLocation] = useState<"capital" | "otro">("capital");
+  const [otherLocation, setOtherLocation] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCaptchaChecked, setIsCaptchaChecked] = useState(false);
+  const [pendingSummary, setPendingSummary] = useState<{
+    dateLabel: string;
+    time: string;
+    locationLabel: string;
+  } | null>(null);
+  const monthLabel = useMemo(() => {
+    return `${monthNames[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`;
+  }, [currentMonth, monthNames]);
+  const calendarDays = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const startOffset = (firstDay.getDay() + 6) % 7;
+    return Array.from({ length: 42 }).map((_, index) => {
+      const day = index - startOffset + 1;
+      return day > 0 && day <= totalDays ? day : null;
+    });
+  }, [currentMonth]);
+
   return (
     <section id="agendar-cita" className="bg-background px-4 pb-20">
-      <div className="mx-auto grid min-h-[520px] max-w-6xl grid-cols-1 gap-10 rounded-2xl bg-surface p-8 shadow-xl md:grid-cols-2 md:p-12">
-        <div className="space-y-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-              Agenda tu cita
-            </p>
-            <h3 className="mt-3 text-2xl font-semibold text-primary md:text-3xl">
-              Elige el día perfecto
-            </h3>
-          </div>
-          <div className="grid grid-cols-7 gap-3 text-center text-sm text-secondary">
-            {Array.from({ length: 30 }).map((_, index) => {
-              const day = index + 1;
-              const isSelected = day === 16;
-              return (
-                <div
-                  key={`day-${day}`}
-                  className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                    isSelected ? "bg-accent text-white" : "bg-transparent"
-                  }`}
-                >
-                  {day}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="flex flex-col justify-center gap-6">
-          <div className="grid gap-4">
-            <label className="text-sm font-medium text-secondary">
-              Nombre
-              <input
-                type="text"
-                className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-primary focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-200"
-              />
-            </label>
-            <label className="text-sm font-medium text-secondary">
-              Teléfono
-              <input
-                type="tel"
-                className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-primary focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-200"
-              />
-            </label>
-          </div>
-
-          <div className="space-y-3 text-sm font-medium text-secondary">
-            Ubicación
-            <div className="flex rounded-full border border-gray-200 bg-gray-50 p-1">
-              <button
-                type="button"
-                className="flex-1 rounded-full bg-white px-4 py-2 text-primary shadow-sm"
-              >
-                Durango
-              </button>
-              <button
-                type="button"
-                className="flex-1 rounded-full px-4 py-2 text-secondary"
-              >
-                Foráneo
-              </button>
+      <form
+        className="mx-auto grid max-w-6xl grid-cols-1 overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl md:grid-cols-[1fr_1.1fr]"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!selectedDate || !selectedTime || !location) {
+            setFormMessage(null);
+            setFormError("Selecciona fecha, horario y ubicación.");
+            return;
+          }
+          if (!fullName.trim() || !phone.trim() || !email.trim()) {
+            setFormMessage(null);
+            setFormError("Completa tu nombre, teléfono y correo.");
+            return;
+          }
+          if (location === "otro" && !otherLocation.trim()) {
+            setFormMessage(null);
+            setFormError("Indica tu ubicación.");
+            return;
+          }
+          if (!isCaptchaChecked) {
+            setFormMessage(null);
+            setFormError("Confirma el captcha para continuar.");
+            return;
+          }
+          const dateLabel = selectedDate
+            ? new Intl.DateTimeFormat("es-MX", {
+                weekday: "long",
+                day: "2-digit",
+                month: "long",
+                year: "numeric",
+              }).format(selectedDate)
+            : "";
+          const locationLabel =
+            location === "capital"
+              ? "Durango Capital"
+              : otherLocation.trim() || "Otro municipio";
+          setFormError(null);
+          setFormMessage(null);
+          setPendingSummary({
+            dateLabel,
+            time: selectedTime,
+            locationLabel,
+          });
+          setIsModalOpen(true);
+        }}
+      >
+        <div className="border-b border-gray-200 bg-gray-50 p-8 md:border-b-0 md:border-r md:p-10">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
+              KUCHE
+            </div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-secondary">
+              Selecciona fecha
             </div>
           </div>
 
+          <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-4">
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-sm text-secondary"
+                aria-label="Mes anterior"
+                  onClick={() =>
+                    setCurrentMonth(
+                      new Date(
+                        currentMonth.getFullYear(),
+                        currentMonth.getMonth() - 1,
+                        1,
+                      ),
+                    )
+                  }
+              >
+                ‹
+              </button>
+              <div className="text-sm font-semibold uppercase tracking-[0.25em] text-primary">
+                {monthLabel}
+              </div>
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-sm text-secondary"
+                aria-label="Mes siguiente"
+                  onClick={() =>
+                    setCurrentMonth(
+                      new Date(
+                        currentMonth.getFullYear(),
+                        currentMonth.getMonth() + 1,
+                        1,
+                      ),
+                    )
+                  }
+              >
+                ›
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-7 gap-2 text-center text-[11px] font-semibold text-secondary">
+              {weekDays.map((day, index) => (
+                <div key={`${day}-${index}`}>{day}</div>
+              ))}
+            </div>
+
+            <div className="mt-3 grid grid-cols-7 gap-2 text-center text-sm text-secondary">
+              {calendarDays.map((day, index) => {
+                if (!day) {
+                  return <div key={`empty-${index}`} className="h-9" />;
+                }
+                const dateValue = new Date(
+                  currentMonth.getFullYear(),
+                  currentMonth.getMonth(),
+                  day,
+                );
+                const isPast = dateValue < todayStart;
+                const dayOfWeek = dateValue.getDay();
+                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                const isSelected =
+                  selectedDate &&
+                  selectedDate.getDate() === day &&
+                  selectedDate.getMonth() === currentMonth.getMonth() &&
+                  selectedDate.getFullYear() === currentMonth.getFullYear();
+                return (
+                  <button
+                    key={`day-${day}`}
+                    type="button"
+                    disabled={isPast || isWeekend}
+                    onClick={() => {
+                      if (isPast || isWeekend) return;
+                      setSelectedDate(dateValue);
+                      setFormMessage(null);
+                      setFormError(null);
+                    }}
+                    className={`flex h-9 items-center justify-center rounded-lg border text-sm font-medium ${
+                      isSelected
+                        ? "border-accent bg-accent text-white shadow-sm"
+                        : isPast || isWeekend
+                          ? "border-transparent text-gray-300"
+                          : "border-transparent text-secondary hover:border-gray-200"
+                    }`}
+                  >
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-8">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-secondary">
+              Horarios disponibles
+            </p>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              {timeSlots.map((time) => {
+                const isActive = time === selectedTime;
+                return (
+                  <button
+                    key={time}
+                    type="button"
+                    onClick={() => {
+                      setSelectedTime(time);
+                      setFormMessage(null);
+                      setFormError(null);
+                    }}
+                    className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                      isActive
+                        ? "border-accent bg-accent text-white shadow-sm"
+                        : "border-gray-200 text-secondary hover:border-gray-300"
+                    }`}
+                  >
+                    {time}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-8 md:p-10">
+          <div className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
+            Información del proyecto
+          </div>
+
+          <div className="mt-8 grid gap-5">
+            <label className="text-[11px] font-semibold uppercase tracking-[0.25em] text-secondary">
+              Nombre completo
+              <input
+                type="text"
+                placeholder="Escribe tu nombre"
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                className="mt-2 w-full border-b border-gray-300 bg-transparent pb-2 text-sm text-primary placeholder:text-gray-400 focus:border-primary focus:outline-none"
+              />
+            </label>
+            <label className="text-[11px] font-semibold uppercase tracking-[0.25em] text-secondary">
+              Teléfono / WhatsApp
+              <input
+                type="tel"
+                placeholder="+52"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                className="mt-2 w-full border-b border-gray-300 bg-transparent pb-2 text-sm text-primary placeholder:text-gray-400 focus:border-primary focus:outline-none"
+              />
+            </label>
+            <label className="text-[11px] font-semibold uppercase tracking-[0.25em] text-secondary">
+              Correo electrónico
+              <input
+                type="email"
+                placeholder="example@mail.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="mt-2 w-full border-b border-gray-300 bg-transparent pb-2 text-sm text-primary placeholder:text-gray-400 focus:border-primary focus:outline-none"
+              />
+            </label>
+          </div>
+
+          <div className="mt-8 space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-secondary">
+              Ubicación
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setLocation("capital");
+                  setOtherLocation("");
+                  setFormMessage(null);
+                  setFormError(null);
+                }}
+                className={`rounded-lg px-4 py-3 text-xs font-semibold uppercase tracking-[0.25em] ${
+                  location === "capital"
+                    ? "bg-primary text-white"
+                    : "border border-gray-200 text-secondary"
+                }`}
+              >
+                Durango Capital
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLocation("otro");
+                  setFormMessage(null);
+                  setFormError(null);
+                }}
+                className={`rounded-lg px-4 py-3 text-xs font-semibold uppercase tracking-[0.25em] ${
+                  location === "otro"
+                    ? "bg-primary text-white"
+                    : "border border-gray-200 text-secondary"
+                }`}
+              >
+                Otro municipio
+              </button>
+            </div>
+            {location === "otro" ? (
+              <label className="text-[11px] font-semibold uppercase tracking-[0.25em] text-secondary">
+                Especifica tu ubicación
+                <input
+                  type="text"
+                  placeholder="Ej. Gómez Palacio"
+                  value={otherLocation}
+                  onChange={(event) => setOtherLocation(event.target.value)}
+                  className="mt-2 w-full border-b border-gray-300 bg-transparent pb-2 text-sm text-primary placeholder:text-gray-400 focus:border-primary focus:outline-none"
+                />
+              </label>
+            ) : null}
+          </div>
+
+          <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <label className="flex items-center gap-3 text-sm text-secondary">
+              <input
+                type="checkbox"
+                checked={isCaptchaChecked}
+                onChange={(event) => {
+                  setIsCaptchaChecked(event.target.checked);
+                  setFormMessage(null);
+                  setFormError(null);
+                }}
+                className="h-4 w-4 accent-primary"
+              />
+              No soy un robot (placeholder captcha)
+            </label>
+          </div>
+
+          {formError ? (
+            <p className="mt-6 text-xs font-semibold text-red-600">{formError}</p>
+          ) : null}
+          {formMessage ? (
+            <p className="mt-6 text-xs font-semibold text-emerald-600">
+              {formMessage}
+            </p>
+          ) : null}
+
           <button
-            type="button"
-            className="w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-white shadow-md"
+            type="submit"
+            className="mt-6 w-full rounded-2xl bg-accent py-4 text-xs font-semibold uppercase tracking-[0.4em] text-white shadow-lg shadow-accent/30 transition hover:-translate-y-0.5"
           >
-            Agendar Cita
+            Agendar visita
           </button>
         </div>
-      </div>
+        {isModalOpen && pendingSummary ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
+                Confirmación
+              </div>
+              <h3 className="mt-3 text-xl font-semibold text-primary">
+                ¿Agendar esta visita?
+              </h3>
+              <div className="mt-5 space-y-2 text-sm text-secondary">
+                <p>
+                  <span className="font-semibold text-primary">Fecha:</span>{" "}
+                  {pendingSummary.dateLabel}
+                </p>
+                <p>
+                  <span className="font-semibold text-primary">Horario:</span>{" "}
+                  {pendingSummary.time}
+                </p>
+                <p>
+                  <span className="font-semibold text-primary">Ubicación:</span>{" "}
+                  {pendingSummary.locationLabel}
+                </p>
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-secondary"
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  Editar
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 rounded-lg bg-accent px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white"
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setFormMessage(
+                      "Listo. Te contactaremos para confirmar tu visita.",
+                    );
+                    setPendingSummary(null);
+                  }}
+                >
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </form>
     </section>
   );
 }

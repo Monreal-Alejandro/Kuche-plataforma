@@ -24,7 +24,7 @@ export default function Navbar() {
               Acabados
             </Link>
             <Link
-              href="#agendar-cita"
+              href="/agendar"
               className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white shadow"
             >
               Agendar

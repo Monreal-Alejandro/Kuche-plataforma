@@ -52,10 +52,6 @@ export default function EmpleadoDashboard() {
       setUploadTask(taskId);
       return;
     }
-    if (taskType === "cita") {
-      router.push("/dashboard/levantamiento");
-      return;
-    }
   };
 
   return (
@@ -120,7 +116,7 @@ export default function EmpleadoDashboard() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.05 }}
-        className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3"
+        className="grid grid-cols-1 gap-6 md:grid-cols-2"
       >
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
           <p className="text-xs uppercase tracking-[0.3em] text-secondary">Salud del día</p>
@@ -132,19 +128,6 @@ export default function EmpleadoDashboard() {
             <CheckCircle2 className="h-4 w-4" />
             Todo en orden
           </div>
-        </div>
-        <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Atajo rápido</p>
-          <h3 className="mt-2 text-xl font-semibold">Levantamiento activo</h3>
-          <p className="mt-3 text-sm text-secondary">
-            Inicia un levantamiento rápido desde tu tablero personal.
-          </p>
-          <button
-            onClick={() => router.push("/dashboard/levantamiento")}
-            className="mt-4 rounded-2xl bg-accent px-4 py-2 text-xs font-semibold text-white shadow"
-          >
-            Abrir levantamiento
-          </button>
         </div>
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
           <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotización</p>
