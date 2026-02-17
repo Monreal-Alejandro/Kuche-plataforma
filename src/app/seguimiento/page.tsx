@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, FileText, Image as ImageIcon } from "lucide-react";
+import { Bell, CheckCircle2, Download, FileText, Image as ImageIcon } from "lucide-react";
 
 const mockProject = {
   codigo: "K-8821",
@@ -11,6 +11,11 @@ const mockProject = {
   fechaInicio: "12 Octubre",
   fechaEntrega: "15 Noviembre",
   etapaActual: "Corte CNC",
+  pagos: {
+    anticipo: 45000,
+    segundoPago: 30000,
+    liquidacion: 0,
+  },
   archivos: [
     { id: "f1", name: "Render_Final_V2.jpg", type: "jpg" },
     { id: "f2", name: "Plano_Instalaciones.pdf", type: "pdf" },
@@ -26,12 +31,47 @@ const timelineSteps = [
   "Instalación Final",
 ];
 
+const paymentAlerts = [
+  {
+    step: "Diseño Aprobado",
+    label: "Anticipo",
+    status: "paid" as const,
+    tooltip: "Pago recibido. Gracias por impulsar tu proyecto.",
+  },
+  {
+    step: "Corte CNC",
+    label: "2do Pago",
+    status: "pending" as const,
+    tooltip: "Recordatorio: 2do pago pendiente. Tu proyecto sigue avanzando.",
+  },
+  {
+    step: "Instalación Final",
+    label: "Liquidación",
+    status: "pending" as const,
+    tooltip: "Recordatorio: liquidación pendiente. Tu proyecto sigue avanzando.",
+  },
+];
+
+const paymentByStep = paymentAlerts.reduce<Record<string, (typeof paymentAlerts)[number]>>(
+  (acc, alert) => {
+    acc[alert.step] = alert;
+    return acc;
+  },
+  {},
+);
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
     style: "currency",
     currency: "MXN",
     maximumFractionDigits: 0,
   }).format(value);
+
+const installments = [
+  { key: "anticipo", label: "Anticipo" },
+  { key: "segundoPago", label: "2do pago" },
+  { key: "liquidacion", label: "Liquidación" },
+] as const;
 
 export default function SeguimientoPage() {
   const [codigo, setCodigo] = useState("");
@@ -41,6 +81,12 @@ export default function SeguimientoPage() {
     () => Math.max(0, timelineSteps.indexOf(mockProject.etapaActual)),
     [],
   );
+  const installmentAmount = mockProject.inversion / 3;
+  const totalPagado =
+    mockProject.pagos.anticipo +
+    mockProject.pagos.segundoPago +
+    mockProject.pagos.liquidacion;
+  const restante = Math.max(0, mockProject.inversion - totalPagado);
 
   return (
     <main className="min-h-screen bg-background text-primary">
@@ -95,7 +141,23 @@ export default function SeguimientoPage() {
                 </div>
                 <div className="grid gap-4 md:grid-cols-3">
                   {[
-                    { label: "Inversión total", value: formatCurrency(mockProject.inversion) },
+                    {
+                      label: "Inversión total",
+                      value: formatCurrency(mockProject.inversion),
+                      extra: (
+                        <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-secondary">
+                          <span className="rounded-full bg-primary/5 px-3 py-1">
+                            Pagado{" "}
+                            <span className="font-semibold text-primary">
+                              {formatCurrency(totalPagado)}
+                            </span>
+                          </span>
+                          <span className="rounded-full bg-accent/10 px-3 py-1 text-accent">
+                            Restante {formatCurrency(restante)}
+                          </span>
+                        </div>
+                      ),
+                    },
                     { label: "Fecha inicio", value: mockProject.fechaInicio },
                     { label: "Entrega estimada", value: mockProject.fechaEntrega, highlight: true },
                   ].map((item) => (
@@ -113,8 +175,27 @@ export default function SeguimientoPage() {
                       >
                         {item.value}
                       </p>
+                      {"extra" in item ? item.extra : null}
                     </div>
                   ))}
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  {installments.map((item) => {
+                    const paid = mockProject.pagos[item.key];
+                    return (
+                      <div
+                        key={item.key}
+                        className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary"
+                      >
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                          {item.label}
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-primary">
+                          {formatCurrency(paid)}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
 
@@ -139,6 +220,7 @@ export default function SeguimientoPage() {
                     {timelineSteps.map((step, index) => {
                       const isCompleted = index <= currentIndex;
                       const isActive = index === currentIndex;
+                      const payment = paymentByStep[step];
                       return (
                         <div key={step} className="flex flex-col items-center gap-3">
                           <div className="relative flex h-5 w-5 items-center justify-center">
@@ -156,6 +238,29 @@ export default function SeguimientoPage() {
                             ) : null}
                           </div>
                           <span className={isActive ? "font-semibold text-primary" : ""}>{step}</span>
+                          {payment ? (
+                            <div
+                              className={`group relative mt-1 flex items-center gap-2 rounded-full px-2 py-1 text-[10px] font-semibold ${
+                                payment.status === "pending"
+                                  ? "animate-[pulse_3.5s_ease-in-out_infinite] bg-amber-50 text-amber-500"
+                                  : "bg-accent/10 text-accent"
+                              }`}
+                              aria-label={payment.tooltip}
+                              title={payment.tooltip}
+                            >
+                              {payment.status === "pending" ? (
+                                <Bell className="h-3.5 w-3.5" />
+                              ) : (
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                              )}
+                              <span>{payment.label}</span>
+                              {payment.status === "pending" ? (
+                                <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-primary px-3 py-1 text-[10px] font-medium text-white opacity-0 transition group-hover:opacity-100">
+                                  {payment.tooltip}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}

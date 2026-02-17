@@ -77,7 +77,10 @@ export default function LevantamientoSection() {
   };
 
   return (
-    <section className="bg-background px-4 pb-20">
+    <section
+      id="levantamiento"
+      className="scroll-mt-28 bg-background px-4 pb-20"
+    >
       <div className="mx-auto max-w-6xl space-y-8">
         <div className="flex flex-col gap-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-lg md:flex-row md:items-center md:justify-between">
           <div>

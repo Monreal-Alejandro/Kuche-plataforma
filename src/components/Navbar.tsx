@@ -11,14 +11,11 @@ export default function Navbar() {
           </Link>
 
           <div className="hidden items-center gap-6 md:flex">
-            <Link href="#experiencia" className="text-sm font-medium text-secondary">
+            <Link href="/experiencia" className="text-sm font-medium text-secondary">
               Experiencia
             </Link>
             <Link href="/catalogo" className="text-sm font-medium text-secondary">
               Catálogo
-            </Link>
-            <Link href="/seguimiento" className="text-sm font-medium text-secondary">
-              Seguimiento
             </Link>
             <Link href="/acabados" className="text-sm font-medium text-secondary">
               Acabados
@@ -33,10 +30,10 @@ export default function Navbar() {
 
           <div className="flex items-center gap-3">
             <Link
-              href="/login"
+              href="/seguimiento"
               className="rounded-full border border-primary/20 px-3 py-1.5 text-[11px] font-semibold text-primary transition hover:border-primary/40 hover:bg-white"
             >
-              Acceso Partners
+              Mi proyecto
             </Link>
             <button
               type="button"

@@ -5,7 +5,7 @@ import Experience3D from "@/components/home/Experience3D";
 import LeadForm from "@/components/home/LeadForm";
 import Testimonials from "@/components/home/Testimonials";
 import Location from "@/components/home/Location";
-import Footer from "@/components/home/Footer";
+import Footer from "@/components/Footer";
 
 export default function Home() {
   return (
@@ -14,8 +14,8 @@ export default function Home() {
       <History />
       <FeaturedProjects />
       <Experience3D />
-      <LeadForm />
       <Testimonials />
+      <LeadForm />
       <Location />
       <Footer />
     </main>

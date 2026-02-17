@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import Footer from "@/components/home/Footer";
+import Footer from "@/components/Footer";
 
 const categories = ["Granitos", "Maderas", "Melaminas", "Colores"] as const;
 type Category = (typeof categories)[number];
@@ -103,10 +103,30 @@ const materialGallery: Record<
 };
 
 const partnerLogos = [
-  { name: "Hettich", src: "/images/aliados/hettich.svg" },
-  { name: "Eclipse Stainless", src: "/images/aliados/eclipse-stainless.svg" },
-  { name: "Miele", src: "/images/aliados/miele.svg" },
-  { name: "Schock", src: "/images/aliados/schock.svg" },
+  {
+    name: "Hettich",
+    src: "/images/aliados/hettich.svg",
+    description:
+      "Hettich es una de las empresas líderes a nivel mundial en la fabricación de herrajes para muebles, fundada en 1888 y con sede en Alemania. Desarrollan tecnología inteligente y componentes funcionales como bisagras, cajones, correderas y sistemas de puertas correderas/plegables, reconocidos por su alta calidad, durabilidad y diseño, siendo un socio clave en la industria del mueble.",
+  },
+  {
+    name: "Eclipse Stainless",
+    src: "/images/aliados/eclipse-stainless.svg",
+    description:
+      "Eclipse Stainless desarrolla soluciones de acero inoxidable para cocina y hogar, combinando precisión industrial con acabados elegantes. Su portafolio incluye tarjas, grifería y superficies de trabajo diseñadas para resistir el uso diario con estilo y desempeño.",
+  },
+  {
+    name: "Miele",
+    src: "/images/aliados/miele.svg",
+    description:
+      "Miele es sinónimo de ingeniería alemana premium en electrodomésticos. Sus hornos, parrillas, lavavajillas y soluciones integradas destacan por eficiencia, diseño limpio y una vida útil superior, elevando la experiencia en la cocina.",
+  },
+  {
+    name: "Schock",
+    src: "/images/aliados/schock.svg",
+    description:
+      "Schock es pionera en fregaderos de granito compuesto. Fabricados en Alemania, sus materiales ofrecen resistencia extrema, textura sofisticada y colores profundos, ideales para cocinas de alto desempeño y estética contemporánea.",
+  },
 ];
 
 const fadeInUp = {
@@ -118,6 +138,9 @@ const fadeInUp = {
 export default function AcabadosPage() {
   const [activeCategory, setActiveCategory] =
     useState<Category>("Granitos");
+  const [activePartner, setActivePartner] = useState<
+    (typeof partnerLogos)[number] | null
+  >(null);
 
   const activeMaterials = useMemo(
     () => materialGallery[activeCategory],
@@ -142,9 +165,11 @@ export default function AcabadosPage() {
 
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {partnerLogos.map((logo) => (
-              <div
+              <button
                 key={logo.name}
-                className="flex h-24 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition duration-300 hover:shadow-md"
+                type="button"
+                onClick={() => setActivePartner(logo)}
+                className="flex h-24 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-md"
               >
                 <div className="relative h-full w-full">
                   <Image
@@ -155,11 +180,62 @@ export default function AcabadosPage() {
                     sizes="(min-width: 768px) 160px, 45vw"
                   />
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
       </section>
+
+      <AnimatePresence>
+        {activePartner && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-10"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setActivePartner(null)}
+          >
+            <motion.div
+              className="relative w-full max-w-2xl rounded-3xl bg-white p-8 shadow-2xl"
+              initial={{ y: 30, opacity: 0, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 10, opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setActivePartner(null)}
+                className="absolute right-6 top-6 rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-secondary transition hover:border-primary/40 hover:text-primary"
+              >
+                Cerrar
+              </button>
+              <div className="flex flex-col gap-6 md:flex-row md:items-center">
+                <div className="flex h-16 w-40 items-center justify-start">
+                  <Image
+                    src={activePartner.src}
+                    alt={activePartner.name}
+                    width={160}
+                    height={64}
+                    className="h-12 w-auto object-contain"
+                  />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
+                    Aliado Tecnológico
+                  </p>
+                  <h3 className="mt-2 text-2xl font-semibold text-primary md:text-3xl">
+                    {activePartner.name}
+                  </h3>
+                </div>
+              </div>
+              <p className="mt-6 text-sm leading-relaxed text-secondary md:text-base">
+                {activePartner.description}
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <section className="px-4 pb-20">
         <div className="mx-auto max-w-6xl space-y-10">

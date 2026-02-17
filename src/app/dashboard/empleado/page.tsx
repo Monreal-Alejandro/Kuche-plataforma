@@ -29,6 +29,17 @@ const publicTimelineSteps = [
   "Instalación Final",
 ];
 
+const projectBudget = 145000;
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    maximumFractionDigits: 0,
+  }).format(value);
+
+const installmentAmount = projectBudget / 3;
+
 export default function EmpleadoDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TaskType>("todo");
@@ -41,11 +52,20 @@ export default function EmpleadoDashboard() {
   ]);
   const [newFileName, setNewFileName] = useState("");
   const [newFileType, setNewFileType] = useState("pdf");
+  const [paymentInputs, setPaymentInputs] = useState({
+    anticipo: 45000,
+    segundoPago: 30000,
+    liquidacion: 0,
+  });
 
   const filteredTasks = useMemo(() => {
     if (activeTab === "todo") return tasks;
     return tasks.filter((task) => task.type === activeTab);
   }, [activeTab]);
+
+  const totalPagado =
+    paymentInputs.anticipo + paymentInputs.segundoPago + paymentInputs.liquidacion;
+  const restante = Math.max(0, projectBudget - totalPagado);
 
   const handleTaskAction = (taskType: TaskType, taskId: string) => {
     if (taskType === "diseño") {
@@ -265,6 +285,59 @@ export default function EmpleadoDashboard() {
                   <option value="pdf">PDF</option>
                   <option value="jpg">JPG</option>
                 </select>
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-primary/10 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                  Pagos del cliente
+                </p>
+                <p className="mt-2 text-sm text-secondary">
+                  Registra cuánto ha pagado el cliente en cada etapa.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  {[
+                    { key: "anticipo", label: "Anticipo" },
+                    { key: "segundoPago", label: "2do pago" },
+                    { key: "liquidacion", label: "Liquidación" },
+                  ].map((item) => (
+                    <label key={item.key} className="text-xs font-semibold text-secondary">
+                      {item.label}
+                      <input
+                        type="number"
+                        min={0}
+                        value={paymentInputs[item.key as keyof typeof paymentInputs]}
+                        onChange={(event) =>
+                          setPaymentInputs((prev) => ({
+                            ...prev,
+                            [item.key]: Number(event.target.value || 0),
+                          }))
+                        }
+                        className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                      />
+                      <span className="mt-2 block text-[11px] font-medium text-secondary">
+                        Restante:{" "}
+                        {formatCurrency(
+                          Math.max(
+                            0,
+                            installmentAmount -
+                              paymentInputs[item.key as keyof typeof paymentInputs],
+                          ),
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+                  <span className="rounded-full bg-primary/5 px-3 py-1 text-secondary">
+                    Pagado:{" "}
+                    <span className="font-semibold text-primary">
+                      {formatCurrency(totalPagado)}
+                    </span>
+                  </span>
+                  <span className="rounded-full bg-accent/10 px-3 py-1 text-accent">
+                    Restante: {formatCurrency(restante)}
+                  </span>
+                </div>
               </div>
               <button
                 onClick={() => {

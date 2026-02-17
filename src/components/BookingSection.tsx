@@ -1,6 +1,7 @@
  "use client";
 
 import { useMemo, useState } from "react";
+import Captcha from "@/components/Captcha";
 
 export default function BookingSection() {
   const weekDays = ["L", "M", "M", "J", "V", "S", "D"];
@@ -37,7 +38,7 @@ export default function BookingSection() {
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isCaptchaChecked, setIsCaptchaChecked] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
   const [pendingSummary, setPendingSummary] = useState<{
     dateLabel: string;
     time: string;
@@ -59,7 +60,7 @@ export default function BookingSection() {
   }, [currentMonth]);
 
   return (
-    <section id="agendar-cita" className="bg-background px-4 pb-20">
+    <section id="agendar-cita" className="bg-background px-4 pb-12">
       <form
         className="mx-auto grid max-w-6xl grid-cols-1 overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl md:grid-cols-[1fr_1.1fr]"
         onSubmit={(event) => {
@@ -79,7 +80,7 @@ export default function BookingSection() {
             setFormError("Indica tu ubicación.");
             return;
           }
-          if (!isCaptchaChecked) {
+          if (!captchaToken) {
             setFormMessage(null);
             setFormError("Confirma el captcha para continuar.");
             return;
@@ -106,8 +107,8 @@ export default function BookingSection() {
           setIsModalOpen(true);
         }}
       >
-        <div className="border-b border-gray-200 bg-gray-50 p-8 md:border-b-0 md:border-r md:p-10">
-          <div className="flex items-center justify-between">
+        <div className="border-b border-gray-200 bg-gray-50 p-6 md:border-b-0 md:border-r md:p-8">
+          <div className="flex items-center justify-between pb-4">
             <div className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
               KUCHE
             </div>
@@ -116,7 +117,7 @@ export default function BookingSection() {
             </div>
           </div>
 
-          <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between gap-4">
               <button
                 type="button"
@@ -155,16 +156,16 @@ export default function BookingSection() {
               </button>
             </div>
 
-            <div className="mt-5 grid grid-cols-7 gap-2 text-center text-[11px] font-semibold text-secondary">
+            <div className="mt-4 grid grid-cols-7 gap-2 text-center text-[11px] font-semibold text-secondary">
               {weekDays.map((day, index) => (
                 <div key={`${day}-${index}`}>{day}</div>
               ))}
             </div>
 
-            <div className="mt-3 grid grid-cols-7 gap-2 text-center text-sm text-secondary">
+            <div className="mt-2 grid grid-cols-7 gap-2 text-center text-sm text-secondary">
               {calendarDays.map((day, index) => {
                 if (!day) {
-                  return <div key={`empty-${index}`} className="h-9" />;
+                  return <div key={`empty-${index}`} className="h-8" />;
                 }
                 const dateValue = new Date(
                   currentMonth.getFullYear(),
@@ -190,7 +191,7 @@ export default function BookingSection() {
                       setFormMessage(null);
                       setFormError(null);
                     }}
-                    className={`flex h-9 items-center justify-center rounded-lg border text-sm font-medium ${
+                    className={`flex h-8 items-center justify-center rounded-lg border text-sm font-medium ${
                       isSelected
                         ? "border-accent bg-accent text-white shadow-sm"
                         : isPast || isWeekend
@@ -205,11 +206,11 @@ export default function BookingSection() {
             </div>
           </div>
 
-          <div className="mt-8">
+          <div className="mt-6">
             <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-secondary">
               Horarios disponibles
             </p>
-            <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="mt-3 grid grid-cols-3 gap-3">
               {timeSlots.map((time) => {
                 const isActive = time === selectedTime;
                 return (
@@ -235,12 +236,12 @@ export default function BookingSection() {
           </div>
         </div>
 
-        <div className="p-8 md:p-10">
-          <div className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
+        <div className="p-6 md:p-8">
+          <div className="pb-4 text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
             Información del proyecto
           </div>
 
-          <div className="mt-8 grid gap-5">
+          <div className="mt-6 grid gap-4">
             <label className="text-[11px] font-semibold uppercase tracking-[0.25em] text-secondary">
               Nombre completo
               <input
@@ -273,7 +274,7 @@ export default function BookingSection() {
             </label>
           </div>
 
-          <div className="mt-8 space-y-3">
+          <div className="mt-6 space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-secondary">
               Ubicación
             </p>
@@ -324,20 +325,18 @@ export default function BookingSection() {
             ) : null}
           </div>
 
-          <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 p-4">
-            <label className="flex items-center gap-3 text-sm text-secondary">
-              <input
-                type="checkbox"
-                checked={isCaptchaChecked}
-                onChange={(event) => {
-                  setIsCaptchaChecked(event.target.checked);
-                  setFormMessage(null);
-                  setFormError(null);
-                }}
-                className="h-4 w-4 accent-primary"
-              />
-              No soy un robot (placeholder captcha)
-            </label>
+          <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <p className="text-xs text-secondary">Verificación de seguridad</p>
+            <Captcha
+              onVerify={(token) => {
+                setCaptchaToken(token);
+                setFormMessage(null);
+                setFormError(null);
+              }}
+              onExpire={() => setCaptchaToken("")}
+              onError={() => setCaptchaToken("")}
+              className="mt-3"
+            />
           </div>
 
           {formError ? (
@@ -351,7 +350,7 @@ export default function BookingSection() {
 
           <button
             type="submit"
-            className="mt-6 w-full rounded-2xl bg-accent py-4 text-xs font-semibold uppercase tracking-[0.4em] text-white shadow-lg shadow-accent/30 transition hover:-translate-y-0.5"
+            className="mt-5 w-full rounded-2xl bg-accent py-4 text-xs font-semibold uppercase tracking-[0.4em] text-white shadow-lg shadow-accent/30 transition hover:-translate-y-0.5"
           >
             Agendar visita
           </button>

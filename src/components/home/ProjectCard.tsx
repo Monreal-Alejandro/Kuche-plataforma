@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -17,6 +17,9 @@ export default function ProjectCard({
 }: ProjectCardProps) {
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState<"prev" | "next">("next");
+  const autoplayDelay = 3800;
+  const intervalRef = useRef<number | null>(null);
+  const timeoutRef = useRef<number | null>(null);
 
   const goNext = () => {
     setDirection("next");
@@ -40,8 +43,46 @@ export default function ProjectCard({
     }),
   };
 
+  const syncIndex = useCallback(() => {
+    const nextIndex = Math.floor(Date.now() / autoplayDelay) % images.length;
+    setDirection("next");
+    setIndex(nextIndex);
+  }, [autoplayDelay, images.length]);
+
+  const startAutoplay = useCallback(() => {
+    if (intervalRef.current) window.clearInterval(intervalRef.current);
+    if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+    syncIndex();
+    const msToNextTick =
+      autoplayDelay - (Date.now() % autoplayDelay || autoplayDelay);
+    timeoutRef.current = window.setTimeout(() => {
+      syncIndex();
+      intervalRef.current = window.setInterval(syncIndex, autoplayDelay);
+    }, msToNextTick);
+  }, [autoplayDelay, syncIndex]);
+
+  const stopAutoplay = useCallback(() => {
+    if (intervalRef.current) {
+      window.clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    startAutoplay();
+    return () => stopAutoplay();
+  }, [startAutoplay, stopAutoplay]);
+
   return (
-    <div className="group rounded-3xl bg-white shadow-lg shadow-black/10 transition duration-300 hover:-translate-y-2">
+    <div
+      className="group rounded-3xl bg-white shadow-lg shadow-black/10 transition duration-300 hover:-translate-y-2"
+      onMouseEnter={stopAutoplay}
+      onMouseLeave={startAutoplay}
+    >
       <div className="relative h-56 overflow-hidden rounded-3xl">
         <AnimatePresence mode="wait" custom={direction}>
           <motion.div

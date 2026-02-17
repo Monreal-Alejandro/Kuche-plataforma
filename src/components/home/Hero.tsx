@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { FaWhatsapp } from "react-icons/fa";
 
@@ -10,32 +11,43 @@ const fadeUp = {
 
 export default function Hero() {
   return (
-    <section className="relative min-h-[90vh] overflow-hidden rounded-3xl mx-4 md:mx-6">
+    <section className="relative min-h-[85vh] overflow-hidden rounded-3xl mx-4 md:mx-6">
       <div className="absolute inset-0 bg-[url('/images/cocina1.jpg')] bg-cover bg-center" />
-      <div className="absolute inset-0 bg-black/35" />
+      <div className="absolute inset-0 bg-black/45" />
 
-      <div className="relative z-10 flex min-h-[90vh] items-center justify-center px-6 py-16">
+      <div className="relative z-10 flex min-h-[85vh] items-center px-6 py-16">
         <motion.div
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, amount: 0.3 }}
           variants={fadeUp}
           transition={{ duration: 0.7, ease: "easeOut" }}
-          className="max-w-2xl rounded-3xl bg-white/90 p-8 shadow-lg shadow-black/10 backdrop-blur-md md:p-12"
+          className="mx-auto w-full max-w-3xl text-center"
         >
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-secondary">
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/70">
             KUCHE · Diseño de Cocinas Inteligentes
           </p>
-          <h1 className="mt-4 text-4xl font-semibold text-primary md:text-5xl">
-            Diseño Inteligente
+          <h1 className="mt-5 text-4xl font-semibold text-white md:text-6xl">
+            Diseño inteligente y humano
           </h1>
-          <p className="mt-4 text-base leading-relaxed text-secondary md:text-lg">
-            Arquitectura, tecnología CNC y precisión artesanal para cocinas
-            contemporáneas que se sienten humanas, cálidas y hechas a medida.
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-white/80 md:text-lg">
+            Cocinas a medida con precisión CNC y detalles artesanales para
+            espacios que se viven todos los días.
           </p>
-          <button className="mt-8 inline-flex items-center justify-center rounded-full bg-accent px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-black/10 transition hover:scale-[1.01]">
-            Cotizar Ahora
-          </button>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href="/agendar"
+              className="inline-flex items-center justify-center rounded-full bg-accent px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-black/20 transition hover:scale-[1.01]"
+            >
+              Cotizar Ahora
+            </Link>
+            <Link
+              href="/catalogo"
+              className="inline-flex items-center justify-center rounded-full border border-white/30 px-6 py-3 text-sm font-semibold text-white/90 transition hover:border-white/50 hover:bg-white/10"
+            >
+              Ver catálogo
+            </Link>
+          </div>
         </motion.div>
       </div>
 

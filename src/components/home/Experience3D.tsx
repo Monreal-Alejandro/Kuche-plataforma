@@ -1,233 +1,430 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import {
-  AnimatePresence,
-  motion,
-  useMotionValue,
-  useMotionValueEvent,
-  useSpring,
-  useScroll,
-  useTransform,
-} from "framer-motion";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 
 type ExperienceStep = {
   id: string;
   title: string;
   description: string;
   image: string;
-  tags: string[];
-  glow: string;
 };
 
 const experienceSteps: ExperienceStep[] = [
   {
-    id: "agenda",
+    id: "paso-01",
     title: "Agenda tu Cita",
-    description: "El primer paso a la cocina ideal. Visita técnica a domicilio.",
+    description: "Vamos a tu domicilio, medimos y entendemos tu espacio.",
     image: "/images/cocina1.jpg",
-    tags: ["Agenda", "Visita técnica", "Brief"],
-    glow: "rgba(139, 28, 28, 0.2)",
   },
   {
-    id: "diseno",
+    id: "paso-02",
     title: "Diseño y Cotización",
-    description: "Co-creación personalizada. Tú decides materiales y acabados. Precio exacto al momento.",
+    description: "Personalización total en tiempo real. Presupuesto transparente.",
     image: "/images/render1.jpg",
-    tags: ["Plano", "Materiales", "Costo exacto"],
-    glow: "rgba(60, 64, 70, 0.18)",
   },
   {
-    id: "vr",
+    id: "paso-03",
     title: "Realidad Virtual (VR)",
-    description: "No imagines, vívelo. Camina dentro de tu cocina antes de fabricarla.",
+    description: "Camina dentro de tu cocina antes de fabricarla. Inmersión total.",
     image: "/images/render2.jpg",
-    tags: ["VR", "Recorrido 1:1", "Inmersivo"],
-    glow: "rgba(73, 123, 255, 0.25)",
   },
   {
-    id: "cnc",
-    title: "Cortes Precisos (CNC)",
-    description: "Ingeniería robótica. Cortes milimétricos perfectos sin margen de error humano.",
+    id: "paso-04",
+    title: "Cortes CNC",
+    description: "Precisión robótica milimétrica. Cero errores humanos.",
     image: "/images/cocina10.jpg",
-    tags: ["CNC", "Precisión", "Robótica"],
-    glow: "rgba(139, 28, 28, 0.35)",
   },
   {
-    id: "instalacion",
+    id: "paso-05",
     title: "Instalación y Entrega",
-    description: "Montaje limpio, rápido y garantía de satisfacción total.",
+    description: "Montaje limpio y garantía de satisfacción.",
     image: "/images/cocina12.jpg",
-    tags: ["Entrega", "Garantía", "Detalle"],
-    glow: "rgba(96, 95, 93, 0.2)",
   },
 ];
 
-function CardStack({
+const totalSteps = experienceSteps.length;
+
+const getCircularDistance = (
+  index: number,
+  activeIndex: number,
+  length: number,
+) => {
+  const half = Math.floor(length / 2);
+  let distance = index - activeIndex;
+  if (distance > half) distance -= length;
+  if (distance < -half) distance += length;
+  return distance;
+};
+
+function useAutoplayCarousel(length: number, delay: number) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const autoplayRef = useRef<number | null>(null);
+  const isFirst = activeIndex === 0;
+  const isLast = activeIndex === length - 1;
+
+  const resetAutoplay = useCallback(() => {
+    if (autoplayRef.current) {
+      window.clearInterval(autoplayRef.current);
+    }
+    autoplayRef.current = window.setInterval(() => {
+      setActiveIndex((prev) => (prev === length - 1 ? 0 : prev + 1));
+    }, delay);
+  }, [delay, length]);
+
+  useEffect(() => {
+    resetAutoplay();
+    return () => {
+      if (autoplayRef.current) {
+        window.clearInterval(autoplayRef.current);
+      }
+    };
+  }, [resetAutoplay]);
+
+  return { activeIndex, setActiveIndex, resetAutoplay, isFirst, isLast };
+}
+
+function Coverflow3D({
   steps,
   activeIndex,
 }: {
   steps: ExperienceStep[];
   activeIndex: number;
 }) {
-  const stackRef = useRef<HTMLDivElement>(null);
-  const rotateX = useMotionValue(0);
-  const rotateY = useMotionValue(0);
-  const smoothX = useSpring(rotateX, { stiffness: 120, damping: 18 });
-  const smoothY = useSpring(rotateY, { stiffness: 120, damping: 18 });
-
-  const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
-    const bounds = stackRef.current?.getBoundingClientRect();
-    if (!bounds) return;
-    const x = event.clientX - bounds.left;
-    const y = event.clientY - bounds.top;
-    const centerX = bounds.width / 2;
-    const centerY = bounds.height / 2;
-    const rotateMax = 6;
-    const nextRotateX = ((y - centerY) / centerY) * -rotateMax;
-    const nextRotateY = ((x - centerX) / centerX) * rotateMax;
-    rotateX.set(nextRotateX);
-    rotateY.set(nextRotateY);
-  };
-
-  const handleMouseLeave = () => {
-    rotateX.set(0);
-    rotateY.set(0);
-  };
-
   return (
-    <div className="relative w-full" style={{ perspective: "1400px" }}>
-      <motion.div
-        ref={stackRef}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-        style={{
-          rotateX: smoothX,
-          rotateY: smoothY,
-          transformStyle: "preserve-3d",
-          transformPerspective: 1400,
-        }}
-        className="relative h-[520px] w-full max-w-xl rounded-3xl bg-white/40"
-      >
+    <div className="relative w-full" style={{ perspective: "1600px" }}>
+      <div className="relative mx-auto h-[480px] w-full max-w-6xl">
         {steps.map((step, index) => {
           const distance = index - activeIndex;
-          const depth = Math.min(Math.abs(distance), 3);
           const isActive = distance === 0;
-          const z = isActive ? 120 : -depth * 60;
-          const y = distance * 26;
-          const scale = isActive ? 1 : 0.94 - depth * 0.02;
-          const opacity = isActive ? 1 : 0.45;
-          const rotateZ = distance * 2;
+          const isLeft = distance === -1;
+          const isRight = distance === 1;
+          const isVisible = Math.abs(distance) <= 1;
+          const x = isActive ? 0 : distance * 320;
+          const scale = isActive ? 1 : 0.8;
+          const opacity = isActive ? 1 : 0.5;
+          const rotateY = isLeft ? 45 : isRight ? -45 : 0;
+          const z = isActive ? 140 : -80;
           return (
             <motion.div
               key={step.id}
               animate={{
-                opacity,
+                opacity: isVisible ? opacity : 0,
                 scale,
-                y,
+                x,
                 z,
-                rotateZ,
+                rotateY,
+                filter: isActive ? "blur(0px)" : "blur(2px)",
               }}
-              transition={{ type: "spring", stiffness: 160, damping: 22 }}
-              className="absolute inset-0"
-              style={{ transformStyle: "preserve-3d", zIndex: 10 - depth }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              className="absolute left-1/2 top-1/2"
+              style={{
+                transformStyle: "preserve-3d",
+                translateX: "-50%",
+                translateY: "-50%",
+                zIndex: isActive ? 30 : 10,
+                pointerEvents: isActive ? "auto" : "none",
+              }}
             >
-              <div
-                className="relative h-full w-full overflow-hidden rounded-3xl border border-white/70 bg-white/80 shadow-2xl backdrop-blur-xl"
-                style={{ boxShadow: `0 40px 120px ${step.glow}` }}
-              >
-                <div className="absolute -inset-6 rounded-[32px] bg-white/25 blur-3xl" />
+              <div className="relative h-[420px] w-[560px] overflow-hidden rounded-3xl shadow-2xl">
                 <img
                   src={step.image}
                   alt={step.title}
                   className="h-full w-full object-cover"
                   loading="eager"
                 />
-                <div className="absolute left-6 top-6 flex flex-wrap gap-2">
-                  {step.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-semibold text-secondary shadow"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent p-6 text-white">
-                  <p className="text-xs uppercase tracking-[0.3em] text-white/70">
-                    Experiencia Kuche
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                <div className="absolute bottom-6 left-6 rounded-2xl bg-black/40 px-4 py-2 text-white backdrop-blur">
+                  <p className="text-3xl font-semibold tracking-wide">
+                    {String(index + 1).padStart(2, "0")}
                   </p>
-                  <h3 className="mt-2 text-2xl font-semibold">{step.title}</h3>
-                  <p className="mt-2 text-sm text-white/80">{step.description}</p>
                 </div>
+                {isActive && (
+                  <div className="absolute bottom-6 right-6 max-w-[60%] rounded-2xl bg-black/40 px-5 py-4 text-right text-white backdrop-blur">
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-white/70">
+                      Proceso KUCHE
+                    </p>
+                    <h3 className="mt-2 text-xl font-semibold">
+                      {step.title}
+                    </h3>
+                    <p className="mt-2 text-sm text-white/85">
+                      {step.description}
+                    </p>
+                  </div>
+                )}
               </div>
             </motion.div>
           );
         })}
-      </motion.div>
+      </div>
+    </div>
+  );
+}
+
+function ArcCoverflow3D({
+  steps,
+  activeIndex,
+}: {
+  steps: ExperienceStep[];
+  activeIndex: number;
+}) {
+  return (
+    <div className="relative w-full">
+      <div className="relative mx-auto h-[480px] w-full max-w-6xl overflow-visible">
+        <motion.div
+          key={activeIndex}
+          initial={{ scale: 0.985 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring", stiffness: 200, damping: 26 }}
+          className="relative h-full w-full"
+          style={{ perspective: "2400px" }}
+        >
+          {steps.map((step, index) => {
+            const distance = getCircularDistance(
+              index,
+              activeIndex,
+              steps.length,
+            );
+            const isActive = distance === 0;
+            const isLeft = distance === -1;
+            const isRight = distance === 1;
+            const isVisible = Math.abs(distance) <= 2;
+            const x = isActive ? 0 : distance * 360;
+            const scale = isActive ? 1 : distance === 0 ? 1 : 0.74;
+            const opacity = isActive ? 1 : Math.abs(distance) === 1 ? 0.6 : 0.3;
+            const rotateY = isLeft ? 62 : isRight ? -62 : 0;
+            const rotateX = isActive ? 0 : 8;
+            const z = isActive ? 240 : -200;
+            return (
+              <motion.div
+                key={step.id}
+                animate={{
+                  opacity: isVisible ? opacity : 0,
+                  scale,
+                  x,
+                  z,
+                  rotateY,
+                  rotateX,
+                  filter: isActive ? "blur(0px)" : "blur(1.5px)",
+                }}
+                transition={{ type: "spring", stiffness: 280, damping: 28 }}
+                className="absolute left-1/2 top-1/2"
+                style={{
+                  transformStyle: "preserve-3d",
+                  transformOrigin: "center center -260px",
+                  translateX: "-50%",
+                  translateY: "-50%",
+                  zIndex: isActive ? 30 : 10,
+                  pointerEvents: isActive ? "auto" : "none",
+                }}
+              >
+                <div className="relative h-[380px] w-[600px] overflow-hidden rounded-[32px] border border-white/20 shadow-[0_60px_160px_rgba(0,0,0,0.6)]">
+                  <img
+                    src={step.image}
+                    alt={step.title}
+                    className="h-full w-full object-cover"
+                    loading="eager"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
+                  <div className="absolute inset-0 ring-1 ring-white/15" />
+                  <div className="absolute left-5 top-5 rounded-2xl bg-white/90 px-4 py-2 text-sm font-semibold text-black shadow-lg">
+                    Paso {String(index + 1).padStart(2, "0")}
+                  </div>
+                  {isActive && (
+                    <div className="absolute bottom-5 left-5 right-5 rounded-2xl bg-black/70 px-5 py-4 text-white shadow-lg backdrop-blur">
+                      <p className="text-[10px] uppercase tracking-[0.35em] text-white/80">
+                        Experiencia KUCHE
+                      </p>
+                      <h3 className="mt-2 text-xl font-semibold">
+                        {step.title}
+                      </h3>
+                      <p className="mt-2 text-sm text-white/90">
+                        {step.description}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })}
+        </motion.div>
+      </div>
     </div>
   );
 }
 
 export default function Experience3D() {
-  const sectionRef = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({
-    target: sectionRef,
-    offset: ["start start", "end end"],
-  });
-  const progressHeight = useTransform(scrollYProgress, [0, 1], ["0%", "100%"]);
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  useMotionValueEvent(scrollYProgress, "change", (latest) => {
-    const stepIndex = Math.min(
-      experienceSteps.length - 1,
-      Math.floor(latest * experienceSteps.length),
-    );
-    setActiveIndex(stepIndex);
-  });
-
-  const activeStep = useMemo(() => experienceSteps[activeIndex], [activeIndex]);
+  const primary = useAutoplayCarousel(experienceSteps.length, 4500);
+  const secondary = useAutoplayCarousel(experienceSteps.length, 4500);
+  const activeStep = useMemo(
+    () => experienceSteps[primary.activeIndex],
+    [primary.activeIndex],
+  );
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if (
+        key === "arrowleft" ||
+        key === "a" ||
+        key === "arrowup" ||
+        key === "w"
+      ) {
+        primary.setActiveIndex((prev) => Math.max(0, prev - 1));
+        secondary.setActiveIndex(
+          (prev) => (prev - 1 + totalSteps) % totalSteps,
+        );
+        primary.resetAutoplay();
+        secondary.resetAutoplay();
+      }
+      if (
+        key === "arrowright" ||
+        key === "d" ||
+        key === "arrowdown" ||
+        key === "s"
+      ) {
+        primary.setActiveIndex((prev) =>
+          Math.min(experienceSteps.length - 1, prev + 1),
+        );
+        secondary.setActiveIndex((prev) => (prev + 1) % totalSteps);
+        primary.resetAutoplay();
+        secondary.resetAutoplay();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [primary, secondary]);
 
   return (
-    <section id="experiencia" className="relative bg-background px-4 py-24">
-      <div ref={sectionRef} className="relative h-[300vh]">
-        <div className="sticky top-0 flex h-screen items-center">
-          <div className="mx-auto w-full max-w-6xl">
-            <div className="grid gap-12 lg:grid-cols-[0.45fr_0.55fr]">
-              <div className="relative flex min-h-[420px] items-center">
-                <div className="absolute left-0 top-0 hidden h-full w-[2px] bg-primary/10 md:block">
-                  <motion.div
-                    className="w-full bg-accent"
-                    style={{ height: progressHeight }}
-                  />
-                </div>
-                <div className="space-y-6 pl-0 md:pl-10">
-                  <p className="text-xs uppercase tracking-[0.3em] text-secondary">
-                    Experiencia 3D
-                  </p>
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={activeStep.id}
-                      initial={{ opacity: 0, y: 24 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -24 }}
-                      transition={{ duration: 0.4, ease: "easeOut" }}
-                      className="space-y-4"
-                    >
-                      <h2 className="text-3xl font-semibold text-primary md:text-4xl">
-                        {activeStep.title}
-                      </h2>
-                      <p className="text-base text-secondary md:text-lg">
-                        {activeStep.description}
-                      </p>
-                    </motion.div>
-                  </AnimatePresence>
-                </div>
-              </div>
+    <section
+      id="experiencia"
+      className="relative w-full overflow-x-hidden bg-[#F4F4F4] px-4 py-10"
+    >
+      <div className="mx-auto w-full max-w-6xl">
+        <div className="relative flex flex-col items-center gap-4">
+          <h2 className="text-3xl font-semibold text-accent md:text-4xl">
+            Experiencia KüCHE
+          </h2>
+          <div className="relative w-full">
+            <Coverflow3D
+              steps={experienceSteps}
+              activeIndex={primary.activeIndex}
+            />
 
-              <div className="relative flex items-center justify-center">
-                <CardStack steps={experienceSteps} activeIndex={activeIndex} />
-              </div>
+            <button
+              type="button"
+              onClick={() => {
+                primary.setActiveIndex((prev) => Math.max(0, prev - 1));
+                primary.resetAutoplay();
+              }}
+              disabled={primary.isFirst}
+              className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full border border-white/50 bg-white/40 p-4 text-secondary shadow-xl backdrop-blur-xl transition hover:bg-white/70 disabled:opacity-40 md:left-10"
+              aria-label="Paso anterior"
+            >
+              <span className="text-2xl">‹</span>
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                primary.setActiveIndex((prev) => {
+                  primary.resetAutoplay();
+                  return Math.min(experienceSteps.length - 1, prev + 1);
+                })
+              }
+              disabled={primary.isLast}
+              className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full border border-white/50 bg-white/40 p-4 text-secondary shadow-xl backdrop-blur-xl transition hover:bg-white/70 disabled:opacity-40 md:right-10"
+              aria-label="Paso siguiente"
+            >
+              <span className="text-2xl">›</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {experienceSteps.map((step, index) => (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => {
+                  primary.setActiveIndex(index);
+                  primary.resetAutoplay();
+                }}
+                className={`h-2.5 w-2.5 rounded-full transition ${
+                  index === primary.activeIndex
+                    ? "bg-secondary"
+                    : "bg-secondary/30 hover:bg-secondary/60"
+                }`}
+                aria-label={`Ir al paso ${index + 1}`}
+              />
+            ))}
+          </div>
+
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeStep.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="sr-only"
+            >
+              {activeStep.title}
+            </motion.div>
+          </AnimatePresence>
+
+          <div className="mt-10 flex w-full flex-col items-center gap-4">
+            <h3 className="text-lg font-semibold text-accent md:text-xl">
+              Experiencia KüCHE · Opción 2
+            </h3>
+            <div className="relative w-full">
+              <ArcCoverflow3D
+                steps={experienceSteps}
+                activeIndex={secondary.activeIndex}
+              />
+
+              <button
+                type="button"
+                onClick={() => {
+                  secondary.setActiveIndex(
+                    (prev) => (prev - 1 + totalSteps) % totalSteps,
+                  );
+                  secondary.resetAutoplay();
+                }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-4 text-white shadow-xl backdrop-blur-xl transition hover:bg-black/60 disabled:opacity-40 md:left-10"
+                aria-label="Paso anterior"
+              >
+                <span className="text-2xl">‹</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  secondary.setActiveIndex((prev) => {
+                    secondary.resetAutoplay();
+                    return (prev + 1) % totalSteps;
+                  })
+                }
+                className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-4 text-white shadow-xl backdrop-blur-xl transition hover:bg-black/60 disabled:opacity-40 md:right-10"
+                aria-label="Paso siguiente"
+              >
+                <span className="text-2xl">›</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {experienceSteps.map((step, index) => (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => {
+                    secondary.setActiveIndex(index);
+                    secondary.resetAutoplay();
+                  }}
+                  className={`h-2.5 w-2.5 rounded-full transition ${
+                    index === secondary.activeIndex
+                      ? "bg-white"
+                      : "bg-white/30 hover:bg-white/60"
+                  }`}
+                  aria-label={`Ir al paso ${index + 1}`}
+                />
+              ))}
             </div>
           </div>
         </div>

@@ -2,11 +2,13 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 
 type Hotspot = {
   id: string;
   label: string;
+  detail: string;
   top: string;
   left: string;
 };
@@ -17,11 +19,19 @@ type ProjectImage = {
   hotspots: Hotspot[];
 };
 
+type ProjectDetail = {
+  label: string;
+  value: string;
+};
+
 export type Project = {
   id: string;
   title: string;
   description: string;
   category: string;
+  mainCategory: string;
+  subCategory: string;
+  details: ProjectDetail[];
   images: ProjectImage[];
 };
 
@@ -38,12 +48,13 @@ const pulseTransition = {
 export default function ProjectCard({ project }: ProjectCardProps) {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [activeHotspot, setActiveHotspot] = useState<string | null>(null);
+  const [selectedHotspot, setSelectedHotspot] = useState<Hotspot | null>(null);
   const currentImage = project.images[selectedImageIndex];
 
   return (
-    <article className="grid gap-8 rounded-3xl bg-surface p-6 shadow-xl lg:grid-cols-[3fr_2fr]">
-      <div>
-        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-3xl">
+    <article className="rounded-3xl bg-surface p-5 shadow-lg">
+      <div className="grid gap-6 lg:grid-cols-[3fr_2fr] lg:grid-rows-[auto_auto] lg:items-start">
+        <div className="relative aspect-[16/10] w-full overflow-hidden rounded-3xl lg:col-start-1 lg:row-start-1">
           <Image
             src={currentImage.src}
             alt={currentImage.alt}
@@ -65,9 +76,7 @@ export default function ProjectCard({ project }: ProjectCardProps) {
                   aria-label={spot.label}
                   onMouseEnter={() => setActiveHotspot(spot.id)}
                   onMouseLeave={() => setActiveHotspot(null)}
-                  onClick={() =>
-                    setActiveHotspot(isActive ? null : spot.id)
-                  }
+                  onClick={() => setSelectedHotspot(spot)}
                   className="relative flex h-4 w-4 items-center justify-center"
                 >
                   <motion.span
@@ -96,50 +105,117 @@ export default function ProjectCard({ project }: ProjectCardProps) {
           })}
         </div>
 
-        <div className="mt-4 flex gap-3">
-          {project.images.map((image, index) => {
-            const isSelected = index === selectedImageIndex;
-            return (
-              <button
-                key={`${project.id}-${image.src}`}
-                type="button"
-                onClick={() => setSelectedImageIndex(index)}
-                className={`relative h-16 w-20 overflow-hidden rounded-2xl border transition ${
-                  isSelected
-                    ? "border-accent"
-                    : "border-transparent hover:border-accent/40"
-                }`}
-              >
-                <Image
-                  src={image.src}
-                  alt={image.alt}
-                  fill
-                  className="object-cover"
-                />
-              </button>
-            );
-          })}
+        <div className="flex flex-col gap-4 lg:col-start-1 lg:row-start-2">
+          <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
+            {project.images.map((image, index) => {
+              const isSelected = index === selectedImageIndex;
+              return (
+                <button
+                  key={`${project.id}-${image.src}`}
+                  type="button"
+                  onClick={() => setSelectedImageIndex(index)}
+                  className={`relative h-16 w-24 overflow-hidden rounded-2xl border transition sm:h-18 sm:w-28 md:h-20 md:w-32 ${
+                    isSelected
+                      ? "border-accent"
+                      : "border-transparent hover:border-accent/40"
+                  }`}
+                >
+                  <Image
+                    src={image.src}
+                    alt={image.alt}
+                    fill
+                    className="object-cover"
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex h-full flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:h-full">
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent">
+                {project.category}
+              </p>
+              <h3 className="mt-2 text-xl font-semibold text-primary">
+                {project.title}
+              </h3>
+              <p className="mt-3 text-sm leading-relaxed text-secondary">
+                {project.description}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-[0.5cm] text-[13px] leading-relaxed text-secondary">
+              {project.details.map((detail) => (
+                <p key={`${project.id}-${detail.label}`} className="m-0">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
+                    {detail.label}
+                  </span>{" "}
+                  <span>{detail.value}</span>
+                </p>
+              ))}
+            </div>
+          </div>
+
+          <Link
+            href="/agendar"
+            className="mt-4 inline-flex w-fit self-center items-center justify-center rounded-full bg-accent px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.2em] text-white shadow-md shadow-accent/30 transition hover:-translate-y-0.5 lg:mt-auto"
+          >
+            Cotizar un diseño así
+          </Link>
         </div>
       </div>
 
-      <div className="flex h-full flex-col justify-between gap-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent">
-            {project.category}
-          </p>
-          <h3 className="mt-3 text-2xl font-semibold text-primary">
-            {project.title}
-          </h3>
-          <p className="mt-3 text-sm text-secondary">{project.description}</p>
-        </div>
-
-        <button
-          type="button"
-          className="inline-flex w-fit items-center justify-center rounded-full bg-accent px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-white shadow-lg shadow-accent/30 transition hover:-translate-y-0.5"
+      {selectedHotspot ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setSelectedHotspot(null)}
         >
-          Cotizar un diseño así
-        </button>
-      </div>
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="relative h-44 w-full">
+              <Image
+                src={currentImage.src}
+                alt={currentImage.alt}
+                fill
+                className="object-cover"
+                sizes="(min-width: 768px) 480px, 100vw"
+              />
+            </div>
+            <div className="p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent">
+                Detalle
+              </p>
+              <h4 className="mt-3 text-xl font-semibold text-primary">
+                {selectedHotspot.label}
+              </h4>
+              <p className="mt-3 text-sm leading-relaxed text-secondary">
+                {selectedHotspot.detail}
+              </p>
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <Link
+                  href="/agendar"
+                  className="inline-flex items-center justify-center rounded-full bg-accent px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white shadow-md shadow-accent/30 transition hover:-translate-y-0.5"
+                >
+                  Agendar cita
+                </Link>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-full border border-primary/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary transition hover:border-primary/40"
+                  onClick={() => setSelectedHotspot(null)}
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }

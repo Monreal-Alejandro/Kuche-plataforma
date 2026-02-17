@@ -30,50 +30,52 @@ const testimonials = [
 
 export default function Testimonials() {
   return (
-    <MotionSection className="relative overflow-hidden py-20 mx-4 md:mx-6 rounded-3xl">
+    <section className="relative overflow-hidden py-20 mx-4 md:mx-6 rounded-3xl">
       <div className="absolute inset-0 bg-[url('/images/cocina3.jpg')] bg-cover bg-center bg-fixed" />
       <div className="absolute inset-0 bg-black/35" />
 
-      <div className="relative z-10 mx-auto max-w-6xl px-6">
-        <h2 className="text-3xl font-semibold text-white md:text-4xl font-serif">
-          Qué piensan nuestros clientes
-        </h2>
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
-          {testimonials.map((item) => (
-            <div
-              key={item.name}
-              className="rounded-3xl bg-white p-6 shadow-lg shadow-black/10"
-            >
-              <div className="flex items-center gap-4">
-                <Image
-                  src={item.avatar}
-                  alt={item.name}
-                  width={48}
-                  height={48}
-                  className="h-12 w-12 rounded-full object-cover"
-                />
-                <div>
-                  <p className="text-sm font-semibold text-primary">
-                    {item.name}
-                  </p>
-                  <p className="text-xs text-secondary">{item.role}</p>
-                </div>
-              </div>
-              <div className="mt-4 flex gap-1 text-accent">
-                {[...Array(5)].map((_, index) => (
-                  <Star
-                    key={`${item.name}-star-${index}`}
-                    className="h-4 w-4 fill-current"
+      <MotionSection className="relative z-10">
+        <div className="mx-auto max-w-6xl px-6">
+          <h2 className="text-3xl font-semibold text-white md:text-4xl font-serif">
+            Qué piensan nuestros clientes
+          </h2>
+          <div className="mt-10 grid gap-6 md:grid-cols-3">
+            {testimonials.map((item) => (
+              <div
+                key={item.name}
+                className="rounded-3xl bg-white p-6 shadow-lg shadow-black/10"
+              >
+                <div className="flex items-center gap-4">
+                  <Image
+                    src={item.avatar}
+                    alt={item.name}
+                    width={48}
+                    height={48}
+                    className="h-12 w-12 rounded-full object-cover"
                   />
-                ))}
+                  <div>
+                    <p className="text-sm font-semibold text-primary">
+                      {item.name}
+                    </p>
+                    <p className="text-xs text-secondary">{item.role}</p>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-1 text-accent">
+                  {[...Array(5)].map((_, index) => (
+                    <Star
+                      key={`${item.name}-star-${index}`}
+                      className="h-4 w-4 fill-current"
+                    />
+                  ))}
+                </div>
+                <p className="mt-4 text-sm leading-relaxed text-secondary">
+                  “{item.quote}”
+                </p>
               </div>
-              <p className="mt-4 text-sm leading-relaxed text-secondary">
-                “{item.quote}”
-              </p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
-    </MotionSection>
+      </MotionSection>
+    </section>
   );
 }
