@@ -1,19 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Calendar, CheckCircle2, FileUp, LayoutGrid } from "lucide-react";
+import {
+  Calendar,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  FileUp,
+  LayoutGrid,
+} from "lucide-react";
 
-type TaskType = "todo" | "cita" | "diseño";
-
-const tasks = [
-  { id: "t1", title: "Revisar medidas cliente Vega", type: "todo" as TaskType },
-  { id: "t2", title: "Cita showroom 10:30 AM", type: "cita" as TaskType },
-  { id: "t3", title: "Diseño cocina Solaris", type: "diseño" as TaskType },
-  { id: "t4", title: "Cotizar clóset Estudio A", type: "todo" as TaskType },
-  { id: "t5", title: "Cita instalación 4:00 PM", type: "cita" as TaskType },
-];
+import {
+  kanbanColumns,
+  kanbanStorageKey,
+  initialKanbanTasks,
+  type KanbanTask,
+  type TaskType,
+  type TaskStatus,
+} from "@/lib/kanban";
 
 const tabs: { id: TaskType; label: string; icon: React.ReactNode }[] = [
   { id: "todo", label: "Todo", icon: <LayoutGrid className="h-4 w-4" /> },
@@ -45,6 +51,9 @@ export default function EmpleadoDashboard() {
   const [activeTab, setActiveTab] = useState<TaskType>("todo");
   const [uploadTask, setUploadTask] = useState<string | null>(null);
   const [isPublicEditorOpen, setIsPublicEditorOpen] = useState(false);
+  const [kanbanTasks, setKanbanTasks] = useState<KanbanTask[]>(initialKanbanTasks);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverColumnId, setDragOverColumnId] = useState<TaskStatus | null>(null);
   const [publicStep, setPublicStep] = useState(publicTimelineSteps[2]);
   const [publicFiles, setPublicFiles] = useState([
     { id: "p1", name: "Render_Actualizado.jpg", type: "jpg" },
@@ -58,10 +67,58 @@ export default function EmpleadoDashboard() {
     liquidacion: 0,
   });
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(kanbanStorageKey);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored) as KanbanTask[];
+      if (Array.isArray(parsed) && parsed.length) {
+        setKanbanTasks(
+          parsed.map((task) => ({
+            employee: "Sin asignar",
+            project: "General",
+            ...task,
+          })),
+        );
+      }
+    } catch {
+      // ignore malformed storage
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(kanbanTasks));
+  }, [kanbanTasks]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== kanbanStorageKey || !event.newValue) return;
+      try {
+        const parsed = JSON.parse(event.newValue) as KanbanTask[];
+        if (Array.isArray(parsed)) {
+          setKanbanTasks(
+            parsed.map((task) => ({
+              employee: "Sin asignar",
+              project: "General",
+              ...task,
+            })),
+          );
+        }
+      } catch {
+        // ignore malformed storage
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
   const filteredTasks = useMemo(() => {
-    if (activeTab === "todo") return tasks;
-    return tasks.filter((task) => task.type === activeTab);
-  }, [activeTab]);
+    if (activeTab === "todo") return kanbanTasks;
+    return kanbanTasks.filter((task) => task.type === activeTab);
+  }, [activeTab, kanbanTasks]);
 
   const totalPagado =
     paymentInputs.anticipo + paymentInputs.segundoPago + paymentInputs.liquidacion;
@@ -72,6 +129,32 @@ export default function EmpleadoDashboard() {
       setUploadTask(taskId);
       return;
     }
+  };
+
+  const setTaskStatus = (taskId: string, status: TaskStatus) => {
+    setKanbanTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, status } : task)),
+    );
+  };
+
+  const statusOrder = kanbanColumns.map((column) => column.id);
+  const shiftTaskStatus = (taskId: string, direction: "left" | "right") => {
+    setKanbanTasks((prev) =>
+      prev.map((task) => {
+        if (task.id !== taskId) return task;
+        const currentIndex = statusOrder.indexOf(task.status);
+        if (currentIndex === -1) return task;
+        const nextIndex = direction === "left" ? currentIndex - 1 : currentIndex + 1;
+        if (nextIndex < 0 || nextIndex >= statusOrder.length) return task;
+        return { ...task, status: statusOrder[nextIndex] };
+      }),
+    );
+  };
+
+  const moveTaskToStatus = (taskId: string, status: TaskStatus) => {
+    setKanbanTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, status } : task)),
+    );
   };
 
   return (
@@ -113,22 +196,121 @@ export default function EmpleadoDashboard() {
           </div>
         </div>
 
-        <div className="mt-6 space-y-3">
-          {filteredTasks.map((task) => (
-            <button
-              key={task.id}
-              onClick={() => handleTaskAction(task.type, task.id)}
-              className="flex w-full items-center justify-between rounded-2xl border border-primary/10 bg-white px-5 py-4 text-left text-sm transition hover:border-primary/20"
-            >
-              <div>
-                <p className="font-semibold">{task.title}</p>
-                <p className="text-xs text-secondary capitalize">{task.type}</p>
+        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          {kanbanColumns.map((column) => {
+            const columnTasks = filteredTasks.filter((task) => task.status === column.id);
+            const isDragOver = dragOverColumnId === column.id;
+            return (
+              <div
+                key={column.id}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragOverColumnId(column.id);
+                }}
+                onDragLeave={() => setDragOverColumnId(null)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const taskId = event.dataTransfer.getData("text/plain");
+                  if (taskId) {
+                    moveTaskToStatus(taskId, column.id);
+                  }
+                  setDraggedTaskId(null);
+                  setDragOverColumnId(null);
+                }}
+                className={`rounded-2xl border border-primary/10 bg-white/70 p-4 transition ${
+                  isDragOver ? "bg-accent/5 ring-2 ring-accent/30" : ""
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    {column.label}
+                  </p>
+                  <span className="rounded-full bg-primary/5 px-2 py-1 text-[11px] text-secondary">
+                    {columnTasks.length}
+                  </span>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {columnTasks.map((task) => {
+                    const statusIndex = statusOrder.indexOf(task.status);
+                    return (
+                      <div
+                        key={task.id}
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("text/plain", task.id);
+                          event.dataTransfer.effectAllowed = "move";
+                          setDraggedTaskId(task.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedTaskId(null);
+                          setDragOverColumnId(null);
+                        }}
+                        className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm shadow-sm"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-semibold">{task.title}</p>
+                            <p className="mt-1 text-xs text-secondary capitalize">{task.type}</p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => shiftTaskStatus(task.id, "left")}
+                              disabled={statusIndex <= 0}
+                              className="rounded-full border border-primary/10 p-1 text-secondary transition disabled:opacity-40"
+                              aria-label="Mover a la izquierda"
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => shiftTaskStatus(task.id, "right")}
+                              disabled={statusIndex >= statusOrder.length - 1}
+                              className="rounded-full border border-primary/10 p-1 text-secondary transition disabled:opacity-40"
+                              aria-label="Mover a la derecha"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <select
+                            value={task.status}
+                            onChange={(event) =>
+                              setTaskStatus(task.id, event.target.value as TaskStatus)
+                            }
+                            className="rounded-full border border-primary/10 bg-white px-3 py-1 text-[11px] font-semibold text-secondary"
+                          >
+                            {kanbanColumns.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => handleTaskAction(task.type, task.id)}
+                            className="rounded-full border border-primary/10 bg-white px-3 py-1 text-[11px] font-semibold text-secondary"
+                          >
+                            {task.type === "diseño"
+                              ? "Subir"
+                              : task.type === "cita"
+                                ? "Abrir"
+                                : "Ver"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {columnTasks.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-primary/10 bg-white/50 px-4 py-6 text-center text-xs text-secondary">
+                      Sin tareas en esta etapa.
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              <span className="text-xs text-secondary">
-                {task.type === "diseño" ? "Subir" : task.type === "cita" ? "Abrir" : "Ver"}
-              </span>
-            </button>
-          ))}
+            );
+          })}
         </div>
       </motion.section>
 
@@ -231,145 +413,148 @@ export default function EmpleadoDashboard() {
               initial={{ y: 40, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 40, opacity: 0 }}
-              className="w-full max-w-lg rounded-3xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur-md"
+              className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/70 bg-white/90 shadow-2xl backdrop-blur-md"
             >
-              <h3 className="text-lg font-semibold">Editar estatus público</h3>
-              <p className="mt-2 text-sm text-secondary">
-                Cambia el paso actual y agrega nuevos archivos visibles al cliente.
-              </p>
-
-              <div className="mt-4">
-                <label className="text-xs font-semibold text-secondary">
-                  Paso actual
-                  <select
-                    value={publicStep}
-                    onChange={(event) => setPublicStep(event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                  >
-                    {publicTimelineSteps.map((step) => (
-                      <option key={step} value={step}>
-                        {step}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="mt-5 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Archivos actuales
-                </p>
-                {publicFiles.map((file) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center justify-between rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm"
-                  >
-                    <span>{file.name}</span>
-                    <span className="text-xs text-secondary uppercase">{file.type}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-5 grid gap-3 md:grid-cols-[1fr_140px]">
-                <input
-                  value={newFileName}
-                  onChange={(event) => setNewFileName(event.target.value)}
-                  placeholder="Nombre del archivo"
-                  className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                />
-                <select
-                  value={newFileType}
-                  onChange={(event) => setNewFileType(event.target.value)}
-                  className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                >
-                  <option value="pdf">PDF</option>
-                  <option value="jpg">JPG</option>
-                </select>
-              </div>
-
-              <div className="mt-6 rounded-2xl border border-primary/10 bg-white p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Pagos del cliente
-                </p>
+              <div className="max-h-[90vh] overflow-y-auto p-6">
+                <h3 className="text-lg font-semibold">Editar estatus público</h3>
                 <p className="mt-2 text-sm text-secondary">
-                  Registra cuánto ha pagado el cliente en cada etapa.
+                  Cambia el paso actual y agrega nuevos archivos visibles al cliente.
                 </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  {[
-                    { key: "anticipo", label: "Anticipo" },
-                    { key: "segundoPago", label: "2do pago" },
-                    { key: "liquidacion", label: "Liquidación" },
-                  ].map((item) => (
-                    <label key={item.key} className="text-xs font-semibold text-secondary">
-                      {item.label}
-                      <input
-                        type="number"
-                        min={0}
-                        value={paymentInputs[item.key as keyof typeof paymentInputs]}
-                        onChange={(event) =>
-                          setPaymentInputs((prev) => ({
-                            ...prev,
-                            [item.key]: Number(event.target.value || 0),
-                          }))
-                        }
-                        className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
-                      />
-                      <span className="mt-2 block text-[11px] font-medium text-secondary">
-                        Restante:{" "}
-                        {formatCurrency(
-                          Math.max(
-                            0,
-                            installmentAmount -
-                              paymentInputs[item.key as keyof typeof paymentInputs],
-                          ),
-                        )}
-                      </span>
-                    </label>
+
+                <div className="mt-4">
+                  <label className="text-xs font-semibold text-secondary">
+                    Paso actual
+                    <select
+                      value={publicStep}
+                      onChange={(event) => setPublicStep(event.target.value)}
+                      className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                    >
+                      {publicTimelineSteps.map((step) => (
+                        <option key={step} value={step}>
+                          {step}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Archivos actuales
+                  </p>
+                  {publicFiles.map((file) => (
+                    <div
+                      key={file.id}
+                      className="flex items-center justify-between rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm"
+                    >
+                      <span>{file.name}</span>
+                      <span className="text-xs text-secondary uppercase">{file.type}</span>
+                    </div>
                   ))}
                 </div>
-                <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
-                  <span className="rounded-full bg-primary/5 px-3 py-1 text-secondary">
-                    Pagado:{" "}
-                    <span className="font-semibold text-primary">
-                      {formatCurrency(totalPagado)}
-                    </span>
-                  </span>
-                  <span className="rounded-full bg-accent/10 px-3 py-1 text-accent">
-                    Restante: {formatCurrency(restante)}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  if (!newFileName.trim()) return;
-                  setPublicFiles((prev) => [
-                    ...prev,
-                    {
-                      id: `p-${Date.now()}`,
-                      name: newFileName.trim(),
-                      type: newFileType,
-                    },
-                  ]);
-                  setNewFileName("");
-                }}
-                className="mt-3 w-full rounded-2xl border border-primary/10 bg-white py-3 text-xs font-semibold text-secondary"
-              >
-                Subir nuevo archivo
-              </button>
 
-              <div className="mt-6 flex gap-3">
+                <div className="mt-5 grid gap-3 md:grid-cols-[1fr_140px]">
+                  <input
+                    value={newFileName}
+                    onChange={(event) => setNewFileName(event.target.value)}
+                    placeholder="Nombre del archivo"
+                    className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  />
+                  <select
+                    value={newFileType}
+                    onChange={(event) => setNewFileType(event.target.value)}
+                    className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  >
+                    <option value="pdf">PDF</option>
+                    <option value="jpg">JPG</option>
+                  </select>
+                </div>
+
                 <button
-                  onClick={() => setIsPublicEditorOpen(false)}
-                  className="w-full rounded-2xl border border-primary/10 bg-white py-3 text-xs font-semibold text-secondary"
+                  onClick={() => {
+                    if (!newFileName.trim()) return;
+                    setPublicFiles((prev) => [
+                      ...prev,
+                      {
+                        id: `p-${Date.now()}`,
+                        name: newFileName.trim(),
+                        type: newFileType,
+                      },
+                    ]);
+                    setNewFileName("");
+                  }}
+                  className="mt-3 w-full rounded-2xl border border-primary/10 bg-white py-3 text-xs font-semibold text-secondary"
                 >
-                  Cancelar
+                  Subir nuevo archivo
                 </button>
-                <button
-                  onClick={() => setIsPublicEditorOpen(false)}
-                  className="w-full rounded-2xl bg-accent py-3 text-xs font-semibold text-white"
-                >
-                  Guardar cambios
-                </button>
+
+                <div className="mt-6 rounded-2xl border border-primary/10 bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Pagos del cliente
+                  </p>
+                  <p className="mt-2 text-sm text-secondary">
+                    Registra cuánto ha pagado el cliente en cada etapa.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    {[
+                      { key: "anticipo", label: "Anticipo" },
+                      { key: "segundoPago", label: "2do pago" },
+                      { key: "liquidacion", label: "Liquidación" },
+                    ].map((item) => (
+                      <label key={item.key} className="text-xs font-semibold text-secondary">
+                        {item.label}
+                        <input
+                          type="number"
+                          min={0}
+                          value={paymentInputs[item.key as keyof typeof paymentInputs]}
+                          onChange={(event) =>
+                            setPaymentInputs((prev) => ({
+                              ...prev,
+                              [item.key]: Number(event.target.value || 0),
+                            }))
+                          }
+                          className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                        />
+                        <span className="mt-2 block text-[11px] font-medium text-secondary">
+                          Restante:{" "}
+                          {formatCurrency(
+                            Math.max(
+                              0,
+                              installmentAmount -
+                                paymentInputs[item.key as keyof typeof paymentInputs],
+                            ),
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+                    <span className="rounded-full bg-primary/5 px-3 py-1 text-secondary">
+                      Pagado:{" "}
+                      <span className="font-semibold text-primary">
+                        {formatCurrency(totalPagado)}
+                      </span>
+                    </span>
+                    <span className="rounded-full bg-accent/10 px-3 py-1 text-accent">
+                      Restante: {formatCurrency(restante)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex gap-3">
+                  <button
+                    onClick={() => setIsPublicEditorOpen(false)}
+                    className="w-full rounded-2xl border border-primary/10 bg-white py-3 text-xs font-semibold text-secondary"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => setIsPublicEditorOpen(false)}
+                    className="w-full rounded-2xl bg-accent py-3 text-xs font-semibold text-white"
+                  >
+                    Guardar cambios
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>

@@ -1,9 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, Hammer, Pencil, Users } from "lucide-react";
+
+import {
+  kanbanColumns,
+  kanbanStorageKey,
+  initialKanbanTasks,
+  type KanbanTask,
+} from "@/lib/kanban";
 
 const galleryItems = [
   { id: "g1", image: "/images/render1.jpg", title: "Cocina Andrómeda" },
@@ -24,8 +31,85 @@ export default function AdminDashboard() {
   const [granite, setGranite] = useState("2300");
   const [wood, setWood] = useState("1800");
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
+  const [kanbanTasks, setKanbanTasks] = useState<KanbanTask[]>(initialKanbanTasks);
+  const [selectedEmployee, setSelectedEmployee] = useState("todos");
+  const [selectedProject, setSelectedProject] = useState("todos");
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
 
   const calendarDays = useMemo(() => Array.from({ length: 30 }, (_, index) => index + 1), []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(kanbanStorageKey);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored) as KanbanTask[];
+      if (Array.isArray(parsed) && parsed.length) {
+        setKanbanTasks(
+          parsed.map((task) => ({
+            employee: "Sin asignar",
+            project: "General",
+            ...task,
+          })),
+        );
+      }
+    } catch {
+      // ignore malformed storage
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(kanbanTasks));
+  }, [kanbanTasks]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== kanbanStorageKey || !event.newValue) return;
+      try {
+        const parsed = JSON.parse(event.newValue) as KanbanTask[];
+        if (Array.isArray(parsed)) {
+          setKanbanTasks(
+            parsed.map((task) => ({
+              employee: "Sin asignar",
+              project: "General",
+              ...task,
+            })),
+          );
+        }
+      } catch {
+        // ignore malformed storage
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  const employeeOptions = useMemo(() => {
+    const values = new Set(kanbanTasks.map((task) => task.employee));
+    return ["todos", ...Array.from(values)];
+  }, [kanbanTasks]);
+
+  const projectOptions = useMemo(() => {
+    const values = new Set(kanbanTasks.map((task) => task.project));
+    return ["todos", ...Array.from(values)];
+  }, [kanbanTasks]);
+
+  const filteredKanbanTasks = useMemo(() => {
+    return kanbanTasks.filter((task) => {
+      if (selectedEmployee !== "todos" && task.employee !== selectedEmployee) return false;
+      if (selectedProject !== "todos" && task.project !== selectedProject) return false;
+      return true;
+    });
+  }, [kanbanTasks, selectedEmployee, selectedProject]);
+
+  const moveTaskToStatus = (taskId: string, status: KanbanTask["status"]) => {
+    setKanbanTasks((prev) =>
+      prev.map((task) => (task.id === taskId ? { ...task, status } : task)),
+    );
+  };
 
   return (
     <div className="space-y-8">
@@ -176,6 +260,120 @@ export default function AdminDashboard() {
           </div>
         </motion.div>
       </div>
+
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
+        className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md"
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-secondary">Seguimiento</p>
+            <h2 className="mt-2 text-xl font-semibold">Estatus de trabajos</h2>
+            <p className="mt-2 text-sm text-secondary">
+              Visualiza el avance del equipo en pendiente, en proceso y completadas.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <label className="flex items-center gap-2 rounded-full border border-primary/10 bg-white px-3 py-2 text-secondary">
+              Empleado
+              <select
+                value={selectedEmployee}
+                onChange={(event) => setSelectedEmployee(event.target.value)}
+                className="bg-transparent font-semibold text-secondary outline-none"
+              >
+                {employeeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option === "todos" ? "Todos" : option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 rounded-full border border-primary/10 bg-white px-3 py-2 text-secondary">
+              Proyecto
+              <select
+                value={selectedProject}
+                onChange={(event) => setSelectedProject(event.target.value)}
+                className="bg-transparent font-semibold text-secondary outline-none"
+              >
+                {projectOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option === "todos" ? "Todos" : option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          {kanbanColumns.map((column) => {
+            const columnTasks = filteredKanbanTasks.filter((task) => task.status === column.id);
+            const isDragOver = dragOverColumnId === column.id;
+            return (
+              <div
+                key={column.id}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragOverColumnId(column.id);
+                }}
+                onDragLeave={() => setDragOverColumnId(null)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const taskId = event.dataTransfer.getData("text/plain");
+                  if (taskId) {
+                    moveTaskToStatus(taskId, column.id);
+                  }
+                  setDraggedTaskId(null);
+                  setDragOverColumnId(null);
+                }}
+                className={`rounded-2xl border border-primary/10 bg-white/70 p-4 transition ${
+                  isDragOver ? "bg-accent/5 ring-2 ring-accent/30" : ""
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    {column.label}
+                  </p>
+                  <span className="rounded-full bg-primary/5 px-2 py-1 text-[11px] text-secondary">
+                    {columnTasks.length}
+                  </span>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {columnTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData("text/plain", task.id);
+                        event.dataTransfer.effectAllowed = "move";
+                        setDraggedTaskId(task.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedTaskId(null);
+                        setDragOverColumnId(null);
+                      }}
+                      className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm shadow-sm"
+                    >
+                      <p className="font-semibold">{task.title}</p>
+                      <p className="mt-1 text-xs text-secondary capitalize">{task.type}</p>
+                      <p className="mt-2 text-[11px] text-secondary">
+                        {task.employee} · {task.project}
+                      </p>
+                    </div>
+                  ))}
+                  {columnTasks.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-primary/10 bg-white/50 px-4 py-6 text-center text-xs text-secondary">
+                      Sin tareas en esta etapa.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </motion.section>
 
       <AnimatePresence>
         {selectedMember ? (
