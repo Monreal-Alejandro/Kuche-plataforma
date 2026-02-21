@@ -26,7 +26,7 @@ export default function LoginPage() {
     window.setTimeout(() => {
       const normalized = username.trim().toLowerCase();
       if (normalized === "admin") {
-        router.push("/dashboard/admin");
+        router.push("/admin");
         return;
       }
       if (normalized === "empleado") {

@@ -1,7 +1,8 @@
-sube "use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { Minus, Plus } from "lucide-react";
 
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
 const baseMaterials = [
@@ -138,9 +139,12 @@ export default function CotizadorPage() {
   const [materialBase, setMaterialBase] = useState(baseMaterials[0].id);
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(initialCatalogoKuche[0]?.category ?? "");
+  const [materialSearch, setMaterialSearch] = useState("");
 
   const [materialColor] = useState(materialColors[0]);
   const [materialThickness] = useState("16");
+  const [utilidadPct, setUtilidadPct] = useState(30);
+  const [fletePct, setFletePct] = useState(2);
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -167,9 +171,27 @@ export default function CotizadorPage() {
     }, 0);
   }, [catalogoKuche, quantities]);
 
-  const precioTotalSinIva = baseCost * 1.4;
-  const montoIva = precioTotalSinIva * 0.16;
-  const totalNeto = precioTotalSinIva + montoIva;
+  const totales = useMemo(() => {
+    const costoBaseDirecto = baseCost;
+    const montoUtilidad = costoBaseDirecto * (utilidadPct / 100);
+    const montoFlete = costoBaseDirecto * (fletePct / 100);
+    const subtotalComercial = costoBaseDirecto + montoUtilidad + montoFlete;
+    const montoIva = subtotalComercial * 0.16;
+    const totalNeto = subtotalComercial + montoIva;
+
+    return {
+      costoBaseDirecto,
+      montoUtilidad,
+      montoFlete,
+      subtotalComercial,
+      montoIva,
+      totalNeto,
+    };
+  }, [baseCost, utilidadPct, fletePct]);
+
+  const precioTotalSinIva = totales.subtotalComercial;
+  const montoIva = totales.montoIva;
+  const totalNeto = totales.totalNeto;
 
   const handleQuantityChange = (id: string, value: number) => {
     setQuantities((prev) => ({
@@ -229,6 +251,30 @@ export default function CotizadorPage() {
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .slice(0, 32);
+
+  const normalizeText = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+  const clampPct = (value: number) => Math.min(100, Math.max(0, value));
+
+  const normalizedSearch = normalizeText(materialSearch.trim());
+
+  const visibleItems = useMemo(() => {
+    if (!normalizedSearch) {
+      return (activeCategory?.items ?? []).map((item) => ({
+        item,
+        category: activeCategory?.category ?? "",
+      }));
+    }
+    return catalogoKuche.flatMap((category) =>
+      category.items
+        .filter((item) => normalizeText(item.label).includes(normalizedSearch))
+        .map((item) => ({ item, category: category.category })),
+    );
+  }, [activeCategory, catalogoKuche, normalizedSearch]);
 
   const handleAddMaterial = () => {
     const trimmedName = newItemName.trim();
@@ -653,9 +699,35 @@ export default function CotizadorPage() {
           ))}
         </div>
 
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex w-full max-w-xs items-center gap-2 rounded-2xl border border-primary/10 bg-white px-3 py-1.5 text-xs font-semibold text-secondary">
+            <span>Buscar</span>
+            <input
+              value={materialSearch}
+              onChange={(event) => setMaterialSearch(event.target.value)}
+              placeholder="Ej. melamina, cajón, bisagra"
+              className="w-full bg-transparent text-[13px] font-normal text-gray-700 outline-none"
+            />
+          </label>
+          {materialSearch ? (
+            <button
+              type="button"
+              onClick={() => setMaterialSearch("")}
+              className="rounded-full border border-primary/10 px-3 py-2 text-xs font-semibold text-secondary"
+            >
+              Limpiar
+            </button>
+          ) : null}
+          {normalizedSearch ? (
+            <span className="text-xs text-secondary">
+              {visibleItems.length} resultado{visibleItems.length === 1 ? "" : "s"}
+            </span>
+          ) : null}
+        </div>
+
         <div className="rounded-3xl border border-primary/10 bg-white p-6">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {activeCategory?.items.map((item) => {
+            {visibleItems.map(({ item, category }) => {
               const qty = quantities[item.id] ?? 0;
               return (
                 <div
@@ -665,6 +737,9 @@ export default function CotizadorPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="leading-tight">
                       <p className="text-[12px] font-semibold">{item.label}</p>
+                      {normalizedSearch ? (
+                        <p className="text-[10px] text-secondary">{category}</p>
+                      ) : null}
                       <p className="text-[10px] text-secondary">{formatCurrency(item.unitPrice)}/pz</p>
                     </div>
                     <div className="relative" ref={openMenuId === item.id ? openMenuRef : null}>
@@ -738,6 +813,11 @@ export default function CotizadorPage() {
                 </div>
               );
             })}
+            {normalizedSearch && visibleItems.length === 0 ? (
+              <div className="col-span-full rounded-2xl border border-dashed border-primary/20 bg-primary/5 px-4 py-8 text-center text-xs font-semibold text-secondary">
+                No hay materiales que coincidan con la búsqueda.
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={() => {
@@ -752,6 +832,104 @@ export default function CotizadorPage() {
               + Agregar material
             </button>
           </div>
+          {activeCategory?.category === "GASTOS FIJOS Y VARIOS" ? (
+            <div className="mt-6 space-y-4 border-t border-gray-200 pt-6">
+              <div className="group flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-500">
+                  Coeficiente de Operación (CO)
+                </label>
+                <div className="flex items-center space-x-2">
+                  <span className="mr-2 text-xs text-gray-400">
+                    {formatCurrency(totales.montoUtilidad)}
+                  </span>
+                  <div className="flex items-center bg-transparent">
+                    <button
+                      type="button"
+                      onClick={() => setUtilidadPct((prev) => clampPct(prev - 5))}
+                      className="p-2 text-gray-200 transition-colors hover:text-gray-400 focus:outline-none"
+                      aria-label="Disminuir"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </button>
+                    <div className="flex w-12 items-center justify-center">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={utilidadPct}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(event) =>
+                          setUtilidadPct(
+                            clampPct(Number.parseInt(event.target.value, 10) || 0),
+                          )
+                        }
+                        className="w-full appearance-none bg-transparent text-center text-sm font-medium text-gray-700 focus:outline-none"
+                      />
+                      <span className="text-sm font-medium text-gray-700">%</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setUtilidadPct((prev) => clampPct(prev + 5))}
+                      className="p-2 text-gray-200 transition-colors hover:text-gray-400 focus:outline-none"
+                      aria-label="Aumentar"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="group flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-500">
+                  Flete / Logística y Maniobras
+                </label>
+                <div className="flex items-center space-x-2">
+                  <span className="mr-2 text-xs text-gray-400">
+                    {formatCurrency(totales.montoFlete)}
+                  </span>
+                  <div className="flex items-center bg-transparent">
+                    <button
+                      type="button"
+                      onClick={() => setFletePct((prev) => clampPct(prev - 5))}
+                      className="p-2 text-gray-200 transition-colors hover:text-gray-400 focus:outline-none"
+                      aria-label="Disminuir"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </button>
+                    <div className="flex w-12 items-center justify-center">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={fletePct}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(event) =>
+                          setFletePct(
+                            clampPct(Number.parseInt(event.target.value, 10) || 0),
+                          )
+                        }
+                        className="w-full appearance-none bg-transparent text-center text-sm font-medium text-gray-700 focus:outline-none"
+                      />
+                      <span className="text-sm font-medium text-gray-700">%</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFletePct((prev) => clampPct(prev + 5))}
+                      className="p-2 text-gray-200 transition-colors hover:text-gray-400 focus:outline-none"
+                      aria-label="Aumentar"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-500">IVA (16%)</label>
+                <span className="text-xs text-gray-400">{formatCurrency(totales.montoIva)}</span>
+              </div>
+            </div>
+          ) : null}
         </div>
       </motion.section>
 
