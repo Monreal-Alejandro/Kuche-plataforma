@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ChevronLeft,
@@ -23,6 +23,7 @@ const navigation = [
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
@@ -85,6 +86,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </nav>
         <button
           type="button"
+          onClick={() => router.push("/login")}
           className="group relative mt-6 flex items-center gap-3 rounded-2xl px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-100"
         >
           <LogOut className="h-4 w-4" />
