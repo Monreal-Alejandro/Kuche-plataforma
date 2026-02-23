@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Minus, Plus } from "lucide-react";
+
+import {
+  activeCitaTaskStorageKey,
+  kanbanStorageKey,
+  initialKanbanTasks,
+  type KanbanTask,
+} from "@/lib/kanban";
 
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
 const baseMaterials = [
@@ -118,6 +126,7 @@ const formatCurrency = (value: number) =>
   }).format(value);
 
 export default function CotizadorPage() {
+  const router = useRouter();
   const [clients, setClients] = useState([
     { name: "Mariana Fuentes", phone: "", email: "" },
     { name: "Arquitectura F4 Studio", phone: "", email: "" },
@@ -154,6 +163,7 @@ export default function CotizadorPage() {
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemCategory, setNewItemCategory] = useState(initialCatalogoKuche[0]?.category ?? "");
+  const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
 
   const metrosValue = Number.parseFloat(metrosLineales) || 0;
   const baseMaterial = baseMaterials.find((item) => item.id === materialBase) ?? baseMaterials[0];
@@ -224,6 +234,13 @@ export default function CotizadorPage() {
     } catch {
       // ignore corrupted storage
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    setActiveCitaTaskId(window.localStorage.getItem(activeCitaTaskStorageKey));
   }, []);
 
   useEffect(() => {
@@ -396,6 +413,36 @@ export default function CotizadorPage() {
     });
   };
 
+  const handleFinishCita = () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const taskId = window.localStorage.getItem(activeCitaTaskStorageKey);
+    if (!taskId) {
+      router.push("/dashboard/empleado");
+      return;
+    }
+    const stored = window.localStorage.getItem(kanbanStorageKey);
+    let baseTasks = initialKanbanTasks as KanbanTask[];
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as KanbanTask[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          baseTasks = parsed;
+        }
+      } catch {
+        // ignore malformed storage
+      }
+    }
+    const next = baseTasks.map((task) =>
+      task.id === taskId ? { ...task, status: "completada" } : task,
+    );
+    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+    window.localStorage.removeItem(activeCitaTaskStorageKey);
+    setActiveCitaTaskId(null);
+    router.push("/dashboard/empleado");
+  };
+
   const buildPrintWindow = (title: string, bodyHtml: string) => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
@@ -566,6 +613,23 @@ export default function CotizadorPage() {
           Fusiona una experiencia visual con un desglose técnico riguroso para el taller.
         </p>
       </div>
+      {activeCitaTaskId ? (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-primary/10 bg-white/80 p-5 shadow-md backdrop-blur-md">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cita en curso</p>
+            <p className="mt-2 text-sm text-secondary">
+              Al terminar la cita se marcará como completada en el tablero.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleFinishCita}
+            className="rounded-2xl bg-accent px-5 py-3 text-xs font-semibold text-white"
+          >
+            Terminar cita
+          </button>
+        </div>
+      ) : null}
 
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
         <div>

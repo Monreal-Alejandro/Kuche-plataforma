@@ -68,3 +68,4 @@ export const initialKanbanTasks: KanbanTask[] = [
 ];
 
 export const kanbanStorageKey = "kuche-kanban-tasks";
+export const activeCitaTaskStorageKey = "kuche-active-cita-task";
