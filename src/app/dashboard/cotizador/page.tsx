@@ -1,14 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { catalogosApi, cotizacionesApi } from "@/lib/axios";
 
-const projectTypes = ["Cocina", "Clóset", "TV Unit"];
-const baseMaterials = [
-  { id: "melamina", label: "Melamina", pricePerMeter: 6500 },
-  { id: "mdf", label: "MDF", pricePerMeter: 7800 },
-  { id: "tech", label: "Tech", pricePerMeter: 9800 },
-];
+const projectTypes = ["Cocina", "Closet", "vestidor", "Mueble para el baño"];
 
 const scenarioCards = [
   {
@@ -44,14 +40,6 @@ const materialColors = [
   "Fresno Arena",
 ];
 
-const hardwareCatalog = [
-  { id: "correderas", label: "Correderas cierre suave", unitPrice: 500 },
-  { id: "bisagras", label: "Bisagras 110° reforzadas", unitPrice: 140 },
-  { id: "jaladeras", label: "Jaladeras minimalistas", unitPrice: 90 },
-  { id: "bote", label: "Bote de basura extraíble", unitPrice: 1200 },
-  { id: "iluminacion", label: "Iluminación LED interior", unitPrice: 780 },
-];
-
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
     style: "currency",
@@ -68,23 +56,53 @@ export default function CotizadorPage() {
   const [alto, setAlto] = useState("2.4");
   const [fondo, setFondo] = useState("0.6");
   const [metrosLineales, setMetrosLineales] = useState("6");
-  const [materialBase, setMaterialBase] = useState(baseMaterials[0].id);
+  const [materialBase, setMaterialBase] = useState("");
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("materiales");
 
   const [materialColor, setMaterialColor] = useState(materialColors[0]);
   const [materialThickness, setMaterialThickness] = useState("16");
 
-  const [hardware, setHardware] = useState<Record<string, { enabled: boolean; qty: number }>>(
-    () =>
-      hardwareCatalog.reduce(
-        (acc, item) => {
-          acc[item.id] = { enabled: item.id === "correderas", qty: 6 };
-          return acc;
-        },
-        {} as Record<string, { enabled: boolean; qty: number }>,
-      ),
-  );
+  // Estados para datos del backend
+  const [baseMaterials, setBaseMaterials] = useState<Array<{_id: string, codigo: string, nombre: string, precioM2: number}>>([]);
+  const [hardwareCatalog, setHardwareCatalog] = useState<Array<{_id: string, codigo: string, nombre: string, precioUnitario: number}>>([]);
+  const [hardware, setHardware] = useState<Record<string, { enabled: boolean; qty: number }>>({});
+  const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  // Cargar catálogos del backend
+  useEffect(() => {
+    cargarCatalogos();
+  }, []);
+
+  const cargarCatalogos = async () => {
+    try {
+      const [materialesRes, herrajesRes] = await Promise.all([
+        catalogosApi.obtenerMateriales(),
+        catalogosApi.obtenerHerrajes(),
+      ]);
+
+      if (materialesRes.success && materialesRes.data.length > 0) {
+        setBaseMaterials(materialesRes.data);
+        setMaterialBase(materialesRes.data[0]._id);
+      }
+
+      if (herrajesRes.success) {
+        setHardwareCatalog(herrajesRes.data);
+        const initialHardware = herrajesRes.data.reduce(
+          (acc, item) => {
+            acc[item._id] = { enabled: false, qty: 1 };
+            return acc;
+          },
+          {} as Record<string, { enabled: boolean; qty: number }>,
+        );
+        setHardware(initialHardware);
+      }
+    } catch (error) {
+      console.error("Error cargando catálogos:", error);
+    }
+  };
 
   const [labor, setLabor] = useState("12000");
   const [flete, setFlete] = useState("2500");
@@ -92,20 +110,20 @@ export default function CotizadorPage() {
   const [desinstalacion, setDesinstalacion] = useState("0");
 
   const metrosValue = Number.parseFloat(metrosLineales) || 0;
-  const baseMaterial = baseMaterials.find((item) => item.id === materialBase) ?? baseMaterials[0];
+  const baseMaterial = baseMaterials.find((item) => item._id === materialBase) ?? baseMaterials[0];
   const thicknessFactor = materialThickness === "19" ? 1.08 : 1;
 
-  const materialSubtotal = metrosValue * baseMaterial.pricePerMeter * thicknessFactor;
+  const materialSubtotal = baseMaterial ? metrosValue * baseMaterial.precioM2 * thicknessFactor : 0;
 
   const hardwareSubtotal = useMemo(() => {
     return hardwareCatalog.reduce((acc, item) => {
-      const selection = hardware[item.id];
+      const selection = hardware[item._id];
       if (!selection?.enabled) {
         return acc;
       }
-      return acc + item.unitPrice * Math.max(selection.qty, 0);
+      return acc + item.precioUnitario * Math.max(selection.qty, 0);
     }, 0);
-  }, [hardware]);
+  }, [hardware, hardwareCatalog]);
 
   const laborSubtotal = (Number.parseFloat(labor) || 0) +
     (Number.parseFloat(flete) || 0) +
@@ -122,6 +140,77 @@ export default function CotizadorPage() {
       max: Math.round(base * 1.08),
     };
   });
+
+  const handleGuardarBorrador = async () => {
+    if (!client || !baseMaterial) {
+      setErrorMessage("Por favor completa los datos del cliente y selecciona un material");
+      return;
+    }
+
+    setLoading(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const materialesDetallados = [{
+        material: baseMaterial._id,
+        cantidad: metrosValue,
+        precioUnitario: baseMaterial.precioM2 * thicknessFactor,
+        subtotal: materialSubtotal,
+      }];
+
+      const herrajesDetallados = hardwareCatalog
+        .filter(item => hardware[item._id]?.enabled)
+        .map(item => ({
+          herraje: item._id,
+          cantidad: hardware[item._id].qty,
+          precioUnitario: item.precioUnitario,
+          subtotal: item.precioUnitario * hardware[item._id].qty,
+        }));
+
+      const cotizacionData = {
+        cliente: { nombre: client, direccion: location },
+        tipoProyecto: projectType as any,
+        ubicacion: location,
+        fechaInstalacion: installDate || undefined,
+        dimensiones: {
+          largo: Number.parseFloat(largo) || 0,
+          alto: Number.parseFloat(alto) || 0,
+          fondo: Number.parseFloat(fondo) || 0,
+        },
+        metrosLineales: metrosValue,
+        materiales: materialesDetallados,
+        herrajes: herrajesDetallados,
+        manoObra: Number.parseFloat(labor) || 0,
+        flete: Number.parseFloat(flete) || 0,
+        instalacion: Number.parseFloat(instalacion) || 0,
+        desinstalacion: Number.parseFloat(desinstalacion) || 0,
+      };
+
+      const response = await cotizacionesApi.guardarBorrador(cotizacionData);
+
+      if (response.success) {
+        setSuccessMessage("¡Cotización guardada como borrador!");
+        setTimeout(() => setSuccessMessage(""), 3000);
+      } else {
+        setErrorMessage(response.message || "Error al guardar borrador");
+      }
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.message || "Error al guardar cotización");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerarPDFCliente = async () => {
+    setErrorMessage("Función de generar PDF en desarrollo");
+    // TODO: Implementar cuando el backend tenga el endpoint
+  };
+
+  const handleGenerarHojaTaller = async () => {
+    setErrorMessage("Función de hoja de taller en desarrollo");
+    // TODO: Implementar cuando el backend tenga el endpoint
+  };
 
   return (
     <div className="space-y-8 pb-24">
@@ -269,7 +358,7 @@ export default function CotizadorPage() {
                   {formatCurrency(scenario.min)} - {formatCurrency(scenario.max)}
                 </div>
                 <p className="text-xs text-secondary">
-                  Base: {formatCurrency(materialSubtotal)} · {baseMaterial.label}
+                  Base: {formatCurrency(materialSubtotal)} · {baseMaterial?.nombre || "Seleccionar material"}
                 </p>
               </div>
             </motion.button>
@@ -321,19 +410,21 @@ export default function CotizadorPage() {
                     <div>
                       <p className="text-xs font-semibold text-secondary">Material base</p>
                       <div className="mt-3 grid gap-3 md:grid-cols-3">
-                        {baseMaterials.map((material) => (
+                        {baseMaterials.length > 0 ? baseMaterials.map((material) => (
                           <button
-                            key={material.id}
-                            onClick={() => setMaterialBase(material.id)}
+                            key={material._id}
+                            onClick={() => setMaterialBase(material._id)}
                             className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-                              materialBase === material.id
+                              materialBase === material._id
                                 ? "border-accent bg-accent text-white"
                                 : "border-primary/10 bg-white text-primary"
                             }`}
                           >
-                            {material.label}
+                            {material.nombre}
                           </button>
-                        ))}
+                        )) : (
+                          <p className="text-sm text-secondary">Cargando materiales...</p>
+                        )}
                       </div>
                     </div>
                     <div>
@@ -380,6 +471,11 @@ export default function CotizadorPage() {
                       <p className="mt-2 text-sm text-primary">
                         {formatCurrency(materialSubtotal)} para {metrosValue} m lineales.
                       </p>
+                      {baseMaterial && (
+                        <p className="mt-1 text-xs text-secondary">
+                          {baseMaterial.nombre} · {formatCurrency(baseMaterial.precioM2)}/m²
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -387,11 +483,11 @@ export default function CotizadorPage() {
 
               {activeTab === "herrajes" ? (
                 <div className="space-y-4">
-                  {hardwareCatalog.map((item) => {
-                    const selection = hardware[item.id];
+                  {hardwareCatalog.length > 0 ? hardwareCatalog.map((item) => {
+                    const selection = hardware[item._id];
                     return (
                       <div
-                        key={item.id}
+                        key={item._id}
                         className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-primary/10 bg-white px-4 py-4"
                       >
                         <label className="flex items-center gap-3 text-sm font-semibold">
@@ -401,17 +497,17 @@ export default function CotizadorPage() {
                             onChange={(event) =>
                               setHardware((prev) => ({
                                 ...prev,
-                                [item.id]: {
+                                [item._id]: {
                                   enabled: event.target.checked,
-                                  qty: prev[item.id]?.qty ?? 1,
+                                  qty: prev[item._id]?.qty ?? 1,
                                 },
                               }))
                             }
                             className="h-4 w-4 accent-accent"
                           />
-                          {item.label}
+                          {item.nombre}
                           <span className="text-xs text-secondary">
-                            {formatCurrency(item.unitPrice)} c/u
+                            {formatCurrency(item.precioUnitario)} c/u
                           </span>
                         </label>
                         <div className="flex items-center gap-3">
@@ -423,8 +519,8 @@ export default function CotizadorPage() {
                             onChange={(event) =>
                               setHardware((prev) => ({
                                 ...prev,
-                                [item.id]: {
-                                  enabled: prev[item.id]?.enabled ?? false,
+                                [item._id]: {
+                                  enabled: prev[item._id]?.enabled ?? false,
                                   qty: Number.parseInt(event.target.value, 10) || 0,
                                 },
                               }))
@@ -434,7 +530,9 @@ export default function CotizadorPage() {
                         </div>
                       </div>
                     );
-                  })}
+                  }) : (
+                    <p className="text-sm text-secondary">Cargando herrajes...</p>
+                  )}
                   <div className="flex items-center justify-between rounded-2xl bg-primary/5 px-4 py-3 text-sm font-semibold">
                     <span>Total herrajes</span>
                     <span className="text-accent">{formatCurrency(hardwareSubtotal)}</span>
@@ -504,14 +602,34 @@ export default function CotizadorPage() {
           </div>
         </div>
 
+        {successMessage && (
+          <div className="rounded-2xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-600">
+            {successMessage}
+          </div>
+        )}
+        {errorMessage && (
+          <div className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {errorMessage}
+          </div>
+        )}
         <div className="flex flex-wrap gap-3">
-          <button className="rounded-2xl border border-primary/10 bg-white px-5 py-3 text-xs font-semibold text-secondary">
-            Guardar borrador
+          <button 
+            onClick={handleGuardarBorrador}
+            disabled={loading}
+            className="rounded-2xl border border-primary/10 bg-white px-5 py-3 text-xs font-semibold text-secondary disabled:opacity-50"
+          >
+            {loading ? "Guardando..." : "Guardar borrador"}
           </button>
-          <button className="rounded-2xl bg-primary px-5 py-3 text-xs font-semibold text-white">
+          <button 
+            onClick={handleGenerarPDFCliente}
+            className="rounded-2xl bg-primary px-5 py-3 text-xs font-semibold text-white"
+          >
             Generar PDF Cliente
           </button>
-          <button className="rounded-2xl bg-accent px-5 py-3 text-xs font-semibold text-white">
+          <button 
+            onClick={handleGenerarHojaTaller}
+            className="rounded-2xl bg-accent px-5 py-3 text-xs font-semibold text-white"
+          >
             Generar Hoja de Taller
           </button>
         </div>
@@ -521,7 +639,7 @@ export default function CotizadorPage() {
         <p className="text-xs uppercase tracking-[0.25em] text-secondary">Precio final</p>
         <p className="mt-2 text-2xl font-semibold text-accent">{formatCurrency(finalPrice)}</p>
         <p className="mt-2 text-[11px] text-secondary">
-          {metrosValue} m lineales · {baseMaterial.label} · {materialColor}
+          {metrosValue} m lineales · {baseMaterial?.nombre || "Material"} · {materialColor}
         </p>
       </div>
     </div>

@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, Ruler, Sparkles } from "lucide-react";
+import { levantamientosApi, catalogosApi, usuariosApi, type Usuario } from "@/lib/axios";
 
 const stepTitles = [
   "Cliente",
@@ -11,8 +12,6 @@ const stepTitles = [
   "Escenarios",
   "Cierre",
 ];
-
-const architects = ["Sofía Ramos", "Javier Méndez", "Luisana Ortiz", "Marcos Vega"];
 
 const basePrice = 5000;
 
@@ -68,7 +67,44 @@ export default function LevantamientoPage() {
   const [alacenas, setAlacenas] = useState(false);
   const [material, setMaterial] = useState("Granito Básico");
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
-  const [assignedTo, setAssignedTo] = useState(architects[0]);
+  const [assignedTo, setAssignedTo] = useState("");
+  
+  // Estados para datos del backend
+  const [empleados, setEmpleados] = useState<Usuario[]>([]);
+  const [tiposCubierta, setTiposCubierta] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  // Cargar datos del backend al montar el componente
+  useEffect(() => {
+    cargarDatosIniciales();
+  }, []);
+
+  const cargarDatosIniciales = async () => {
+    try {
+      const [empleadosRes, tiposCubiertaRes] = await Promise.all([
+        usuariosApi.listarEmpleados(),
+        catalogosApi.obtenerTiposCubierta(),
+      ]);
+
+      if (empleadosRes.success) {
+        setEmpleados(empleadosRes.data);
+        if (empleadosRes.data.length > 0) {
+          setAssignedTo(empleadosRes.data[0]._id);
+        }
+      }
+
+      if (tiposCubiertaRes.success) {
+        setTiposCubierta(tiposCubiertaRes.data);
+        if (tiposCubiertaRes.data.length > 0) {
+          setMaterial(tiposCubiertaRes.data[0]);
+        }
+      }
+    } catch (error) {
+      console.error("Error cargando datos iniciales:", error);
+    }
+  };
 
   const metrosNumber = Number.parseFloat(metros) || 0;
   const materialFactor = materialFactors[material] ?? 1;
@@ -89,6 +125,46 @@ export default function LevantamientoPage() {
   const handleScenarioSelect = (scenarioId: string) => {
     setSelectedScenario(scenarioId);
     setStep(5);
+  };
+
+  const handleFinalizarLevantamiento = async () => {
+    if (!selectedScenario) return;
+    
+    setLoading(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const response = await levantamientosApi.crearLevantamiento({
+        cliente: client,
+        metrosLineales: Number.parseFloat(metros) || 0,
+        requiereIsla: isla,
+        alacenasAltas: alacenas,
+        tipoCubierta: material as any,
+        escenarioSeleccionado: selectedScenario as any,
+        empleadoAsignado: assignedTo || undefined,
+      });
+
+      if (response.success) {
+        setSuccessMessage("¡Levantamiento creado exitosamente!");
+        // Resetear formulario después de 2 segundos
+        setTimeout(() => {
+          setStep(1);
+          setClient({ nombre: "", direccion: "", telefono: "" });
+          setMetros("6");
+          setIsla(false);
+          setAlacenas(false);
+          setSelectedScenario(null);
+          setSuccessMessage("");
+        }, 2000);
+      } else {
+        setErrorMessage(response.message || "Error al crear levantamiento");
+      }
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.message || "Error al guardar el levantamiento");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -207,19 +283,21 @@ export default function LevantamientoPage() {
             <motion.div
               key="step-3"
               initial={{ opacity: 0, x: 40 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -40 }}
-              transition={{ duration: 0.4 }}
-              className="space-y-8"
-            >
-              <div>
-                <h2 className="text-2xl font-semibold">Paso 3 · Necesidades</h2>
-                <p className="mt-2 text-sm text-secondary">
-                  Activa filtros rápidos para ajustar el rango estimado.
-                </p>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                {[
+              animatiposCubierta.length > 0 ? tiposCubierta.map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => setMaterial(option)}
+                      className={`rounded-3xl border px-4 py-4 text-sm font-semibold transition ${
+                        material === option
+                          ? "border-accent bg-accent text-white"
+                          : "border-primary/10 bg-white text-primary hover:border-primary/30"
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  )) : (
+                    <p className="text-sm text-secondary">Cargando tipos de cubierta...</p>
+                  
                   { id: "isla", label: "¿Requiere isla?", value: isla, setValue: setIsla },
                   {
                     id: "alacenas",
@@ -341,14 +419,28 @@ export default function LevantamientoPage() {
                 <select
                   value={assignedTo}
                   onChange={(event) => setAssignedTo(event.target.value)}
-                  className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                >
-                  {architects.map((architect) => (
-                    <option key={architect} value={architect}>
-                      {architect}
+                  cempleados.map((empleado) => (
+                    <option key={empleado._id} value={empleado._id}>
+                      {empleado.nombre}
                     </option>
                   ))}
                 </select>
+                {successMessage && (
+                  <div className="mt-4 rounded-2xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-600">
+                    {successMessage}
+                  </div>
+                )}
+                {errorMessage && (
+                  <div className="mt-4 rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+                    {errorMessage}
+                  </div>
+                )}
+                <button 
+                  onClick={handleFinalizarLevantamiento}
+                  disabled={loading}
+                  className="mt-6 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-white shadow disabled:opacity-50"
+                >
+                  {loading ? "Guardando..." : "Finalizar levantamiento"}
                 <button className="mt-6 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-white shadow">
                   Finalizar levantamiento
                 </button>
@@ -392,19 +484,30 @@ export default function LevantamientoPage() {
               <div className="flex items-center gap-3">
                 <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10 text-accent">
                   <CheckCircle2 className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-lg font-semibold">Estimación guardada</h3>
-                  <p className="text-sm text-secondary">
-                    Se registró el escenario seleccionado.
-                  </p>
-                </div>
+                </spaempleados.map((empleado) => (
+                      <option key={empleado._id} value={empleado._id}>
+                        {empleado.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
-              <div className="mt-5">
-                <label className="text-xs font-semibold text-secondary">
-                  Asignar seguimiento a empleado
-                  <select
-                    value={assignedTo}
+              {successMessage && (
+                <div className="mt-4 rounded-2xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-600">
+                  {successMessage}
+                </div>
+              )}
+              {errorMessage && (
+                <div className="mt-4 rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+                  {errorMessage}
+                </div>
+              )}
+              <button
+                onClick={handleFinalizarLevantamiento}
+                disabled={loading}
+                className="mt-6 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-white shadow disabled:opacity-50"
+              >
+                {loading ? "Guardando..." : "Finalizar levantamiento"}
                     onChange={(event) => setAssignedTo(event.target.value)}
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                   >

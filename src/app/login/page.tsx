@@ -1,40 +1,57 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Lock, User } from "lucide-react";
+import { Lock, User, Eye, EyeOff } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import Captcha from "@/components/Captcha";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState("");
+  const { login } = useAuth();
+  const [correo, setCorreo] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const helperText = useMemo(() => {
-    if (status === "error") {
-      return "Credenciales inválidas. Usa admin o empleado.";
-    }
-    return "Acceso interno KUCHE. Simulado para demo.";
-  }, [status]);
-
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setStatus("loading");
-
-    window.setTimeout(() => {
-      const normalized = username.trim().toLowerCase();
-      if (normalized === "admin") {
-        router.push("/dashboard/admin");
-        return;
-      }
-      if (normalized === "empleado") {
-        router.push("/dashboard/empleado");
-        return;
-      }
+    
+    // Validar captcha
+    if (!captchaToken) {
       setStatus("error");
-    }, 700);
+      setErrorMessage("Por favor completa el captcha");
+      return;
+    }
+    
+    setStatus("loading");
+    setErrorMessage("");
+
+    try {
+      const result = await login(correo, password);
+      
+      if (result.success && result.user) {
+        // Redirigir según el rol del usuario
+        if (result.user.rol === 'admin') {
+          router.push("/dashboard/admin");
+        } else if (result.user.rol === 'arquitecto' || result.user.rol === 'empleado') {
+          router.push("/dashboard/empleado");
+        } else {
+          // Por defecto ir a empleado si no está definido el rol
+          router.push("/dashboard/empleado");
+        }
+      } else {
+        setStatus("error");
+        setErrorMessage(result.error || "Credenciales inválidas");
+      }
+    } catch (error) {
+      setStatus("error");
+      setErrorMessage("Error al conectar con el servidor");
+    }
   };
 
   return (
@@ -77,20 +94,23 @@ export default function LoginPage() {
           >
             <div className="mb-6">
               <h2 className="text-2xl font-semibold">Inicia sesión</h2>
-              <p className="mt-2 text-sm text-secondary">{helperText}</p>
+              <p className="mt-2 text-sm text-secondary">
+                Acceso interno KUCHE. Ingresa tu correo y contraseña.
+              </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <label className="block text-sm font-medium text-secondary">
-                Usuario
+                Correo electrónico
                 <div className="mt-2 flex items-center gap-2 rounded-2xl border border-primary/10 bg-white px-4 py-3">
                   <User className="h-4 w-4 text-secondary" />
                   <input
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                    placeholder="admin o empleado"
+                    type="email"
+                    value={correo}
+                    onChange={(event) => setCorreo(event.target.value)}
+                    placeholder="Correo electrónico"
                     className="w-full bg-transparent text-sm text-primary outline-none placeholder:text-secondary/60"
-                    autoComplete="username"
+                    autoComplete="email"
                   />
                 </div>
               </label>
@@ -100,19 +120,45 @@ export default function LoginPage() {
                 <div className="mt-2 flex items-center gap-2 rounded-2xl border border-primary/10 bg-white px-4 py-3">
                   <Lock className="h-4 w-4 text-secondary" />
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     placeholder="••••••••"
                     className="w-full bg-transparent text-sm text-primary outline-none placeholder:text-secondary/60"
                     autoComplete="current-password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="text-secondary hover:text-primary transition-colors"
+                    aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
                 </div>
               </label>
 
+              {/* Captcha */}
+              <div className="pt-2">
+                <Captcha
+                  onVerify={(token) => setCaptchaToken(token)}
+                  onExpire={() => setCaptchaToken(null)}
+                  onError={() => {
+                    setCaptchaToken(null);
+                    setStatus("error");
+                    setErrorMessage("Error al verificar el captcha");
+                  }}
+                  className="flex justify-center"
+                />
+              </div>
+
               <button
                 type="submit"
-                disabled={status === "loading" || !username || !password}
+                disabled={status === "loading" || !correo || !password || !captchaToken}
                 className="flex w-full items-center justify-center rounded-2xl bg-accent py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {status === "loading" ? "Validando..." : "Entrar"}
@@ -125,9 +171,9 @@ export default function LoginPage() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className="mt-4 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-xs text-accent"
+                  className="mt-4 rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-xs text-red-600"
                 >
-                  Revisa tu usuario. Esta demo solo acepta admin o empleado.
+                  {errorMessage}
                 </motion.div>
               ) : null}
             </AnimatePresence>
