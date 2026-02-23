@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -16,6 +16,7 @@ import {
   kanbanColumns,
   kanbanStorageKey,
   initialKanbanTasks,
+  activeCitaTaskStorageKey,
   type KanbanTask,
   type TaskType,
   type TaskStatus,
@@ -66,29 +67,51 @@ export default function EmpleadoDashboard() {
     segundoPago: 30000,
     liquidacion: 0,
   });
+  const skipNextWriteRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(kanbanStorageKey);
-    if (!stored) return;
-    try {
-      const parsed = JSON.parse(stored) as KanbanTask[];
-      if (Array.isArray(parsed) && parsed.length) {
-        setKanbanTasks(
-          parsed.map((task) => ({
-            employee: "Sin asignar",
-            project: "General",
-            ...task,
-          })),
-        );
+    const syncFromStorage = () => {
+      const stored = window.localStorage.getItem(kanbanStorageKey);
+      if (!stored) return;
+      try {
+        const parsed = JSON.parse(stored) as KanbanTask[];
+        if (Array.isArray(parsed) && parsed.length) {
+          skipNextWriteRef.current = true;
+          setKanbanTasks(
+            parsed.map((task) => ({
+              employee: "Sin asignar",
+              project: "General",
+              ...task,
+            })),
+          );
+        }
+      } catch {
+        // ignore malformed storage
       }
-    } catch {
-      // ignore malformed storage
-    }
+    };
+
+    syncFromStorage();
+    const handleFocus = () => syncFromStorage();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        syncFromStorage();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (skipNextWriteRef.current) {
+      skipNextWriteRef.current = false;
+      return;
+    }
     window.localStorage.setItem(kanbanStorageKey, JSON.stringify(kanbanTasks));
   }, [kanbanTasks]);
 
@@ -128,6 +151,19 @@ export default function EmpleadoDashboard() {
     if (taskType === "diseño") {
       setUploadTask(taskId);
       return;
+    }
+    if (taskType === "cita") {
+      setKanbanTasks((prev) => {
+        const next = prev.map((task) =>
+          task.id === taskId ? { ...task, status: "en-proceso" } : task,
+        );
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+          window.localStorage.setItem(activeCitaTaskStorageKey, taskId);
+        }
+        return next;
+      });
+      router.push("/dashboard/cotizador");
     }
   };
 
