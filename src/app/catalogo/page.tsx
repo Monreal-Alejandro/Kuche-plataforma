@@ -397,7 +397,7 @@ export default function CatalogoPage() {
 
   return (
     <main className="min-h-screen bg-background text-primary">
-      <section className="px-4 pb-16 pt-16 md:pt-20">
+      <section className="px-4 pb-12 pt-14 md:pt-16">
         <div className="mx-auto max-w-6xl">
           <div className="text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent">
@@ -432,8 +432,8 @@ export default function CatalogoPage() {
         </div>
       </section>
 
-      <section className="px-4 pb-20">
-        <div className="mx-auto flex max-w-6xl flex-col gap-10">
+      <section className="px-4 pb-16">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6">
           <AnimatePresence mode="popLayout">
             {filteredProjects.map((project) => (
               <motion.div

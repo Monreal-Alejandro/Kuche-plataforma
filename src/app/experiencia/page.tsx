@@ -44,6 +44,15 @@ const steps = [
   },
   {
     number: "05",
+    title: "Seguimiento en línea",
+    subtitle: "Portal privado",
+    description:
+      "Accede a tu portal privado para ver pagos, renders y avances en tiempo real. Transparencia total durante todo el proceso.",
+    image: "/images/render4.jpg",
+    alt: "Vista de un portal digital de seguimiento.",
+  },
+  {
+    number: "06",
     title: "Tu hogar transformado",
     subtitle: "Instalación y Entrega",
     description:

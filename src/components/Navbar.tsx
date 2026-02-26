@@ -10,6 +10,35 @@ export default function Navbar() {
     return null;
   }
 
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname === href || pathname.startsWith(`${href}/`) || pathname.startsWith(href);
+  };
+
+  const navLinkClass = (href: string) =>
+    [
+      "relative text-sm font-medium transition",
+      isActive(href)
+        ? "text-primary font-semibold after:absolute after:-bottom-1 after:left-0 after:right-0 after:h-[1.5px] after:rounded-full after:bg-primary/70 after:content-['']"
+        : "text-secondary hover:text-primary",
+    ].join(" ");
+
+  const pillLinkClass = (href: string) =>
+    [
+      "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+      isActive(href)
+        ? "border-primary/40 bg-primary/5 text-primary"
+        : "border-primary/20 text-primary hover:border-primary/40 hover:bg-white",
+    ].join(" ");
+
+  const ctaClass = (href: string) =>
+    [
+      "rounded-full px-4 py-2 text-sm font-semibold shadow transition",
+      isActive(href)
+        ? "bg-accent/90 text-white ring-2 ring-accent/30"
+        : "bg-accent text-white hover:-translate-y-0.5",
+    ].join(" ");
+
   return (
     <nav className="sticky top-4 z-50">
       <div className="mx-auto max-w-6xl px-4">
@@ -19,28 +48,22 @@ export default function Navbar() {
           </Link>
 
           <div className="hidden items-center gap-6 md:flex">
-            <Link href="/experiencia" className="text-sm font-medium text-secondary">
+            <Link href="/experiencia" className={navLinkClass("/experiencia")}>
               Experiencia
             </Link>
-            <Link href="/catalogo" className="text-sm font-medium text-secondary">
+            <Link href="/catalogo" className={navLinkClass("/catalogo")}>
               Catálogo
             </Link>
-            <Link href="/acabados" className="text-sm font-medium text-secondary">
+            <Link href="/acabados" className={navLinkClass("/acabados")}>
               Acabados
             </Link>
-            <Link
-              href="/agendar"
-              className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white shadow"
-            >
+            <Link href="/agendar" className={ctaClass("/agendar")}>
               Agendar
             </Link>
           </div>
 
           <div className="flex items-center gap-3">
-            <Link
-              href="/seguimiento"
-              className="rounded-full border border-primary/20 px-3 py-1.5 text-[11px] font-semibold text-primary transition hover:border-primary/40 hover:bg-white"
-            >
+            <Link href="/seguimiento" className={pillLinkClass("/seguimiento")}>
               Mi proyecto
             </Link>
             <button
