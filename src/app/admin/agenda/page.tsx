@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 type AppointmentType =
   | "Levantamiento / Medidas"
@@ -67,6 +70,10 @@ export default function AgendaPage() {
     assignedTo: "",
     status: "Confirmada",
   });
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEscapeClose(isModalOpen, () => setIsModalOpen(false));
+  useFocusTrap(isModalOpen, modalRef);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(APPOINTMENTS_KEY);
@@ -321,6 +328,8 @@ export default function AgendaPage() {
           onClick={() => setIsModalOpen(false)}
         >
           <div
+            ref={modalRef}
+            tabIndex={-1}
             className="w-full max-w-xl max-h-[90vh] overflow-y-auto custom-scrollbar rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
             onClick={(event) => event.stopPropagation()}
           >

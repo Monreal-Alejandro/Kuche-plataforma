@@ -44,7 +44,7 @@ export default function Navbar() {
       <div className="mx-auto max-w-6xl px-4">
         <div className="flex h-14 items-center justify-between rounded-full border border-gray-200 bg-white/80 px-6 shadow-lg backdrop-blur">
           <Link href="/" className="text-sm font-semibold tracking-wide text-primary">
-            KUCHE
+            Küche
           </Link>
 
           <div className="hidden items-center gap-6 md:flex">
@@ -79,3 +79,4 @@ export default function Navbar() {
     </nav>
   );
 }
+

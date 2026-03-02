@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, PenTool, UserPlus } from "lucide-react";
+
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 const kanbanColumns = ["Pendiente", "En Progreso", "Revisión", "Completado"];
 
@@ -111,6 +114,13 @@ export default function OperacionesPage() {
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("Media");
   const [taskError, setTaskError] = useState("");
   const [employeeError, setEmployeeError] = useState("");
+  const taskModalRef = useRef<HTMLDivElement | null>(null);
+  const employeeModalRef = useRef<HTMLDivElement | null>(null);
+
+  useEscapeClose(isTaskModalOpen, () => setIsTaskModalOpen(false));
+  useEscapeClose(isEmployeeModalOpen, () => setIsEmployeeModalOpen(false));
+  useFocusTrap(isTaskModalOpen, taskModalRef);
+  useFocusTrap(isEmployeeModalOpen, employeeModalRef);
 
   useEffect(() => {
     const storedTeam = window.localStorage.getItem(TEAM_STORAGE_KEY);
@@ -455,7 +465,11 @@ export default function OperacionesPage() {
 
       {isTaskModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="w-full max-w-lg rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur">
+          <div
+            ref={taskModalRef}
+            tabIndex={-1}
+            className="w-full max-w-lg rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Asignar pendiente</h3>
               <button
@@ -568,6 +582,8 @@ export default function OperacionesPage() {
           onClick={() => setIsEmployeeModalOpen(false)}
         >
           <div
+            ref={employeeModalRef}
+            tabIndex={-1}
             className="w-full max-w-md rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
             onClick={(event) => event.stopPropagation()}
           >

@@ -15,7 +15,7 @@ export default function History() {
             Nacimos con una obsesión
           </h2>
           <p className="mt-4 text-base leading-relaxed text-secondary">
-            En KUCHE no somos una carpintería tradicional. Somos un laboratorio
+            En Küche no somos una carpintería tradicional. Somos un laboratorio
             de diseño que combina arquitectura, ingeniería y tecnología CNC para
             crear cocinas y espacios que dialogan con tu estilo de vida.
           </p>
@@ -41,3 +41,4 @@ export default function History() {
     </MotionSection>
   );
 }
+

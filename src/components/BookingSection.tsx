@@ -1,7 +1,9 @@
  "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Captcha from "@/components/Captcha";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 export default function BookingSection() {
   const weekDays = ["L", "M", "M", "J", "V", "S", "D"];
@@ -38,12 +40,16 @@ export default function BookingSection() {
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const modalRef = useRef<HTMLDivElement | null>(null);
   const [captchaToken, setCaptchaToken] = useState("");
   const [pendingSummary, setPendingSummary] = useState<{
     dateLabel: string;
     time: string;
     locationLabel: string;
   } | null>(null);
+
+  useEscapeClose(isModalOpen, () => setIsModalOpen(false));
+  useFocusTrap(isModalOpen, modalRef);
   const monthLabel = useMemo(() => {
     return `${monthNames[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`;
   }, [currentMonth, monthNames]);
@@ -110,7 +116,7 @@ export default function BookingSection() {
         <div className="border-b border-gray-200 bg-gray-50 p-6 md:border-b-0 md:border-r md:p-8">
           <div className="flex items-center justify-between pb-4">
             <div className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-              KUCHE
+              Küche
             </div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-secondary">
               Selecciona fecha
@@ -133,7 +139,7 @@ export default function BookingSection() {
                     )
                   }
               >
-                ‹
+                ⬹
               </button>
               <div className="text-sm font-semibold uppercase tracking-[0.25em] text-primary">
                 {monthLabel}
@@ -152,7 +158,7 @@ export default function BookingSection() {
                     )
                   }
               >
-                ›
+                ⬺
               </button>
             </div>
 
@@ -361,7 +367,11 @@ export default function BookingSection() {
             role="dialog"
             aria-modal="true"
           >
-            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div
+              ref={modalRef}
+              tabIndex={-1}
+              className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+            >
               <div className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
                 Confirmación
               </div>
@@ -412,3 +422,4 @@ export default function BookingSection() {
     </section>
   );
 }
+

@@ -1,25 +1,53 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, CheckCircle2, Download, FileText, Image as ImageIcon } from "lucide-react";
+
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 const mockProject = {
   codigo: "K-8821",
   cliente: "Residencial Navarro",
+  isProspect: true,
+  estadoProyecto: "Completado/Entregado",
   inversion: 145000,
   fechaInicio: "12 Octubre",
   fechaEntrega: "15 Noviembre",
+  garantiaInicio: "2026-02-24",
+  cotizacionPreliminarImage: "/images/render5.jpg",
+  cotizacionFormalImage: "/images/render6.jpg",
   etapaActual: "Corte CNC",
   pagos: {
-    anticipo: 45000,
-    segundoPago: 30000,
-    liquidacion: 0,
+    anticipo: {
+      amount: 45000,
+      date: "24/Feb/2026",
+      receiptLabel: "Ver Recibo",
+      receiptImage: "/images/render1.jpg",
+    },
+    segundoPago: {
+      amount: 30000,
+      date: "12/Mar/2026",
+      receiptLabel: "Ver Recibo",
+      receiptImage: "/images/render2.jpg",
+    },
+    liquidacion: {
+      amount: 0,
+      date: "",
+      receiptLabel: "Ver Recibo",
+      receiptImage: "/images/render3.jpg",
+    },
   },
   archivos: [
-    { id: "f1", name: "Render_Final_V2.jpg", type: "jpg" },
-    { id: "f2", name: "Plano_Instalaciones.pdf", type: "pdf" },
-    { id: "f3", name: "Moodboard_Cocina.jpg", type: "jpg" },
+    { id: "f1", name: "Cotizacion_Preliminar.pdf", type: "pdf", src: "" },
+    { id: "f2", name: "Plano_Instalaciones.pdf", type: "pdf", src: "" },
+    {
+      id: "f3",
+      name: "Moodboard_Cocina.jpg",
+      type: "jpg",
+      src: "/images/render4.jpg",
+    },
   ],
 };
 
@@ -73,20 +101,67 @@ const installments = [
   { key: "liquidacion", label: "Liquidación" },
 ] as const;
 
+const formatPayment = (payment: { amount: number; date?: string }) => {
+  const formatted = formatCurrency(payment.amount);
+  return payment.date ? `${formatted} - ${payment.date}` : formatted;
+};
+
+const GarantiaCountdown = ({ startDate }: { startDate: string }) => {
+  const msInDay = 1000 * 60 * 60 * 24;
+  const daysLeft = useMemo(() => {
+    const start = new Date(startDate);
+    const today = new Date();
+    const daysPassed = Math.floor((today.getTime() - start.getTime()) / msInDay);
+    return Math.max(0, 365 - daysPassed);
+  }, [startDate, msInDay]);
+
+  return (
+    <div className="rounded-3xl bg-gradient-to-br from-accent/10 via-white to-white p-6 shadow-lg">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Garantía activa</p>
+          <h3 className="mt-2 text-2xl font-semibold text-primary">
+            Te quedan {daysLeft} días de cobertura
+          </h3>
+          <p className="mt-2 text-sm text-secondary">
+            Estamos contigo durante el primer año después de la entrega.
+          </p>
+        </div>
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent text-white shadow-lg">
+          <span className="text-xl font-semibold">{daysLeft}</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function SeguimientoPage() {
   const [codigo, setCodigo] = useState("");
   const [hasAccess, setHasAccess] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<null | { name: string; src: string }>(
+    null,
+  );
+  const modalRef = useRef<HTMLDivElement | null>(null);
 
+  useEscapeClose(Boolean(selectedImage), () => setSelectedImage(null));
+  useFocusTrap(Boolean(selectedImage), modalRef);
+
+  const isProspect = mockProject.isProspect;
   const currentIndex = useMemo(
     () => Math.max(0, timelineSteps.indexOf(mockProject.etapaActual)),
     [],
   );
-  const installmentAmount = mockProject.inversion / 3;
   const totalPagado =
-    mockProject.pagos.anticipo +
-    mockProject.pagos.segundoPago +
-    mockProject.pagos.liquidacion;
+    mockProject.pagos.anticipo.amount +
+    mockProject.pagos.segundoPago.amount +
+    mockProject.pagos.liquidacion.amount;
   const restante = Math.max(0, mockProject.inversion - totalPagado);
+  const infoLockedText = "Esta información se activará una vez apruebes tu proyecto.";
+  const filesInSections = isProspect ? mockProject.archivos.slice(0, 1) : mockProject.archivos;
+  const quoteButtonLabel = isProspect ? "Ver cotización preliminar" : "Ver cotización formal";
+  const quoteImageSrc = isProspect
+    ? mockProject.cotizacionPreliminarImage
+    : mockProject.cotizacionFormalImage;
 
   return (
     <main className="min-h-screen bg-background text-primary">
@@ -102,25 +177,32 @@ export default function SeguimientoPage() {
               className="flex min-h-[70vh] items-center justify-center"
             >
               <div className="w-full max-w-lg rounded-3xl bg-white p-10 shadow-xl">
-                <h1 className="text-2xl font-semibold">Rastrea tu Proyecto KUCHE</h1>
+                <h1 className="text-2xl font-semibold">Rastrea tu Proyecto Küche</h1>
                 <p className="mt-2 text-sm text-secondary">
                   Ingresa tu código único para ver el avance de tu cocina.
                 </p>
-                <label className="mt-6 block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Ingresa tu Código de Proyecto
-                  <input
-                    value={codigo}
-                    onChange={(event) => setCodigo(event.target.value)}
-                    placeholder="K-8821"
-                    className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <button
-                  onClick={() => setHasAccess(true)}
-                  className="mt-6 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setHasAccess(true);
+                  }}
                 >
-                  Ver Progreso
-                </button>
+                  <label className="mt-6 block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Ingresa tu Código de Proyecto
+                    <input
+                      value={codigo}
+                      onChange={(event) => setCodigo(event.target.value)}
+                      placeholder="K-8821"
+                      className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="mt-6 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
+                  >
+                    Ver Progreso
+                  </button>
+                </form>
               </div>
             </motion.div>
           ) : (
@@ -160,46 +242,127 @@ export default function SeguimientoPage() {
                     },
                     { label: "Fecha inicio", value: mockProject.fechaInicio },
                     { label: "Entrega estimada", value: mockProject.fechaEntrega, highlight: true },
-                  ].map((item) => (
+                  ].map((item) => {
+                    const valueNode = isProspect ? (
+                      <span className="mt-3 inline-flex rounded-2xl bg-primary/5 px-3 py-2 text-xs font-semibold text-secondary">
+                        {infoLockedText}
+                      </span>
+                    ) : (
+                      item.value
+                    );
+                    return (
                     <div
                       key={item.label}
-                      className={`rounded-3xl bg-white p-6 shadow-lg ${
+                      className={`relative rounded-3xl bg-white p-6 shadow-lg ${
                         item.highlight ? "border border-accent/40" : "border border-white"
                       }`}
                     >
                       <p className="text-xs uppercase tracking-[0.2em] text-secondary">{item.label}</p>
-                      <p
-                        className={`mt-3 text-xl font-semibold ${
-                          item.highlight ? "text-accent" : "text-primary"
-                        }`}
-                      >
-                        {item.value}
-                      </p>
-                      {"extra" in item ? item.extra : null}
+                      {item.label === "Inversión total" ? (
+                        <button
+                          className={
+                            isProspect
+                              ? "mt-4 w-full rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
+                              : "absolute right-6 top-6 rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                          }
+                          onClick={() => {
+                            setSelectedImage({
+                              name: quoteButtonLabel,
+                              src: quoteImageSrc,
+                            });
+                          }}
+                        >
+                          {quoteButtonLabel}
+                        </button>
+                      ) : null}
+                      {isProspect ? (
+                        valueNode
+                      ) : (
+                        <p
+                          className={`mt-3 text-xl font-semibold ${
+                            item.highlight ? "text-accent" : "text-primary"
+                          }`}
+                        >
+                          {valueNode}
+                        </p>
+                      )}
+                      {!isProspect && "extra" in item ? item.extra : null}
                     </div>
-                  ))}
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  {installments.map((item) => {
-                    const paid = mockProject.pagos[item.key];
-                    return (
-                      <div
-                        key={item.key}
-                        className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary"
-                      >
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                          {item.label}
-                        </p>
-                        <p className="mt-2 text-sm font-semibold text-primary">
-                          {formatCurrency(paid)}
-                        </p>
-                      </div>
                     );
                   })}
                 </div>
+                {!isProspect ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    {installments.map((item) => {
+                      const payment = mockProject.pagos[item.key];
+                      return (
+                        <div
+                          key={item.key}
+                          className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                              {item.label}
+                            </p>
+                            <button
+                              className="rounded-full border border-primary/10 px-3 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                              onClick={() => {
+                                if ("receiptImage" in payment) {
+                                  setSelectedImage({
+                                    name: `${item.label} - Recibo`,
+                                    src: payment.receiptImage,
+                                  });
+                                }
+                              }}
+                            >
+                              {payment.receiptLabel ?? "Ver Recibo"}
+                            </button>
+                          </div>
+                          <p className="mt-2 text-sm font-semibold text-primary">
+                            {formatPayment(payment)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary">
+                    Los pagos se activarán una vez apruebes el inicio de tu proyecto.
+                  </div>
+                )}
+                <div className="mt-6 rounded-3xl border border-primary/10 bg-white p-6">
+                  <p className="text-xs uppercase tracking-[0.3em] text-secondary">Archivos</p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {filesInSections.map((file) => (
+                      <button
+                        key={file.id}
+                        className="inline-flex items-center gap-2 rounded-full border border-primary/10 px-4 py-2 text-xs font-semibold text-primary transition hover:border-accent hover:text-accent"
+                        onClick={() => {
+                          if (file.type === "jpg" && "src" in file) {
+                            setSelectedImage({
+                              name: file.name,
+                              src: file.src,
+                            });
+                          }
+                        }}
+                      >
+                        {file.type === "pdf" ? (
+                          <FileText className="h-4 w-4" />
+                        ) : (
+                          <ImageIcon className="h-4 w-4" />
+                        )}
+                        {file.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </section>
 
-              <section className="rounded-3xl bg-white p-8 shadow-lg">
+              <section
+                className={`rounded-3xl bg-white p-8 shadow-lg ${
+                  isProspect ? "opacity-60" : ""
+                }`}
+              >
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.3em] text-secondary">Timeline</p>
@@ -267,39 +430,52 @@ export default function SeguimientoPage() {
                   </div>
                 </div>
               </section>
+              {isProspect ? (
+                <div className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary">
+                  El seguimiento se activará cuando apruebes el inicio de tu proyecto.
+                </div>
+              ) : null}
 
-              <section className="space-y-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.3em] text-secondary">
-                    Tu carpeta digital
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold">Bóveda de archivos</h2>
+              {isProspect ? (
+                <div className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary">
+                  La garantía se activará una vez completemos tu proyecto.
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {mockProject.archivos.map((file) => (
-                    <div
-                      key={file.id}
-                      className="group rounded-3xl bg-white p-6 shadow-lg transition duration-300 hover:-translate-y-2"
-                    >
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/5 text-accent">
-                        {file.type === "pdf" ? (
-                          <FileText className="h-6 w-6" />
-                        ) : (
-                          <ImageIcon className="h-6 w-6" />
-                        )}
-                      </div>
-                      <p className="mt-4 text-sm font-semibold">{file.name}</p>
-                      <button className="mt-4 text-xs font-semibold text-secondary underline-offset-4 transition hover:text-accent">
-                        Descargar
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </section>
+              ) : mockProject.estadoProyecto === "Completado/Entregado" ? (
+                <section>
+                  <GarantiaCountdown startDate={mockProject.garantiaInicio} />
+                </section>
+              ) : null}
             </motion.div>
           )}
         </AnimatePresence>
       </div>
+      {selectedImage ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div
+            ref={modalRef}
+            tabIndex={-1}
+            className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <h3 className="text-lg font-semibold text-primary">{selectedImage.name}</h3>
+              <button
+                className="rounded-full border border-primary/10 px-3 py-1 text-xs font-semibold text-primary transition hover:border-accent hover:text-accent"
+                onClick={() => setSelectedImage(null)}
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="mt-4 overflow-hidden rounded-2xl bg-primary/5">
+              <img
+                src={selectedImage.src}
+                alt={selectedImage.name}
+                className="h-full w-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
+

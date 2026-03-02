@@ -16,7 +16,7 @@ export default function LoginPage() {
     if (status === "error") {
       return "Credenciales inválidas. Usa admin o empleado.";
     }
-    return "Acceso interno KUCHE. Simulado para demo.";
+    return "Acceso interno Küche. Simulado para demo.";
   }, [status]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -48,14 +48,14 @@ export default function LoginPage() {
         >
           <Image
             src="/images/cocina1.jpg"
-            alt="Cocina KUCHE"
+            alt="Cocina Küche"
             fill
             className="object-cover"
             priority
           />
           <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-black/50 to-black/60" />
           <div className="absolute inset-0 flex flex-col items-start justify-end p-10 text-white">
-            <p className="text-xs uppercase tracking-[0.3em] text-white/70">KUCHE</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/70">Küche</p>
             <h1 className="mt-3 text-3xl font-semibold">
               Ecosistema Interno
             </h1>
@@ -103,7 +103,7 @@ export default function LoginPage() {
                     type="password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder="••••••••"
+                    placeholder="⬢⬢⬢⬢⬢⬢⬢⬢"
                     className="w-full bg-transparent text-sm text-primary outline-none placeholder:text-secondary/60"
                     autoComplete="current-password"
                   />
@@ -137,3 +137,4 @@ export default function LoginPage() {
     </main>
   );
 }
+

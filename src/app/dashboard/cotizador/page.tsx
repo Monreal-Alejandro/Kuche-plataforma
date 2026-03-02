@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Minus, Plus } from "lucide-react";
 
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import {
   activeCitaTaskStorageKey,
   kanbanStorageKey,
@@ -164,6 +166,13 @@ export default function CotizadorPage() {
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemCategory, setNewItemCategory] = useState(initialCatalogoKuche[0]?.category ?? "");
   const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
+  const clientModalRef = useRef<HTMLDivElement | null>(null);
+  const addItemModalRef = useRef<HTMLDivElement | null>(null);
+
+  useEscapeClose(isClientModalOpen, () => setIsClientModalOpen(false));
+  useEscapeClose(isAddModalOpen, () => setIsAddModalOpen(false));
+  useFocusTrap(isClientModalOpen, clientModalRef);
+  useFocusTrap(isAddModalOpen, addItemModalRef);
 
   const metrosValue = Number.parseFloat(metrosLineales) || 0;
   const baseMaterial = baseMaterials.find((item) => item.id === materialBase) ?? baseMaterials[0];
@@ -999,7 +1008,11 @@ export default function CotizadorPage() {
 
       {isClientModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="w-full max-w-md rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur">
+          <div
+            ref={clientModalRef}
+            tabIndex={-1}
+            className="w-full max-w-md rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Agregar cliente</h3>
               <button
@@ -1072,7 +1085,11 @@ export default function CotizadorPage() {
 
       {isAddModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="w-full max-w-md rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur">
+          <div
+            ref={addItemModalRef}
+            tabIndex={-1}
+            className="w-full max-w-md rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">
                 {editingItemId ? "Editar material" : "Agregar material"}

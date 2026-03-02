@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, Ruler, Sparkles } from "lucide-react";
+
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 const stepTitles = [
   "Cliente",
@@ -69,6 +72,10 @@ export default function LevantamientoPage() {
   const [material, setMaterial] = useState("Granito Básico");
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [assignedTo, setAssignedTo] = useState(architects[0]);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEscapeClose(Boolean(selectedScenario), () => setSelectedScenario(null));
+  useFocusTrap(Boolean(selectedScenario), modalRef);
 
   const metrosNumber = Number.parseFloat(metros) || 0;
   const materialFactor = materialFactors[material] ?? 1;
@@ -384,6 +391,8 @@ export default function LevantamientoPage() {
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           >
             <motion.div
+              ref={modalRef}
+              tabIndex={-1}
               initial={{ y: 40, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 40, opacity: 0 }}
