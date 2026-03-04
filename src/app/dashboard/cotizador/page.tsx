@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Minus, Plus } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -54,6 +57,14 @@ const materialColors = [
   "Gris Grafito",
   "Fresno Arena",
 ];
+
+const materialThicknessOptions = ["15", "16", "18", "19"];
+const thicknessFactorsByMm: Record<string, number> = {
+  "15": 0.97,
+  "16": 1,
+  "18": 1.05,
+  "19": 1.08,
+};
 
 const initialCatalogoKuche = [
   {
@@ -146,14 +157,13 @@ export default function CotizadorPage() {
   const [largo, setLargo] = useState("4.2");
   const [alto, setAlto] = useState("2.4");
   const [fondo, setFondo] = useState("0.6");
-  const [metrosLineales, setMetrosLineales] = useState("6");
   const [materialBase, setMaterialBase] = useState(baseMaterials[0].id);
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(initialCatalogoKuche[0]?.category ?? "");
   const [materialSearch, setMaterialSearch] = useState("");
 
-  const [materialColor] = useState(materialColors[0]);
-  const [materialThickness] = useState("16");
+  const [materialColor, setMaterialColor] = useState(materialColors[0]);
+  const [materialThickness, setMaterialThickness] = useState("16");
   const [utilidadPct, setUtilidadPct] = useState(30);
   const [fletePct, setFletePct] = useState(2);
 
@@ -166,6 +176,9 @@ export default function CotizadorPage() {
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemCategory, setNewItemCategory] = useState(initialCatalogoKuche[0]?.category ?? "");
   const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
+  const [referenceImages, setReferenceImages] = useState<
+    Array<{ id: string; name: string; dataUrl: string }>
+  >([]);
   const clientModalRef = useRef<HTMLDivElement | null>(null);
   const addItemModalRef = useRef<HTMLDivElement | null>(null);
 
@@ -174,9 +187,9 @@ export default function CotizadorPage() {
   useFocusTrap(isClientModalOpen, clientModalRef);
   useFocusTrap(isAddModalOpen, addItemModalRef);
 
-  const metrosValue = Number.parseFloat(metrosLineales) || 0;
+  const metrosValue = Number.parseFloat(largo) || 0;
   const baseMaterial = baseMaterials.find((item) => item.id === materialBase) ?? baseMaterials[0];
-  const thicknessFactor = materialThickness === "19" ? 1.08 : 1;
+  const thicknessFactor = thicknessFactorsByMm[materialThickness] ?? 1;
 
   const materialSubtotal = metrosValue * baseMaterial.pricePerMeter * thicknessFactor;
 
@@ -405,6 +418,43 @@ export default function CotizadorPage() {
     setIsAddModalOpen(false);
   };
 
+  const handleReferenceImagesUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) {
+      return;
+    }
+    const loaded = await Promise.all(
+      files.map(
+        (file) =>
+          new Promise<{ id: string; name: string; dataUrl: string } | null>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              if (typeof reader.result !== "string") {
+                resolve(null);
+                return;
+              }
+              resolve({
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: file.name,
+                dataUrl: reader.result,
+              });
+            };
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
+    setReferenceImages((prev) => [
+      ...prev,
+      ...(loaded.filter(Boolean) as Array<{ id: string; name: string; dataUrl: string }>),
+    ].slice(0, 6));
+    event.target.value = "";
+  };
+
+  const handleRemoveReferenceImage = (imageId: string) => {
+    setReferenceImages((prev) => prev.filter((image) => image.id !== imageId));
+  };
+
   const handleDeleteMaterial = (itemId: string) => {
     setCatalogoKuche((prev) =>
       prev.map((category) => ({
@@ -494,37 +544,377 @@ export default function CotizadorPage() {
     printWindow.onload = () => printWindow.print();
   };
 
-  const handleGenerateClientPdf = () => {
-    const logoUrl = new URL("/images/kuche-logo.png", window.location.origin).toString();
-    const bodyHtml = `
-      <div class="header">
-        <img src="${logoUrl}" alt="Kuche" class="logo" />
-        <div>
-          <h1>Cotización Cliente</h1>
-          <p class="muted">${new Date().toLocaleDateString("es-MX")}</p>
-        </div>
-      </div>
-      <div class="meta">
-        <p class="muted">${client || "Cliente sin nombre"} · ${projectType}</p>
-        <p class="muted">${location || "Ubicación sin definir"} · ${installDate || "Fecha sin definir"}</p>
-      </div>
-      <div class="section card">
-        <div class="row">
-          <span class="muted">Total</span>
-          <strong>${formatCurrency(precioTotalSinIva)}</strong>
-        </div>
-        <div class="row">
-          <span class="muted">IVA (16%)</span>
-          <strong>${formatCurrency(montoIva)}</strong>
-        </div>
-        <hr class="divider" />
-        <div class="row">
-          <span class="muted">Total Neto</span>
-          <span class="total">${formatCurrency(totalNeto)}</span>
-        </div>
-      </div>
-    `;
-    buildPrintWindow("Cotización Cliente", bodyHtml);
+  const getImageDataUrl = async (imageUrl: string) => {
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      return null;
+    }
+    const blob = await response.blob();
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve(typeof reader.result === "string" ? reader.result : null);
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const normalizeImageForPdf = async (dataUrl: string) => {
+    return await new Promise<string | null>((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(image, 0, 0);
+        resolve(canvas.toDataURL("image/jpeg", 0.9));
+      };
+      image.onerror = () => resolve(null);
+      image.src = dataUrl;
+    });
+  };
+
+  const handleGenerateClientPdf = async () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const doc = new jsPDF({ unit: "pt", format: "letter" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 42;
+    const contentWidth = pageWidth - marginX * 2;
+    const brandColor: [number, number, number] = [97, 28, 28];
+    const accentColor: [number, number, number] = [17, 24, 39];
+    const darkColor: [number, number, number] = [31, 41, 55];
+    const mutedColor: [number, number, number] = [100, 116, 139];
+    const softFill: [number, number, number] = [248, 250, 252];
+    const lightBorder: [number, number, number] = [226, 232, 240];
+    const dateLabel = new Date().toLocaleDateString("es-MX");
+
+    const normalizedType = projectType.toLowerCase();
+    const formalProjectType = normalizedType.includes("cocina")
+      ? "COCINA"
+      : normalizedType.includes("cl") || normalizedType.includes("vest")
+        ? "VESTIDOR O CLÓSET"
+        : normalizedType.includes("bañ") || normalizedType.includes("ban")
+          ? "BAÑOS"
+          : normalizedType.includes("tv")
+            ? "TV UNIT"
+            : projectType.toUpperCase();
+
+    const selectedLines = catalogoKuche.flatMap((category) =>
+      category.items
+        .map((item) => {
+          const qty = Math.max(quantities[item.id] ?? 0, 0);
+          if (!qty) {
+            return null;
+          }
+          return {
+            category: category.category,
+            label: item.label,
+            qty,
+            total: item.unitPrice * qty,
+          };
+        })
+        .filter(
+          (line): line is { category: string; label: string; qty: number; total: number } =>
+            line !== null,
+        ),
+    );
+
+    const drawersQty = selectedLines
+      .filter((line) => /caj[oó]n/i.test(line.label))
+      .reduce((acc, line) => acc + line.qty, 0);
+    const zocloQty = selectedLines
+      .filter((line) => /zoclo/i.test(line.label))
+      .reduce((acc, line) => acc + line.qty, 0);
+    const spotsQty = selectedLines
+      .filter((line) => /spot/i.test(line.label))
+      .reduce((acc, line) => acc + line.qty, 0);
+    const extrasSummary = selectedLines
+      .slice(0, 4)
+      .map((line) => `${line.label} (${line.qty})`)
+      .join(", ");
+    const hasElectroCategorySelections = selectedLines.some((line) =>
+      /electrodom/i.test(line.category),
+    );
+
+    const largoValue = Number.parseFloat(largo) || 0;
+    const altoValue = Number.parseFloat(alto) || 0;
+    const fondoValue = Number.parseFloat(fondo) || 0;
+    const metrosLinealesForDescription = largoValue;
+    const basePrice = Math.round(precioTotalSinIva);
+    const projectPrice = Math.round(totalNeto);
+    const anticipo = Math.round(projectPrice * 0.5);
+    const primerDia = Math.round(projectPrice * 0.25);
+    const finiquito = projectPrice - anticipo - primerDia;
+    const ivaEstimado = Math.round(montoIva);
+
+    const projectDescription =
+      `Proyecto de ${formalProjectType} fabricado en ${baseMaterial.label} (${materialThickness}mm), ` +
+      `tono ${materialColor.toLowerCase()}, con medidas generales de ` +
+      `${largoValue.toFixed(1)}m de largo, ${altoValue.toFixed(1)}m de alto y ${fondoValue.toFixed(1)}m de fondo, ` +
+      `considerando ${metrosLinealesForDescription.toFixed(1)} m lineales. ` +
+      "Incluye fabricación e instalación de módulos y componentes seleccionados.";
+
+    const specs = [
+      `Este proyecto cuenta con ${drawersQty} cajones seleccionados.`,
+      "Todas las puertas en este proyecto consideran cierre suave.",
+      `Este proyecto cuenta con ${zocloQty} elementos de zoclo.`,
+      spotsQty
+        ? `Este proyecto considera ${spotsQty} spots de iluminación.`
+        : "Este proyecto no considera spots de iluminación.",
+      extrasSummary
+        ? `Accesorios y conceptos principales: ${extrasSummary}.`
+        : "Accesorios y conceptos principales por definir en visita técnica.",
+    ];
+
+    const legalNotes = [
+      "Se requiere el 50% como anticipo, un 25% al iniciar la instalación y el 25% restante al finalizar la instalación.",
+      hasElectroCategorySelections
+        ? "La presente propuesta sí incluye conceptos de la categoría Extraíbles y electrodomésticos según la selección del cliente."
+        : "La cotización no incluye ningún electrodoméstico salvo que se indique por separado.",
+      "Las medidas de los muebles pueden variar dependiendo de las medidas finales del espacio.",
+      "Tiempo de entrega estimado: 8 a 9 semanas.",
+      `Precio base sin IVA: ${formatCurrency(basePrice)}. IVA estimado: ${formatCurrency(ivaEstimado)}.`,
+      "Vigencia de la cotización: 15 días naturales.",
+    ];
+
+    const getTableFinalY = () =>
+      (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? 0;
+    const ensureSpace = (currentY: number, requiredHeight: number) => {
+      if (currentY + requiredHeight <= pageHeight - 52) {
+        return currentY;
+      }
+      doc.addPage();
+      return 56;
+    };
+    const drawSectionTitle = (title: string, y: number) => {
+      doc.setDrawColor(lightBorder[0], lightBorder[1], lightBorder[2]);
+      doc.line(marginX, y + 4, marginX + contentWidth, y + 4);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10.5);
+      doc.setTextColor(brandColor[0], brandColor[1], brandColor[2]);
+      doc.text(title, marginX, y);
+    };
+
+    const logoDataUrl = await getImageDataUrl(new URL("/images/kuche-logo.png", window.location.origin).toString());
+
+    doc.setFillColor(brandColor[0], brandColor[1], brandColor[2]);
+    doc.roundedRect(marginX, 28, contentWidth, 78, 10, 10, "F");
+    doc.setFillColor(accentColor[0], accentColor[1], accentColor[2]);
+    doc.roundedRect(marginX + contentWidth - 180, 28, 180, 78, 10, 10, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(17);
+    if (logoDataUrl) {
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(marginX + 12, 38, 112, 58, 6, 6, "F");
+      doc.addImage(logoDataUrl, "PNG", marginX + 18, 44, 100, 44, undefined, "FAST");
+    }
+    doc.text("KUCHE", marginX + 132, 54);
+    doc.setFontSize(13);
+    doc.text("COTIZACIÓN FORMAL", marginX + 132, 75);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.text("Mobiliario residencial a medida", marginX + 132, 91);
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    const rightInfoLabelX = marginX + contentWidth - 164;
+    const rightInfoValueX = marginX + contentWidth - 16;
+    doc.text("FECHA", rightInfoLabelX, 53);
+    doc.text("TIPO DE PROYECTO", rightInfoLabelX, 79);
+    doc.setFont("helvetica", "normal");
+    doc.text(dateLabel, rightInfoValueX, 53, { align: "right" });
+    const wrappedProjectType = doc.splitTextToSize(formalProjectType, 84);
+    wrappedProjectType.forEach((line: string, index: number) => {
+      doc.text(line, rightInfoValueX, 79 + index * 9, { align: "right" });
+    });
+
+    autoTable(doc, {
+      startY: 122,
+      body: [
+        ["CLIENTE", client || "Pendiente de definir"],
+        ["DIRECCIÓN", location || "Pendiente de definir"],
+        ["FECHA", dateLabel],
+        ["TIPO DE PROYECTO", formalProjectType],
+        ["FECHA DE INSTALACIÓN", installDate || "Por definir"],
+      ],
+      theme: "grid",
+      styles: {
+        fontSize: 9,
+        textColor: darkColor,
+        lineColor: lightBorder,
+        lineWidth: 0.5,
+        cellPadding: 6,
+      },
+      columnStyles: {
+        0: { cellWidth: 150, fontStyle: "bold", fillColor: softFill },
+        1: { cellWidth: contentWidth - 150 },
+      },
+      margin: { left: marginX, right: marginX },
+    });
+
+    const baseInfoY = getTableFinalY() + 18;
+    drawSectionTitle("APARTADO Y DESCRIPCIÓN", baseInfoY);
+
+    autoTable(doc, {
+      startY: baseInfoY + 8,
+      head: [["APARTADO", "DESCRIPCIÓN", "PRECIO"]],
+      body: [["C-1", projectDescription, formatCurrency(projectPrice)]],
+      theme: "grid",
+      styles: {
+        fontSize: 9,
+        textColor: darkColor,
+        lineColor: lightBorder,
+        lineWidth: 0.5,
+        cellPadding: 6,
+      },
+      headStyles: { fillColor: softFill, textColor: darkColor, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 76, halign: "center", fontStyle: "bold" },
+        1: { cellWidth: contentWidth - 214 },
+        2: { cellWidth: 138, halign: "right", fontStyle: "bold" },
+      },
+      margin: { left: marginX, right: marginX },
+    });
+
+    let cursorY = getTableFinalY() + 18;
+    cursorY = ensureSpace(cursorY, 150);
+    drawSectionTitle("DETALLES DE PROYECTO", cursorY);
+    cursorY += 16;
+
+    doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.text("ESPECIFICACIONES DE PROYECTO", marginX + 4, cursorY);
+    cursorY += 14;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    specs.forEach((line) => {
+      const wrapped = doc.splitTextToSize(`• ${line}`, contentWidth - 8);
+      doc.text(wrapped, marginX + 4, cursorY);
+      cursorY += wrapped.length * 10.5 + 3;
+    });
+
+    cursorY += 4;
+    const pdfReferenceImages = await Promise.all(
+      referenceImages.slice(0, 4).map(async (image) => ({
+        ...image,
+        pdfDataUrl: await normalizeImageForPdf(image.dataUrl),
+      })),
+    );
+    const imageRows = Math.max(1, Math.ceil(pdfReferenceImages.length / 2));
+    const imageAreaHeight = pdfReferenceImages.length ? imageRows * 94 + 12 : 56;
+    cursorY = ensureSpace(cursorY, imageAreaHeight + 24);
+    drawSectionTitle("IMÁGENES DE REFERENCIA", cursorY);
+    cursorY += 10;
+    doc.setDrawColor(lightBorder[0], lightBorder[1], lightBorder[2]);
+    doc.roundedRect(marginX, cursorY, contentWidth, imageAreaHeight, 8, 8, "S");
+    if (!pdfReferenceImages.length) {
+      doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2]);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8.5);
+      doc.text(
+        "Espacio reservado para renders o imágenes aprobadas en visita comercial.",
+        marginX + 10,
+        cursorY + 33,
+      );
+    } else {
+      const gridPadding = 8;
+      const cellGap = 10;
+      const cellWidth = (contentWidth - gridPadding * 2 - cellGap) / 2;
+      const cellHeight = 84;
+      pdfReferenceImages.forEach((image, index) => {
+        const col = index % 2;
+        const row = Math.floor(index / 2);
+        const cellX = marginX + gridPadding + col * (cellWidth + cellGap);
+        const cellY = cursorY + gridPadding + row * 94;
+        doc.roundedRect(cellX, cellY, cellWidth, cellHeight, 6, 6, "S");
+        try {
+          if (!image.pdfDataUrl) {
+            throw new Error("invalid-image");
+          }
+          doc.addImage(
+            image.pdfDataUrl,
+            "JPEG",
+            cellX + 2,
+            cellY + 2,
+            cellWidth - 4,
+            cellHeight - 4,
+            undefined,
+            "FAST",
+          );
+        } catch {
+          doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2]);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.text("No se pudo renderizar imagen", cellX + 8, cellY + 18);
+        }
+      });
+    }
+
+    cursorY += imageAreaHeight + 20;
+    cursorY = ensureSpace(cursorY, 180);
+    drawSectionTitle("CONDICIONES Y FORMA DE PAGO", cursorY);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2]);
+    let notesCursor = cursorY + 18;
+    legalNotes.forEach((note) => {
+      const wrapped = doc.splitTextToSize(`• ${note}`, contentWidth - 6);
+      doc.text(wrapped, marginX + 3, notesCursor);
+      notesCursor += wrapped.length * 9.5 + 2;
+    });
+
+    autoTable(doc, {
+      startY: notesCursor + 6,
+      head: [["CONCEPTO", "%", "MONTO"]],
+      body: [
+        ["PAGO INICIAL DE CONTRATO", "50%", formatCurrency(anticipo)],
+        ["PRIMER DÍA DE INSTALACIÓN", "25%", formatCurrency(primerDia)],
+        ["FINIQUITO", "25%", formatCurrency(finiquito)],
+        ["TOTAL", "100%", formatCurrency(projectPrice)],
+      ],
+      theme: "grid",
+      styles: {
+        fontSize: 9,
+        textColor: darkColor,
+        lineColor: lightBorder,
+        lineWidth: 0.5,
+        cellPadding: 6,
+      },
+      headStyles: { fillColor: softFill, textColor: darkColor, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: contentWidth - 198, fontStyle: "bold" },
+        1: { cellWidth: 60, halign: "center" },
+        2: { cellWidth: 138, halign: "right", fontStyle: "bold" },
+      },
+      margin: { left: marginX, right: marginX },
+    });
+
+    const footerY = pageHeight - 36;
+    doc.setDrawColor(lightBorder[0], lightBorder[1], lightBorder[2]);
+    doc.line(marginX, footerY - 18, marginX + contentWidth, footerY - 18);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2]);
+    doc.setFontSize(8);
+    doc.text("Copal No. 303 Fracc. Vista Hermosa · Tel. 618 101 7363", marginX, footerY - 2);
+    doc.text("cocinasinteligentesdgo@gmail.com", marginX, footerY + 10);
+
+    doc.save(`cotizacion-formal-${(client || "cliente").replace(/\s+/g, "-").toLowerCase()}.pdf`);
   };
 
   const handleGenerateWorkshopPdf = () => {
@@ -751,6 +1141,60 @@ export default function CotizadorPage() {
           <p className="mt-2 text-sm text-secondary">
             Ajusta materiales, herrajes y extras. El precio final se actualiza en tiempo real.
           </p>
+        </div>
+
+        <div className="rounded-3xl border border-primary/10 bg-white p-6">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-secondary">Base técnica</p>
+            <h3 className="mt-2 text-lg font-semibold">Materiales de referencia del proyecto</h3>
+            <p className="mt-1 text-xs text-secondary">
+              Estos valores se usan en el resumen comercial y en la descripción del PDF.
+            </p>
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <label className="text-xs font-semibold text-secondary">
+              Material base
+              <select
+                value={materialBase}
+                onChange={(event) => setMaterialBase(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+              >
+                {baseMaterials.map((material) => (
+                  <option key={material.id} value={material.id}>
+                    {material.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-secondary">
+              Color material
+              <select
+                value={materialColor}
+                onChange={(event) => setMaterialColor(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+              >
+                {materialColors.map((color) => (
+                  <option key={color} value={color}>
+                    {color}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-secondary">
+              Espesor (mm)
+              <select
+                value={materialThickness}
+                onChange={(event) => setMaterialThickness(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+              >
+                {materialThicknessOptions.map((thickness) => (
+                  <option key={thickness} value={thickness}>
+                    {thickness} mm
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-3">
@@ -1006,6 +1450,57 @@ export default function CotizadorPage() {
         </div>
       </motion.section>
 
+      <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
+        <div>
+          <h2 className="text-2xl font-semibold">Sección C · Imágenes de referencia</h2>
+          <p className="mt-2 text-sm text-secondary">
+            Sube renders o fotos relacionadas al proyecto para incluirlas en la cotización formal.
+          </p>
+        </div>
+        <div className="rounded-3xl border border-dashed border-primary/20 bg-white p-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex cursor-pointer items-center rounded-2xl bg-accent px-4 py-2 text-xs font-semibold text-white">
+              Subir imágenes
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleReferenceImagesUpload}
+                className="hidden"
+              />
+            </label>
+            <p className="text-xs text-secondary">
+              Puedes cargar hasta 6 imágenes. El PDF mostrará las primeras 4.
+            </p>
+          </div>
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {referenceImages.map((image) => (
+              <div
+                key={image.id}
+                className="overflow-hidden rounded-2xl border border-primary/10 bg-white shadow-sm"
+              >
+                <img src={image.dataUrl} alt={image.name} className="h-40 w-full object-cover" />
+                <div className="flex items-center justify-between gap-2 p-3">
+                  <p className="truncate text-xs text-secondary">{image.name}</p>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveReferenceImage(image.id)}
+                    className="rounded-xl border border-rose-200 px-2 py-1 text-[11px] font-semibold text-rose-600"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!referenceImages.length ? (
+              <div className="col-span-full rounded-2xl border border-dashed border-primary/20 bg-primary/5 px-4 py-8 text-center text-xs font-semibold text-secondary">
+                Aún no has subido imágenes de referencia.
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
       {isClientModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
           <div
@@ -1166,7 +1661,7 @@ export default function CotizadorPage() {
 
       <section className="space-y-6">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Sección C · Estimación visual</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Sección D · Estimación visual</p>
           <h2 className="mt-2 text-2xl font-semibold">Selecciona el Nivel de Acabados</h2>
           <p className="mt-2 text-sm text-secondary">
             Galería de niveles basada en metros lineales y material base.
@@ -1220,7 +1715,7 @@ export default function CotizadorPage() {
 
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
         <div>
-          <h2 className="text-2xl font-semibold">Sección D · Cierre y documentación</h2>
+          <h2 className="text-2xl font-semibold">Sección E · Cierre y documentación</h2>
           <p className="mt-2 text-sm text-secondary">
             Resumen ejecutivo y generación de documentos para cliente y taller.
           </p>
