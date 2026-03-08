@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Captcha from "@/components/Captcha";
+import { crearCita, type CitaCreate } from "@/lib/axios/citasApi";
 
 export default function BookingSection() {
   const weekDays = ["L", "M", "M", "J", "V", "S", "D"];
@@ -39,6 +40,7 @@ export default function BookingSection() {
   const [formError, setFormError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [captchaToken, setCaptchaToken] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingSummary, setPendingSummary] = useState<{
     dateLabel: string;
     time: string;
@@ -58,6 +60,67 @@ export default function BookingSection() {
       return day > 0 && day <= totalDays ? day : null;
     });
   }, [currentMonth]);
+
+  const resetForm = () => {
+    setSelectedDate(today);
+    setSelectedTime("12:00");
+    setLocation("capital");
+    setOtherLocation("");
+    setFullName("");
+    setPhone("");
+    setEmail("");
+    setCaptchaToken("");
+    setFormMessage(null);
+    setFormError(null);
+    setPendingSummary(null);
+  };
+
+  const handleConfirmBooking = async () => {
+    if (!selectedDate || !pendingSummary) return;
+
+    setIsSubmitting(true);
+    setIsModalOpen(false);
+
+    try {
+      // Formatear la fecha al formato que espera el backend
+      const fechaAgendada = new Date(selectedDate);
+      const [hours, minutes] = selectedTime.split(":");
+      fechaAgendada.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+
+      const citaData: CitaCreate = {
+        fechaAgendada: fechaAgendada.toISOString(),
+        nombreCliente: fullName.trim(),
+        correoCliente: email.trim(),
+        telefonoCliente: phone.trim(),
+        ubicacion: location === "capital" ? "Durango Capital" : otherLocation.trim(),
+        informacionAdicional: `Horario solicitado: ${selectedTime}`,
+      };
+
+      const response = await crearCita(citaData);
+
+      if (response.success) {
+        setFormMessage(
+          "¡Cita agendada exitosamente! Te contactaremos pronto para confirmar."
+        );
+        setFormError(null);
+        resetForm();
+      } else {
+        setFormError(
+          response.message || "No se pudo agendar la cita. Intenta nuevamente."
+        );
+        setFormMessage(null);
+      }
+    } catch (error) {
+      console.error("Error al crear la cita:", error);
+      setFormError(
+        "Ocurrió un error al procesar tu solicitud. Por favor, intenta de nuevo."
+      );
+      setFormMessage(null);
+    } finally {
+      setIsSubmitting(false);
+      setPendingSummary(null);
+    }
+  };
 
   return (
     <section id="agendar-cita" className="bg-background px-4 pb-12">
@@ -350,9 +413,10 @@ export default function BookingSection() {
 
           <button
             type="submit"
-            className="mt-5 w-full rounded-2xl bg-accent py-4 text-xs font-semibold uppercase tracking-[0.4em] text-white shadow-lg shadow-accent/30 transition hover:-translate-y-0.5"
+            disabled={isSubmitting}
+            className="mt-5 w-full rounded-2xl bg-accent py-4 text-xs font-semibold uppercase tracking-[0.4em] text-white shadow-lg shadow-accent/30 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Agendar visita
+            {isSubmitting ? "Procesando..." : "Agendar visita"}
           </button>
         </div>
         {isModalOpen && pendingSummary ? (
@@ -388,21 +452,17 @@ export default function BookingSection() {
                   type="button"
                   className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-secondary"
                   onClick={() => setIsModalOpen(false)}
+                  disabled={isSubmitting}
                 >
                   Editar
                 </button>
                 <button
                   type="button"
-                  className="flex-1 rounded-lg bg-accent px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white"
-                  onClick={() => {
-                    setIsModalOpen(false);
-                    setFormMessage(
-                      "Listo. Te contactaremos para confirmar tu visita.",
-                    );
-                    setPendingSummary(null);
-                  }}
+                  className="flex-1 rounded-lg bg-accent px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={handleConfirmBooking}
+                  disabled={isSubmitting}
                 >
-                  Confirmar
+                  {isSubmitting ? "Enviando..." : "Confirmar"}
                 </button>
               </div>
             </div>
