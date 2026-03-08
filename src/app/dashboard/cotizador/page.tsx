@@ -1,19 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
-import { catalogosApi, cotizacionesApi } from "@/lib/axios";
-import type { Material, Herraje } from "@/lib/axios/catalogosApi";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { Minus, Plus } from "lucide-react";
 
-import {
-  activeCitaTaskStorageKey,
-  kanbanStorageKey,
-  initialKanbanTasks,
-  type KanbanTask,
-} from "@/lib/kanban";
-
-const projectTypes = ["Cocina", "Closet", "vestidor", "Mueble para el baño"];
+const projectTypes = ["Cocina", "Clóset", "TV Unit"];
+const baseMaterials = [
+  { id: "melamina", label: "Melamina", pricePerMeter: 6500 },
+  { id: "mdf", label: "MDF", pricePerMeter: 7800 },
+  { id: "tech", label: "Tech", pricePerMeter: 9800 },
+];
 
 const scenarioCards = [
   {
@@ -65,16 +61,6 @@ const formatCurrency = (value: number) =>
   }).format(value);
 
 export default function CotizadorPage() {
-  const router = useRouter();
-  // Estados para mensajes y carga
-  const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
-  
-  // Estados de catálogos desde backend
-  const [baseMaterials, setBaseMaterials] = useState<Material[]>([]);
-  const [herrajesCatalog, setHerrajesCatalog] = useState<Herraje[]>([]);
-  
   const [clients, setClients] = useState([
     { name: "Mariana Fuentes", phone: "", email: "" },
     { name: "Arquitectura F4 Studio", phone: "", email: "" },
@@ -101,25 +87,64 @@ export default function CotizadorPage() {
   const [materialThickness, setMaterialThickness] = useState("16");
   const [utilidadPct, setUtilidadPct] = useState(30);
   const [fletePct, setFletePct] = useState(2);
-  const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
 
-  const [hardware, setHardware] = useState<Record<string, { enabled: boolean; qty: number }>>(
-    () =>
-      hardwareCatalog.reduce(
-        (acc, item) => {
-          acc[item.id] = { enabled: item.id === "correderas", qty: 6 };
-          return acc;
-        },
-        {} as Record<string, { enabled: boolean; qty: number }>,
-      ),
-  );
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const openMenuRef = useRef<HTMLDivElement | null>(null);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemPrice, setNewItemPrice] = useState("");
+  const [newItemCategory, setNewItemCategory] = useState(initialCatalogoKuche[0]?.category ?? "");
 
-  const [labor, setLabor] = useState("12000");
-  const [flete, setFlete] = useState("2500");
-  const [instalacion, setInstalacion] = useState("4800");
-  const [desinstalacion, setDesinstalacion] = useState("0");
+  const metrosValue = Number.parseFloat(metrosLineales) || 0;
+  const baseMaterial = baseMaterials.find((item) => item.id === materialBase) ?? baseMaterials[0];
+  const thicknessFactor = materialThickness === "19" ? 1.08 : 1;
 
-  // Cargar catálogos desde backend
+  const materialSubtotal = metrosValue * baseMaterial.pricePerMeter * thicknessFactor;
+
+  const baseCost = useMemo(() => {
+    return catalogoKuche.reduce((acc, category) => {
+      const categoryTotal = category.items.reduce((itemsAcc, item) => {
+        const qty = Math.max(quantities[item.id] ?? 0, 0);
+        return itemsAcc + item.unitPrice * qty;
+      }, 0);
+      return acc + categoryTotal;
+    }, 0);
+  }, [catalogoKuche, quantities]);
+
+  const totales = useMemo(() => {
+    const costoBaseDirecto = baseCost;
+    const montoUtilidad = costoBaseDirecto * (utilidadPct / 100);
+    const montoFlete = costoBaseDirecto * (fletePct / 100);
+    const subtotalComercial = costoBaseDirecto + montoUtilidad + montoFlete;
+    const montoIva = subtotalComercial * 0.16;
+    const totalNeto = subtotalComercial + montoIva;
+
+    return {
+      costoBaseDirecto,
+      montoUtilidad,
+      montoFlete,
+      subtotalComercial,
+      montoIva,
+      totalNeto,
+    };
+  }, [baseCost, utilidadPct, fletePct]);
+
+  const precioTotalSinIva = totales.subtotalComercial;
+  const montoIva = totales.montoIva;
+  const totalNeto = totales.totalNeto;
+
+  const handleQuantityChange = (id: string, value: number) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [id]: Math.max(value, 0),
+    }));
+  };
+
+  const activeCategory =
+    catalogoKuche.find((category) => category.category === activeTab) ?? catalogoKuche[0];
+
   useEffect(() => {
     const cargarCatalogos = async () => {
       try {
@@ -151,6 +176,13 @@ export default function CotizadorPage() {
     };
 
     cargarCatalogos();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    setActiveCitaTaskId(window.localStorage.getItem(activeCitaTaskStorageKey));
   }, []);
 
   useEffect(() => {
@@ -253,14 +285,21 @@ export default function CotizadorPage() {
     }
   };
 
-  const handleGenerarPDFCliente = async () => {
-    setErrorMessage("Función de generar PDF en desarrollo");
-    // TODO: Implementar cuando el backend tenga el endpoint
-  };
-
-  const handleGenerarHojaTaller = async () => {
-    setErrorMessage("Función de hoja de taller en desarrollo");
-    // TODO: Implementar cuando el backend tenga el endpoint
+  const handleDeleteMaterial = (itemId: string) => {
+    setCatalogoKuche((prev) =>
+      prev.map((category) => ({
+        ...category,
+        items: category.items.filter((item) => item.id !== itemId),
+      })),
+    );
+    setQuantities((prev) => {
+      if (!(itemId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
   };
 
   const handleFinishCita = () => {
@@ -302,24 +341,6 @@ export default function CotizadorPage() {
           Fusiona una experiencia visual con un desglose técnico riguroso para el taller.
         </p>
       </div>
-
-      {activeCitaTaskId ? (
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-primary/10 bg-white/80 p-5 shadow-md backdrop-blur-md">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cita en curso</p>
-            <p className="mt-2 text-sm text-secondary">
-              Al terminar la cita se marcará como completada en el tablero.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleFinishCita}
-            className="rounded-2xl bg-accent px-5 py-3 text-xs font-semibold text-white"
-          >
-            Terminar cita
-          </button>
-        </div>
-      ) : null}
 
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
         <div>

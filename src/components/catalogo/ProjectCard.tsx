@@ -52,9 +52,9 @@ export default function ProjectCard({ project }: ProjectCardProps) {
   const currentImage = project.images[selectedImageIndex];
 
   return (
-    <article className="rounded-3xl bg-surface p-5 shadow-lg">
-      <div className="grid gap-6 lg:grid-cols-[3fr_2fr] lg:grid-rows-[auto_auto] lg:items-start">
-        <div className="relative aspect-[16/10] w-full overflow-hidden rounded-3xl lg:col-start-1 lg:row-start-1">
+    <article className="rounded-3xl bg-surface p-4 shadow-lg">
+      <div className="grid gap-4 lg:grid-cols-[3fr_2fr] lg:grid-rows-[auto_auto] lg:items-start">
+        <div className="relative aspect-[16/10] w-full overflow-hidden rounded-2xl lg:col-start-1 lg:row-start-1">
           <Image
             src={currentImage.src}
             alt={currentImage.alt}
@@ -105,8 +105,8 @@ export default function ProjectCard({ project }: ProjectCardProps) {
           })}
         </div>
 
-        <div className="flex flex-col gap-4 lg:col-start-1 lg:row-start-2">
-          <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
+        <div className="flex flex-col gap-3 lg:col-start-1 lg:row-start-2">
+          <div className="flex flex-wrap justify-center gap-2 sm:gap-3">
             {project.images.map((image, index) => {
               const isSelected = index === selectedImageIndex;
               return (
@@ -114,7 +114,7 @@ export default function ProjectCard({ project }: ProjectCardProps) {
                   key={`${project.id}-${image.src}`}
                   type="button"
                   onClick={() => setSelectedImageIndex(index)}
-                  className={`relative h-16 w-24 overflow-hidden rounded-2xl border transition sm:h-18 sm:w-28 md:h-20 md:w-32 ${
+                  className={`relative h-14 w-20 overflow-hidden rounded-2xl border transition sm:h-16 sm:w-24 md:h-18 md:w-28 ${
                     isSelected
                       ? "border-accent"
                       : "border-transparent hover:border-accent/40"
@@ -132,8 +132,8 @@ export default function ProjectCard({ project }: ProjectCardProps) {
           </div>
         </div>
 
-        <div className="flex h-full flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:h-full">
-          <div className="flex flex-col gap-4">
+        <div className="flex h-full flex-col gap-3 lg:col-start-2 lg:row-start-1 lg:h-full">
+          <div className="flex flex-col gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent">
                 {project.category}
@@ -146,7 +146,7 @@ export default function ProjectCard({ project }: ProjectCardProps) {
               </p>
             </div>
 
-            <div className="flex flex-col gap-[0.5cm] text-[13px] leading-relaxed text-secondary">
+            <div className="flex flex-col gap-3 text-[13px] leading-relaxed text-secondary">
               {project.details.map((detail) => (
                 <p key={`${project.id}-${detail.label}`} className="m-0">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">

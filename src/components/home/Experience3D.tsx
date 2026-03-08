@@ -37,6 +37,13 @@ const experienceSteps: ExperienceStep[] = [
   },
   {
     id: "paso-05",
+    title: "Seguimiento en línea",
+    description:
+      "Accede a tu portal privado para ver pagos, renders y avances en tiempo real.",
+    image: "/images/render4.jpg",
+  },
+  {
+    id: "paso-06",
     title: "Instalación y Entrega",
     description: "Montaje limpio y garantía de satisfacción.",
     image: "/images/cocina12.jpg",
