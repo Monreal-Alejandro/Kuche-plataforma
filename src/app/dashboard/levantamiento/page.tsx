@@ -1,3 +1,34 @@
+/**
+ * Levantamiento - Sistema de Captura de Datos del Cliente
+ * 
+ * Componente multi-paso para recopilar información del cliente y su proyecto:
+ * - Datos del cliente (nombre, contacto, dirección)
+ * - Geometría del espacio (metros lineales, forma)
+ * - Necesidades específicas (electrodomésticos, almacenamiento)
+ * - Selección de escenarios y materiales
+ * - Cálculo de presupuesto preliminar
+ * 
+ * Funcionalidades principales:
+ * - Formulario multi-paso con validaciones
+ * - Cálculo dinámico de precios según dimensiones y materiales
+ * - Integración con backend para guardar levantamientos
+ * - Carga de catálogos (clientes, materiales, acabados)
+ * - Generación automática de presupuesto base
+ * 
+ * Estado actual:
+ * - ✅ Código funcional con backend integrado
+ * - ✅ Merge conflicts resueltos
+ * - ⏳ Pendiente: Mejorar documentación y organización
+ * 
+ * TODOs:
+ * 1. Validar campos obligatorios antes de avanzar pasos
+ * 2. Agregar preview de geometría seleccionada
+ * 3. Implementar guardado de borradores
+ * 
+ * @author Frontend Team
+ * @version 2.0 - Resuelto merge conflicts
+ */
+
 "use client";
 
 import { useMemo, useRef, useState, useEffect } from "react";
@@ -8,6 +39,11 @@ import { levantamientosApi, catalogosApi, usuariosApi, type Usuario } from "@/li
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
+/* ========================================================================
+   CONSTANTES Y CONFIGURACIÓN
+   ======================================================================== */
+
+// Títulos de los pasos del formulario multi-paso
 const stepTitles = [
   "Cliente",
   "Geometría",
@@ -16,14 +52,23 @@ const stepTitles = [
   "Cierre",
 ];
 
+// Precio base para calcular el presupuesto
 const basePrice = 5000;
 
+/**
+ * Factores multiplicadores según el tipo de material de cubierta
+ * Se aplican al precio base para calcular el costo final
+ */
 const materialFactors: Record<string, number> = {
   "Granito Básico": 1,
   Cuarzo: 1.2,
   "Piedra Sinterizada": 1.5,
 };
 
+/**
+ * Escenarios/estilos disponibles para el proyecto
+ * Cada uno tiene un multiplicador que afecta el precio final
+ */
 const scenarios = [
   {
     id: "esencial",
@@ -108,13 +153,11 @@ export default function LevantamientoPage() {
       console.error("Error cargando datos iniciales:", error);
     }
   };
-=======
-  const [assignedTo, setAssignedTo] = useState(architects[0]);
+
   const modalRef = useRef<HTMLDivElement | null>(null);
 
   useEscapeClose(Boolean(selectedScenario), () => setSelectedScenario(null));
   useFocusTrap(Boolean(selectedScenario), modalRef);
->>>>>>> b7010d078152a0d6731e17c72b92f877a8c1b5f3
 
   const metrosNumber = Number.parseFloat(metros) || 0;
   const materialFactor = materialFactors[material] ?? 1;

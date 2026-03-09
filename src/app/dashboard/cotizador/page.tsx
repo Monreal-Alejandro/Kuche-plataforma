@@ -1,3 +1,31 @@
+/**
+ * Cotizador - Sistema de Cotización de Proyectos
+ * 
+ * Componente principal para crear cotizaciones de proyectos de cocinas, clósets y TV units.
+ * Permite seleccionar materiales, herrajes, accesorios y calcular precios en tiempo real.
+ * 
+ * Funcionalidades principales:
+ * - Selección de tipo de proyecto y gama (Esencial/Tendencia/Premium)
+ * - Cálculo dinámico de precios según metros lineales
+ * - Catálogo de materiales y acabados desde backend
+ * - Selección de herrajes con precios diferenciados
+ * - Vista de resumen con desglose de costos
+ * - Guardado de cotizaciones en el backend
+ * 
+ * Estado actual:
+ * - ✅ Código limpio y funcional
+ * - ✅ Integrado con catalogosApi y cotizacionesApi
+ * - ⏳ Pendiente: Mejorar comentarios y organización
+ * 
+ * TODOs:
+ * 1. Agregar validaciones de formulario más robustas
+ * 2. Implementar guardado de borradores
+ * 3. Agregar historial de cotizaciones del cliente
+ * 
+ * @author Frontend Team
+ * @version 2.0 - Reconstruido desde merge conflicts
+ */
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -5,8 +33,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import * as catalogosApi from "@/lib/axios/catalogosApi";
 import * as cotizacionesApi from "@/lib/axios/cotizacionesApi";
 
+/* ========================================================================
+   CONSTANTES Y CONFIGURACIÓN
+   ======================================================================== */
+
+// Tipos de proyectos disponibles para cotizar
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
 
+/**
+ * Tarjetas de escenarios/gamas con sus multiplicadores de precio
+ * Cada gama tiene un multiplicador que se aplica al precio base
+ */
 const scenarioCards = [
   {
     id: "esencial",
@@ -34,6 +71,7 @@ const scenarioCards = [
   },
 ];
 
+// Colores disponibles de materiales (demo - TODO: cargar desde backend)
 const materialColors = [
   "Blanco Nieve",
   "Nogal Calido",
@@ -41,6 +79,11 @@ const materialColors = [
   "Fresno Arena",
 ];
 
+/**
+ * Formatea un número como moneda mexicana
+ * @param value - Cantidad a formatear
+ * @returns Cadena formateada como $X,XXX MXN
+ */
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
     style: "currency",

@@ -1,3 +1,25 @@
+/**
+ * Login - Página de Autenticación
+ * 
+ * Punto de entrada para la autenticación de usuarios.
+ * Soporta múltiples roles: admin, arquitecto, empleado.
+ * 
+ * Funcionalidades:
+ * - Formulario de login con validación
+ * - Captcha de seguridad
+ * - Redirección basada en rol del usuario
+ * - Manejo de errores con mensajes descriptivos
+ * - Toggle para mostrar/ocultar contraseña
+ * 
+ * Estado actual:
+ * - ✅ Integrado con AuthContext y authApi
+ * - ✅ Merge conflicts resueltos
+ * - ✅ Validaciones implementadas
+ * 
+ * @author Frontend Team
+ * @version 2.0 - Merge conflicts resueltos
+ */
+
 "use client";
 
 import { useState } from "react";
@@ -11,13 +33,21 @@ import Captcha from "@/components/Captcha";
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
+  
+  // Estado del formulario
   const [correo, setCorreo] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  
+  // Estado de la petición
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
+  /**
+   * Maneja el envío del formulario de login
+   * Valida el captcha y realiza la autenticación con el backend
+   */
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     
