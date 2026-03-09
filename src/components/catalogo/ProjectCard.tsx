@@ -3,7 +3,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
+
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 type Hotspot = {
   id: string;
@@ -49,6 +52,10 @@ export default function ProjectCard({ project }: ProjectCardProps) {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [activeHotspot, setActiveHotspot] = useState<string | null>(null);
   const [selectedHotspot, setSelectedHotspot] = useState<Hotspot | null>(null);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEscapeClose(Boolean(selectedHotspot), () => setSelectedHotspot(null));
+  useFocusTrap(Boolean(selectedHotspot), modalRef);
   const currentImage = project.images[selectedImageIndex];
 
   return (
@@ -175,6 +182,8 @@ export default function ProjectCard({ project }: ProjectCardProps) {
           onClick={() => setSelectedHotspot(null)}
         >
           <div
+            ref={modalRef}
+            tabIndex={-1}
             className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >

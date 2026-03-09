@@ -27,7 +27,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("kuche.admin.sidebar.collapsed");
+    const stored = window.localStorage.getItem("Küche.admin.sidebar.collapsed");
     if (stored === "true") {
       setIsCollapsed(true);
     }
@@ -35,7 +35,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     window.localStorage.setItem(
-      "kuche.admin.sidebar.collapsed",
+      "Küche.admin.sidebar.collapsed",
       isCollapsed ? "true" : "false",
     );
   }, [isCollapsed]);
@@ -49,7 +49,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       >
         <div className="flex items-center justify-between">
           <div className={`text-lg font-semibold tracking-wide text-gray-900 ${isCollapsed ? "hidden" : ""}`}>
-            KUCHE Admin
+            Küche Admin
           </div>
           <button
             type="button"
@@ -104,3 +104,4 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     </div>
   );
 }
+

@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronLeft, ChevronRight, MessageSquare } from "lucide-react";
+
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 type ProjectStatus = "Pendiente" | "Aprobado" | "Revisión";
 
@@ -65,6 +68,10 @@ export default function DisenosPage() {
   const [filter, setFilter] = useState<FilterOption>("Todos");
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, string>>({});
   const [activePreview, setActivePreview] = useState<Project | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+
+  useEscapeClose(Boolean(activePreview), () => setActivePreview(null));
+  useFocusTrap(Boolean(activePreview), previewRef);
 
   const filteredProjects = useMemo(() => {
     if (filter === "Todos") {
@@ -267,6 +274,8 @@ export default function DisenosPage() {
             onClick={() => setActivePreview(null)}
           >
             <motion.div
+              ref={previewRef}
+              tabIndex={-1}
               initial={{ scale: 0.96, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}

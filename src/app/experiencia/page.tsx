@@ -11,7 +11,7 @@ const steps = [
     title: "El primer contacto",
     subtitle: "Agendar Cita",
     description:
-      "No es solo una visita, es el inicio de tu proyecto. Un experto KUCHE va a tu domicilio para analizar la luz, el espacio y tus necesidades. Sin compromisos, solo entendimiento puro de lo que buscas.",
+      "No es solo una visita, es el inicio de tu proyecto. Un experto Küche va a tu domicilio para analizar la luz, el espacio y tus necesidades. Sin compromisos, solo entendimiento puro de lo que buscas.",
     image: "/images/cocina1.jpg",
     alt: "Libreta, café y muestras de color para agendar una cita.",
   },
@@ -29,7 +29,7 @@ const steps = [
     title: "El futuro",
     subtitle: "Realidad Virtual",
     description:
-      "Prohibido imaginar. En KUCHE, te pones nuestros lentes VR y caminas dentro de tu cocina antes de que cortemos la primera tabla. Abre cajones, siente las alturas y valida tu inversión con seguridad absoluta.",
+      "Prohibido imaginar. En Küche, te pones nuestros lentes VR y caminas dentro de tu cocina antes de que cortemos la primera tabla. Abre cajones, siente las alturas y valida tu inversión con seguridad absoluta.",
     image: "/images/cocina37.jpg",
     alt: "Persona usando lentes de realidad virtual.",
   },
@@ -234,3 +234,4 @@ export default function ExperienciaPage() {
     </main>
   );
 }
+

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 
+import { useFocusTrap } from "@/hooks/useFocusTrap";
+
 const catalogoInicial = [
   {
     category: "CUBIERTA",
@@ -96,6 +98,7 @@ export default function PreciosPage() {
   const [newItemUnit, setNewItemUnit] = useState("pz");
   const [newItemPrice, setNewItemPrice] = useState("");
   const [addError, setAddError] = useState("");
+  const modalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(STORAGE_KEY);
@@ -124,6 +127,8 @@ export default function PreciosPage() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isAddModalOpen]);
+
+  useFocusTrap(isAddModalOpen, modalRef);
 
   const categories = useMemo(
     () => ["Todas", ...catalogoInicial.map((category) => category.category)],
@@ -411,7 +416,11 @@ export default function PreciosPage() {
 
       {isAddModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="w-full max-w-lg rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur">
+          <div
+            ref={modalRef}
+            tabIndex={-1}
+            className="w-full max-w-lg rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Agregar nuevo material</h3>
               <button

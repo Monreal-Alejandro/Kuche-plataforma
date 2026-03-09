@@ -1,9 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Footer from "@/components/Footer";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 const categories = ["Granitos", "Maderas", "Melaminas", "Colores"] as const;
 type Category = (typeof categories)[number];
@@ -141,6 +143,10 @@ export default function AcabadosPage() {
   const [activePartner, setActivePartner] = useState<
     (typeof partnerLogos)[number] | null
   >(null);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEscapeClose(Boolean(activePartner), () => setActivePartner(null));
+  useFocusTrap(Boolean(activePartner), modalRef);
 
   const activeMaterials = useMemo(
     () => materialGallery[activeCategory],
@@ -195,7 +201,9 @@ export default function AcabadosPage() {
             exit={{ opacity: 0 }}
             onClick={() => setActivePartner(null)}
           >
-            <motion.div
+          <motion.div
+            ref={modalRef}
+            tabIndex={-1}
               className="relative w-full max-w-2xl rounded-3xl bg-white p-8 shadow-2xl"
               initial={{ y: 30, opacity: 0, scale: 0.98 }}
               animate={{ y: 0, opacity: 1, scale: 1 }}

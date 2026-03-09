@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Minus, Plus } from "lucide-react";
 import * as catalogosApi from "@/lib/axios/catalogosApi";
 import * as cotizacionesApi from "@/lib/axios/cotizacionesApi";
 
@@ -70,22 +69,10 @@ export default function CotizadorPage() {
   const [materialBase, setMaterialBase] = useState("");
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("materiales");
-  const [materialSearch, setMaterialSearch] = useState("");
 
   const [materialColor] = useState(materialColors[0]);
   const [materialThickness, setMaterialThickness] = useState("16");
-  const [utilidadPct, setUtilidadPct] = useState(30);
-  const [fletePct, setFletePct] = useState(2);
 
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const openMenuRef = useRef<HTMLDivElement | null>(null);
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [newItemName, setNewItemName] = useState("");
-  const [newItemPrice, setNewItemPrice] = useState("");
-  const [newItemCategory, setNewItemCategory] = useState("");
-  
   // State variables for backend data
   const [baseMaterials, setBaseMaterials] = useState<any[]>([]);
   const [herrajesCatalog, setHerrajesCatalog] = useState<any[]>([]);
@@ -203,7 +190,7 @@ export default function CotizadorPage() {
           metrosLineales: metrosValue,
         },
         escenarioSeleccionado: selectedScenario as any,
-        materialBase: 'melamina' as any, // Valor por defecto, puedes ajustar según el material seleccionado
+        materialBase: 'melamina' as any,
         colorTextura: materialColor as any,
         grosorTablero: materialThickness as any,
         herrajes: herrajesSeleccionados,
@@ -229,17 +216,38 @@ export default function CotizadorPage() {
   };
 
   const handleGenerarPDFCliente = () => {
-    // TODO: Implement PDF generation for client
     console.log("Generando PDF para cliente...");
     setSuccessMessage("PDF cliente generado exitosamente");
     setTimeout(() => setSuccessMessage(""), 3000);
   };
 
   const handleGenerarHojaTaller = () => {
-    // TODO: Implement workshop sheet generation
     console.log("Generando hoja de taller...");
     setSuccessMessage("Hoja de taller generada exitosamente");
     setTimeout(() => setSuccessMessage(""), 3000);
+  };
+
+  const handleAddClient = () => {
+    const trimmedName = newClientName.trim();
+    if (!trimmedName) return;
+    
+    setClients((prev) =>
+      prev.some((entry) => entry.name === trimmedName)
+        ? prev
+        : [
+            ...prev,
+            {
+              name: trimmedName,
+              phone: newClientPhone.trim(),
+              email: newClientEmail.trim(),
+            },
+          ],
+    );
+    setClient(trimmedName);
+    setNewClientName("");
+    setNewClientPhone("");
+    setNewClientEmail("");
+    setIsClientModalOpen(false);
   };
 
   return (
@@ -648,6 +656,60 @@ export default function CotizadorPage() {
           </button>
         </div>
       </section>
+
+      {isClientModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+          <div className="w-full max-w-md rounded-3xl border border-white/70 bg-white p-6 shadow-2xl">
+            <h3 className="text-xl font-semibold">Agregar nuevo cliente</h3>
+            <div className="mt-4 space-y-3">
+              <label className="text-xs font-semibold text-secondary">
+                Nombre completo
+                <input
+                  value={newClientName}
+                  onChange={(event) => setNewClientName(event.target.value)}
+                  placeholder="Nombre del cliente"
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+              </label>
+              <label className="text-xs font-semibold text-secondary">
+                Teléfono
+                <input
+                  value={newClientPhone}
+                  onChange={(event) => setNewClientPhone(event.target.value)}
+                  placeholder="Teléfono"
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+              </label>
+              <label className="text-xs font-semibold text-secondary">
+                Correo electrónico
+                <input
+                  value={newClientEmail}
+                  onChange={(event) => setNewClientEmail(event.target.value)}
+                  placeholder="email@ejemplo.com"
+                  type="email"
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+              </label>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setIsClientModalOpen(false)}
+                className="flex-1 rounded-2xl border border-primary/10 bg-white px-4 py-3 text-xs font-semibold text-secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleAddClient}
+                className="flex-1 rounded-2xl bg-accent px-4 py-3 text-xs font-semibold text-white"
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="fixed bottom-6 right-6 z-40 w-[260px] rounded-3xl border border-white/70 bg-white/90 p-4 shadow-2xl backdrop-blur-md">
         <p className="text-xs uppercase tracking-[0.25em] text-secondary">Total Neto</p>

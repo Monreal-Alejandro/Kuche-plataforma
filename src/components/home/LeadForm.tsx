@@ -17,7 +17,7 @@ export default function LeadForm() {
                 Inicia tu proyecto
               </h2>
               <p className="mt-4 text-base leading-relaxed text-secondary">
-                Cuéntanos lo esencial y en breve un especialista KUCHE te
+                Cuéntanos lo esencial y en breve un especialista Küche te
                 compartirá ideas y recomendaciones personalizadas.
               </p>
             </div>
@@ -61,3 +61,4 @@ export default function LeadForm() {
     </MotionSection>
   );
 }
+

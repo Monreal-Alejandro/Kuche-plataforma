@@ -9,7 +9,7 @@ export default function AgendarPage() {
         <div className="mx-auto max-w-6xl">
           <div className="text-center">
             <h1 className="text-3xl font-semibold text-primary md:text-5xl">
-              Agenda una cita con KUCHE
+              Agenda una cita con Küche
             </h1>
             <p className="mt-3 pb-6 text-sm text-secondary md:text-base">
               Selecciona fecha, horario y comparte los detalles de tu proyecto.
@@ -23,3 +23,4 @@ export default function AgendarPage() {
     </main>
   );
 }
+

@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, Ruler, Sparkles } from "lucide-react";
 import { levantamientosApi, catalogosApi, usuariosApi, type Usuario } from "@/lib/axios";
+
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 const stepTitles = [
   "Cliente",
@@ -105,6 +108,13 @@ export default function LevantamientoPage() {
       console.error("Error cargando datos iniciales:", error);
     }
   };
+=======
+  const [assignedTo, setAssignedTo] = useState(architects[0]);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEscapeClose(Boolean(selectedScenario), () => setSelectedScenario(null));
+  useFocusTrap(Boolean(selectedScenario), modalRef);
+>>>>>>> b7010d078152a0d6731e17c72b92f877a8c1b5f3
 
   const metrosNumber = Number.parseFloat(metros) || 0;
   const materialFactor = materialFactors[material] ?? 1;
@@ -476,6 +486,8 @@ export default function LevantamientoPage() {
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           >
             <motion.div
+              ref={modalRef}
+              tabIndex={-1}
               initial={{ y: 40, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 40, opacity: 0 }}

@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, Ruler, Sparkles } from "lucide-react";
+
+import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 const stepTitles = ["Geometría", "Necesidades", "Escenarios"];
 
@@ -55,6 +58,10 @@ export default function LevantamientoSection() {
   const [alacenas, setAlacenas] = useState(false);
   const [material, setMaterial] = useState("Granito Básico");
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEscapeClose(Boolean(selectedScenario), () => setSelectedScenario(null));
+  useFocusTrap(Boolean(selectedScenario), modalRef);
 
   const metrosNumber = Number.parseFloat(metros) || 0;
   const materialFactor = materialFactors[material] ?? 1;
@@ -344,7 +351,9 @@ export default function LevantamientoSection() {
               exit={{ opacity: 0 }}
               className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
             >
-              <motion.div
+            <motion.div
+              ref={modalRef}
+              tabIndex={-1}
                 initial={{ y: 40, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 40, opacity: 0 }}

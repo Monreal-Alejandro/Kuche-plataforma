@@ -25,7 +25,7 @@ export default function Hero() {
           className="mx-auto w-full max-w-3xl text-center"
         >
           <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/70">
-            KUCHE · Diseño de Cocinas Inteligentes
+            Küche · Diseño de Cocinas Inteligentes
           </p>
           <h1 className="mt-5 text-4xl font-semibold text-white md:text-6xl">
             Diseño inteligente y humano
@@ -53,7 +53,7 @@ export default function Hero() {
 
       <a
         href="https://wa.me/5210000000000"
-        aria-label="WhatsApp KUCHE"
+        aria-label="WhatsApp Küche"
         className="fixed bottom-6 right-6 z-20 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg shadow-black/10 transition hover:scale-105"
       >
         <FaWhatsapp className="h-6 w-6" />
@@ -61,3 +61,4 @@ export default function Hero() {
     </section>
   );
 }
+

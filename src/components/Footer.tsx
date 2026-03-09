@@ -7,7 +7,7 @@ export default function Footer() {
       <div className="mx-auto max-w-6xl px-4 py-14">
         <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-3">
-            <div className="text-lg font-semibold tracking-[0.35em]">KUCHE</div>
+            <div className="text-lg font-semibold tracking-[0.35em]">Küche</div>
             <p className="text-sm text-gray-400">
               Fusión de arquitectura y robótica
             </p>
@@ -59,7 +59,7 @@ export default function Footer() {
             <div className="space-y-2 text-sm text-gray-400">
               <p>Calle Industrial 45, CDMX</p>
               <p>+52 55 1234 5678</p>
-              <p>hola@kuche.mx</p>
+              <p>hola@Küche.mx</p>
             </div>
           </div>
 
@@ -94,7 +94,7 @@ export default function Footer() {
 
         <div className="mt-10 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-6 text-sm text-gray-400">
           <span>
-            © 2024 KUCHE Cocinas Inteligentes. Todos los derechos reservados.
+            © 2024 Küche Cocinas Inteligentes. Todos los derechos reservados.
           </span>
           <Link
             href="/login"
@@ -107,3 +107,4 @@ export default function Footer() {
     </footer>
   );
 }
+

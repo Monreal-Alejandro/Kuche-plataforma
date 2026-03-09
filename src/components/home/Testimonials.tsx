@@ -16,7 +16,7 @@ const testimonials = [
     name: "Carlos Vega",
     role: "Bar en Casa",
     quote:
-      "KUCHE entendió exactamente lo que buscábamos. El resultado se ve tecnológico, pero acogedor.",
+      "Küche entendió exactamente lo que buscábamos. El resultado se ve tecnológico, pero acogedor.",
     avatar: "https://i.pravatar.cc/100?img=12",
   },
   {
@@ -69,7 +69,7 @@ export default function Testimonials() {
                   ))}
                 </div>
                 <p className="mt-4 text-sm leading-relaxed text-secondary">
-                  “{item.quote}”
+                  �S{item.quote}⬝
                 </p>
               </div>
             ))}
@@ -79,3 +79,4 @@ export default function Testimonials() {
     </section>
   );
 }
+

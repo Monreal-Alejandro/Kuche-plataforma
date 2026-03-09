@@ -169,7 +169,7 @@ function ExperienceCard({ step, rootRef }: ExperienceCardProps) {
           </p>
           {step.highlight === "tech" && (
             <span className="mt-4 inline-flex rounded-full border border-accent/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">
-              Tecnología KUCHE
+              Tecnología Küche
             </span>
           )}
           {step.highlight === "custom" && (
@@ -212,7 +212,7 @@ export default function ExperienceSteps() {
       <div className="mx-auto max-w-6xl px-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h2 className="text-3xl font-semibold text-primary md:text-4xl">
-            Experiencia KUCHE
+            Experiencia Küche
           </h2>
           <div className="hidden items-center gap-2 md:flex">
             <button
@@ -252,3 +252,4 @@ export default function ExperienceSteps() {
     </MotionSection>
   );
 }
+
