@@ -274,6 +274,116 @@ useEffect(() => {
 - ✅ **TODOs marcados** para facilitar la integración
 - ✅ **Código segmentado** para fácil mantenimiento
 - ✅ **Sin cambios visuales** - todas las modificaciones son internas
+- ✅ **3 guías completas** para integración con backend
+
+---
+
+## 📚 Guías de Integración con Backend
+
+El proyecto ahora incluye **3 documentos completos** para facilitar la conexión con el backend:
+
+### 1. [BACKEND_API_SPECS.md](./BACKEND_API_SPECS.md) 📋
+**Para:** Equipo de Backend  
+**Descripción:** Especificaciones técnicas completas
+
+- ✅ Estructura de datos (MongoDB models)
+- ✅ 8 endpoints de tareasApi documentados
+- ✅ Request/Response examples
+- ✅ Autenticación y permisos por rol
+- ✅ Testing data y ejemplos
+- ✅ Códigos HTTP y manejo de errores
+- ✅ Mapeo Frontend ↔️ Backend
+
+### 2. [PROMPT_BACKEND.md](./PROMPT_BACKEND.md) 🤖
+**Para:** Generar código con AI/LLM  
+**Descripción:** Prompt listo para copiar/pegar
+
+- ✅ Prompt optimizado para ChatGPT/Claude
+- ✅ Genera Node.js + Express + MongoDB + TypeScript
+- ✅ Incluye modelos, controladores y rutas
+- ✅ Validaciones y manejo de errores
+- ✅ Código listo para producción
+- ✅ Ejemplos de testing con Postman
+
+### 3. [INTEGRACION_FRONTEND.md](./INTEGRACION_FRONTEND.md) 🔌
+**Para:** Equipo de Frontend  
+**Descripción:** Guía paso a paso de integración
+
+- ✅ Código completo de `tareasApi.ts`
+- ✅ Funciones helper de conversión
+- ✅ Actualización de componentes
+- ✅ Manejo de loading states
+- ✅ Manejo de errores con UI feedback
+- ✅ Actualización optimista (optimistic updates)
+- ✅ Checklist de integración completo
+
+---
+
+## 🚀 Cómo Usar las Guías
+
+### Opción 1: Tienes equipo de Backend
+
+1. Comparte [BACKEND_API_SPECS.md](./BACKEND_API_SPECS.md) con ellos
+2. Espera a que implementen los endpoints
+3. Mientras tanto, prepara el frontend con [INTEGRACION_FRONTEND.md](./INTEGRACION_FRONTEND.md)
+4. Una vez listos, conecta todo siguiendo la guía
+
+### Opción 2: Usar AI para generar Backend
+
+1. Abre [PROMPT_BACKEND.md](./PROMPT_BACKEND.md)
+2. Copia el prompt completo
+3. Pégalo en ChatGPT-4, Claude 3.5, etc.
+4. Copia el código generado a tu proyecto
+5. Instala dependencias y configura MongoDB
+6. Prueba los endpoints con Postman
+7. Sigue [INTEGRACION_FRONTEND.md](./INTEGRACION_FRONTEND.md)
+
+### Opción 3: Desarrollo Fullstack Solo
+
+1. Usa [PROMPT_BACKEND.md](./PROMPT_BACKEND.md) para backend rápido
+2. Implementa y prueba endpoints primero
+3. Sigue [INTEGRACION_FRONTEND.md](./INTEGRACION_FRONTEND.md) paso a paso
+4. Testing E2E completo
+
+---
+
+## ⏱️ Tiempo Estimado de Integración
+
+| Tarea | Con AI | Manual |
+|-------|--------|--------|
+| Backend Development | 2-4 horas | 1-2 días |
+| Frontend Integration | 2-4 horas | 2-4 horas |
+| Testing & Debugging | 2-4 horas | 4-6 horas |
+| **TOTAL** | **6-12 horas** | **2-3 días** |
+
+---
+
+## 📋 Checklist de Integración
+
+### Backend:
+- [ ] Leer [BACKEND_API_SPECS.md](./BACKEND_API_SPECS.md)
+- [ ] Generar/implementar código backend
+- [ ] Crear modelo `Tarea` en MongoDB
+- [ ] Implementar 8 endpoints de tareasApi
+- [ ] Poblar `asignadoANombre` y `nombreProyecto`
+- [ ] Implementar validaciones
+- [ ] Testing con Postman
+
+### Frontend:
+- [ ] Leer [INTEGRACION_FRONTEND.md](./INTEGRACION_FRONTEND.md)
+- [ ] Crear `src/lib/axios/tareasApi.ts`
+- [ ] Exportar en `src/lib/axios/index.ts`
+- [ ] Actualizar `empleado/page.tsx`
+- [ ] Implementar loading states
+- [ ] Implementar error handling
+- [ ] Testing de integración
+
+### Deploy:
+- [ ] Testing E2E completo
+- [ ] Verificar sincronización multi-usuario
+- [ ] Deploy a staging
+- [ ] Testing de performance
+- [ ] Deploy a producción
 
 ---
 
