@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { Minus, Plus } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-
+import * as XLSX from "xlsx";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -18,11 +18,24 @@ import {
 } from "@/lib/kanban";
 
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
-const baseMaterials = [
-  { id: "melamina", label: "Melamina", pricePerMeter: 6500 },
-  { id: "mdf", label: "MDF", pricePerMeter: 7800 },
-  { id: "tech", label: "Tech", pricePerMeter: 9800 },
-];
+/** Precio por metro lineal para material base (según ítem de ESTRUCTURA seleccionado). */
+const MATERIAL_BASE_PRICE_PER_METER: Record<string, number> = {
+  est_mdf_natural: 6500,
+  est_mel_blanca: 7800,
+  est_mel_negro: 9800,
+  est_mel_gris: 9800,
+  est_madera: 7000,
+  est_cintilla_ng: 6500,
+  est_cintilla_bf: 6500,
+};
+const DEFAULT_PRICE_PER_METER = 6500;
+/** Factor por espesor (id de ítem ESPESOR -> factor). */
+const THICKNESS_FACTORS: Record<string, number> = {
+  "15": 0.97,
+  "16": 1,
+  "18": 1.05,
+  "19": 1.08,
+};
 
 const scenarioCards = [
   {
@@ -51,80 +64,102 @@ const scenarioCards = [
   },
 ];
 
-const materialColors = [
-  "Blanco Nieve",
-  "Nogal Calido",
-  "Gris Grafito",
-  "Fresno Arena",
-];
-
-const materialThicknessOptions = ["15", "16", "18", "19"];
-const thicknessFactorsByMm: Record<string, number> = {
-  "15": 0.97,
-  "16": 1,
-  "18": 1.05,
-  "19": 1.08,
-};
-
 const initialCatalogoKuche = [
   {
     category: "CUBIERTA",
     items: [
-      { id: "cub_melamina", label: "Cubierta melamina (pies)", unitPrice: 170 },
+      { id: "cub_formica", label: "Cubierta Formica (pies)", unitPrice: 173 },
       { id: "cub_granito", label: "Granito (placas)", unitPrice: 12000 },
-      { id: "mo_granito", label: "Mano obra granito (mts2)", unitPrice: 1400 },
+      { id: "cub_cuarzo", label: "Cuarzo (placas)", unitPrice: 16000 },
+      { id: "mo_fabricacion", label: "Mano de obra fabricación (mts2)", unitPrice: 1400 },
     ],
   },
   {
     category: "ESTRUCTURA",
     items: [
-      { id: "est_mel_blanca", label: "Melamina Blanca", unitPrice: 700 },
-      { id: "est_mel_color", label: "Melamina Negro o gris", unitPrice: 1000 },
-      { id: "est_cubrecantos", label: "Cubrecantos", unitPrice: 9 },
-      { id: "est_cortes", label: "Cortes y enchapes", unitPrice: 1500 },
+      { id: "est_mdf_natural", label: "MDF Natural 15mm (hojas)", unitPrice: 335 },
+      { id: "est_mel_blanca", label: "MDF Melamina Blanco (hojas)", unitPrice: 600 },
+      { id: "est_mel_negro", label: "MDF Melamina Negro (hojas)", unitPrice: 1000 },
+      { id: "est_mel_gris", label: "MDF Melamina Gris OX (hojas)", unitPrice: 1000 },
+      { id: "est_madera", label: "Madera (pza)", unitPrice: 250 },
+      { id: "est_cintilla_ng", label: "Cintilla Negro o Gris 19x1 (mts)", unitPrice: 12 },
+      { id: "est_cintilla_bf", label: "Cintilla Blanco Frosty 19x1 (mts)", unitPrice: 9 },
     ],
   },
   {
     category: "VISTAS",
     items: [
-      { id: "vis_melamina", label: "Melamina Vistas", unitPrice: 1100 },
-      { id: "vis_brillo", label: "Alto brillo/mate", unitPrice: 3300 },
-      { id: "vis_cortes", label: "Cortes y enchape", unitPrice: 1500 },
-      { id: "vis_cubrecantos", label: "Cubrecantos", unitPrice: 20 },
+      { id: "vis_mdf_brillo", label: "MDF Alto Brillo (hojas)", unitPrice: 3200 },
+      { id: "vis_mel_color1", label: "MDF Melamina de Color 1 (hojas)", unitPrice: 1000 },
+      { id: "vis_mel_color2", label: "MDF Melamina de Color 2 (hojas)", unitPrice: 1000 },
+      { id: "vis_cubrecanto_brillo", label: "Cubrecanto Alto Brillo (mts)", unitPrice: 17 },
+      { id: "vis_cubrecanto_c1", label: "Cubrecanto Color 1 (mts)", unitPrice: 12 },
+      { id: "vis_cubrecanto_c2", label: "Cubrecanto Color 2 (mts)", unitPrice: 12 },
     ],
   },
   {
-    category: "HERRAJES",
+    category: "ESPESOR",
     items: [
-      { id: "herr_cajon_sen", label: "Cajón sencillo", unitPrice: 120 },
-      { id: "herr_cajon_len", label: "Cajón Cierre lento", unitPrice: 450 },
-      { id: "herr_cajon_blum", label: "Cajón BLUM tandem", unitPrice: 700 },
-      { id: "herr_puerta_len", label: "Puerta Cierre lento/Push", unitPrice: 50 },
-      { id: "herr_bisagra", label: "Puertas Bisagras sencilla", unitPrice: 30 },
-      { id: "herr_piston_sen", label: "Pistón sencillo", unitPrice: 40 },
-      { id: "herr_piston_blum", label: "Pistón blum", unitPrice: 350 },
-      { id: "herr_zoclo", label: "Zoclo", unitPrice: 180 },
-      { id: "herr_patas", label: "Patas y clips", unitPrice: 17 },
-      { id: "herr_push", label: "Push", unitPrice: 150 },
-      { id: "herr_spots", label: "Spots", unitPrice: 250 },
-      { id: "herr_puerta_esq", label: "Puertas Esquinera", unitPrice: 200 },
+      { id: "15", label: "15 mm", unitPrice: 0 },
+      { id: "16", label: "16 mm", unitPrice: 0 },
+      { id: "18", label: "18 mm", unitPrice: 0 },
+      { id: "19", label: "19 mm", unitPrice: 0 },
     ],
   },
   {
-    category: "EXTRAÍBLES Y ELECTRODOMÉSTICOS",
+    category: "CAJONES Y PUERTAS",
+    items: [
+      { id: "cajon_sen", label: "Cajón sencillo", unitPrice: 120 },
+      { id: "cajon_cierre_lento", label: "Cajón Cierre lento", unitPrice: 450 },
+      { id: "cajon_push", label: "Cajón Sistema Push", unitPrice: 350 },
+      { id: "cajon_blum_tandem", label: "Cajón BLUM tandem", unitPrice: 700 },
+      { id: "cajon_blum_movento", label: "Cajón Blum Movento", unitPrice: 1300 },
+      { id: "bisagra_blumotion", label: "Bisagra tip on - blumotion", unitPrice: 120 },
+      { id: "puerta_cierre_push", label: "Puerta Cierre lento/Push", unitPrice: 550 },
+      { id: "puerta_bisagra", label: "Puertas Bisagras sencilla", unitPrice: 30 },
+    ],
+  },
+  {
+    category: "ACCESORIOS DE MÓDULO",
+    items: [
+      { id: "acc_patas", label: "Patas y clips", unitPrice: 17 },
+      { id: "acc_push_tipon", label: "Push - TIPON", unitPrice: 150 },
+      { id: "acc_jaladeras", label: "Jaladeras", unitPrice: 500 },
+      { id: "acc_zoclo", label: "Zoclo (mts)", unitPrice: 180 },
+      { id: "acc_puerta_esq", label: "Puertas Esquinera", unitPrice: 200 },
+    ],
+  },
+  {
+    category: "EXTRAÍBLES Y PUERTAS ABATIBLES",
     items: [
       { id: "ext_alacena", label: "Alacena doble", unitPrice: 3000 },
-      { id: "ext_avento_hf", label: "Avento HF", unitPrice: 3500 },
       { id: "ext_especiero", label: "Especiero", unitPrice: 1800 },
+      { id: "ext_magic_corner", label: "Magic Corner", unitPrice: 6200 },
+      { id: "ext_esquinero", label: "Esquinero Cacerolero", unitPrice: 3600 },
+      { id: "ext_avento_hf", label: "Avento HF (Premium)", unitPrice: 3500 },
+      { id: "ext_avento_hk", label: "Avento HK-XS", unitPrice: 400 },
+      { id: "ext_piston_gen", label: "Pistón Genérico", unitPrice: 100 },
+      { id: "ext_luz_led", label: "Luz LED", unitPrice: 1500 },
       { id: "ext_servo", label: "Servo drive", unitPrice: 18000 },
-      { id: "ele_parrilla", label: "Parrilla", unitPrice: 3500 },
-      { id: "ele_campana", label: "Campana", unitPrice: 4500 },
     ],
   },
   {
-    category: "GASTOS FIJOS Y VARIOS",
+    category: "INSUMOS DE PRODUCCIÓN",
     items: [
-      { id: "var_insumos", label: "Varios (thiner, estopa, silicon, tornillos)", unitPrice: 2000 },
+      { id: "insum_pegamento", label: "Pegamento", unitPrice: 250 },
+      { id: "insum_silicon", label: "Silicones", unitPrice: 1500 },
+    ],
+  },
+  {
+    category: "EXTRAS",
+    items: [
+      { id: "extra_lambrin", label: "Lambrín Interior 2.9 x .16", unitPrice: 472 },
+      { id: "extra_silicon_tornillos", label: "Silicon, tornillos, tapas, resistol", unitPrice: 2000 },
+    ],
+  },
+  {
+    category: "GASTOS FIJOS",
+    items: [
       { id: "fijo_mo_semana", label: "Mano obra 1 equipo (semana)", unitPrice: 6000 },
       { id: "fijo_admin_semana", label: "Gastos admin (semana)", unitPrice: 7000 },
     ],
@@ -137,6 +172,19 @@ const formatCurrency = (value: number) =>
     currency: "MXN",
     maximumFractionDigits: 0,
   }).format(value);
+
+function getDefaultMaterialBaseItemId(): string {
+  const cat = initialCatalogoKuche.find((c) => c.category === "ESTRUCTURA");
+  return cat?.items?.[0]?.id ?? "";
+}
+function getDefaultColorItemId(): string {
+  const cat = initialCatalogoKuche.find((c) => c.category === "VISTAS");
+  return cat?.items?.[0]?.id ?? "";
+}
+function getDefaultThicknessItemId(): string {
+  const cat = initialCatalogoKuche.find((c) => c.category === "ESPESOR");
+  return cat?.items?.[0]?.id ?? "16";
+}
 
 export default function CotizadorPage() {
   const router = useRouter();
@@ -157,13 +205,13 @@ export default function CotizadorPage() {
   const [largo, setLargo] = useState("4.2");
   const [alto, setAlto] = useState("2.4");
   const [fondo, setFondo] = useState("0.6");
-  const [materialBase, setMaterialBase] = useState(baseMaterials[0].id);
+  const [materialBaseItemId, setMaterialBaseItemId] = useState(getDefaultMaterialBaseItemId);
+  const [colorItemId, setColorItemId] = useState(getDefaultColorItemId);
+  const [thicknessItemId, setThicknessItemId] = useState(getDefaultThicknessItemId);
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(initialCatalogoKuche[0]?.category ?? "");
   const [materialSearch, setMaterialSearch] = useState("");
 
-  const [materialColor, setMaterialColor] = useState(materialColors[0]);
-  const [materialThickness, setMaterialThickness] = useState("16");
   const [utilidadPct, setUtilidadPct] = useState(30);
   const [fletePct, setFletePct] = useState(2);
 
@@ -179,6 +227,23 @@ export default function CotizadorPage() {
   const [referenceImages, setReferenceImages] = useState<
     Array<{ id: string; name: string; dataUrl: string }>
   >([]);
+  const [excelImportSummary, setExcelImportSummary] = useState<{
+    imported: number;
+    skipped: number;
+    errors: string[];
+    fileName: string;
+  } | null>(null);
+  const [isExcelViewActive, setIsExcelViewActive] = useState(false);
+  const [excelPreviewLines, setExcelPreviewLines] = useState<
+    Array<{
+      id: string;
+      categoria: string;
+      descripcion: string;
+      cantidad: number;
+      precioUnitario: number;
+      total: number;
+    }>
+  >([]);
   const clientModalRef = useRef<HTMLDivElement | null>(null);
   const addItemModalRef = useRef<HTMLDivElement | null>(null);
 
@@ -188,10 +253,53 @@ export default function CotizadorPage() {
   useFocusTrap(isAddModalOpen, addItemModalRef);
 
   const metrosValue = Number.parseFloat(largo) || 0;
-  const baseMaterial = baseMaterials.find((item) => item.id === materialBase) ?? baseMaterials[0];
-  const thicknessFactor = thicknessFactorsByMm[materialThickness] ?? 1;
+  const estructuraItems = catalogoKuche.find((c) => c.category === "ESTRUCTURA")?.items ?? [];
+  const vistasItems = catalogoKuche.find((c) => c.category === "VISTAS")?.items ?? [];
+  const espesorItems = catalogoKuche.find((c) => c.category === "ESPESOR")?.items ?? [];
 
-  const materialSubtotal = metrosValue * baseMaterial.pricePerMeter * thicknessFactor;
+  const { effectiveMaterialBaseId, effectiveColorId, effectiveThicknessId } = useMemo(() => {
+    const q = (id: string) => Math.max(quantities[id] ?? 0, 0);
+    const fromCategory = (
+      items: { id: string }[],
+      fallbackId: string,
+    ): string => {
+      if (!items.length) return fallbackId;
+      const withQty = items
+        .map((item) => ({ id: item.id, qty: q(item.id) }))
+        .filter((x) => x.qty > 0);
+      if (withQty.length === 0) return fallbackId;
+      const best = withQty.reduce((a, b) => (b.qty > a.qty ? b : a));
+      return best.id;
+    };
+    return {
+      effectiveMaterialBaseId: fromCategory(estructuraItems, materialBaseItemId),
+      effectiveColorId: fromCategory(vistasItems, colorItemId),
+      effectiveThicknessId: fromCategory(espesorItems, thicknessItemId),
+    };
+  }, [
+    quantities,
+    estructuraItems,
+    vistasItems,
+    espesorItems,
+    materialBaseItemId,
+    colorItemId,
+    thicknessItemId,
+  ]);
+
+  const materialBaseItem =
+    estructuraItems.find((i) => i.id === effectiveMaterialBaseId) ?? estructuraItems[0];
+  const colorItem = vistasItems.find((i) => i.id === effectiveColorId) ?? vistasItems[0];
+  const thicknessItem =
+    espesorItems.find((i) => i.id === effectiveThicknessId) ?? espesorItems[0];
+  const baseMaterialLabel = materialBaseItem?.label ?? "Material base";
+  const colorLabel = colorItem?.label ?? "Color";
+  const thicknessMm = thicknessItem?.id ?? "16";
+  const pricePerMeter = effectiveMaterialBaseId
+    ? (MATERIAL_BASE_PRICE_PER_METER[effectiveMaterialBaseId] ?? DEFAULT_PRICE_PER_METER)
+    : DEFAULT_PRICE_PER_METER;
+  const thicknessFactor = THICKNESS_FACTORS[effectiveThicknessId] ?? 1;
+
+  const materialSubtotal = metrosValue * pricePerMeter * thicknessFactor;
 
   const baseCost = useMemo(() => {
     return catalogoKuche.reduce((acc, category) => {
@@ -236,25 +344,25 @@ export default function CotizadorPage() {
     catalogoKuche.find((category) => category.category === activeTab) ?? catalogoKuche[0];
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const storedCatalog = window.localStorage.getItem("kuche.catalogoKuche.v1");
-    if (!storedCatalog) {
-      return;
-    }
-    try {
-      const parsed = JSON.parse(storedCatalog);
-      if (Array.isArray(parsed)) {
-        const normalized = parsed.filter(
-          (category) =>
-            category &&
-            typeof category.category === "string" &&
-            Array.isArray(category.items),
-        );
-        if (normalized.length > 0) {
-          setCatalogoKuche(normalized);
+    if (storedCatalog) {
+      try {
+        const parsed = JSON.parse(storedCatalog);
+        if (Array.isArray(parsed)) {
+          const normalized = parsed.filter(
+            (category: { category?: string; items?: unknown[] }) =>
+              category &&
+              typeof category.category === "string" &&
+              Array.isArray(category.items),
+          );
+          if (normalized.length > 0) {
+            setCatalogoKuche(normalized);
+          }
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore corrupted storage
     }
   }, []);
 
@@ -266,7 +374,26 @@ export default function CotizadorPage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     window.localStorage.setItem("kuche.catalogoKuche.v1", JSON.stringify(catalogoKuche));
+  }, [catalogoKuche]);
+
+  useEffect(() => {
+    const estructura = catalogoKuche.find((c) => c.category === "ESTRUCTURA");
+    const vistas = catalogoKuche.find((c) => c.category === "VISTAS");
+    const espesor = catalogoKuche.find((c) => c.category === "ESPESOR");
+    const estructuraIds = new Set(estructura?.items?.map((i) => i.id) ?? []);
+    const vistasIds = new Set(vistas?.items?.map((i) => i.id) ?? []);
+    const espesorIds = new Set(espesor?.items?.map((i) => i.id) ?? []);
+    if (estructura?.items?.length && !estructuraIds.has(materialBaseItemId)) {
+      setMaterialBaseItemId(estructura.items[0].id);
+    }
+    if (vistas?.items?.length && !vistasIds.has(colorItemId)) {
+      setColorItemId(vistas.items[0].id);
+    }
+    if (espesor?.items?.length && !espesorIds.has(thicknessItemId)) {
+      setThicknessItemId(espesor.items[0].id);
+    }
   }, [catalogoKuche]);
 
   useEffect(() => {
@@ -314,6 +441,155 @@ export default function CotizadorPage() {
         .map((item) => ({ item, category: category.category })),
     );
   }, [activeCategory, catalogoKuche, normalizedSearch]);
+
+  const resetCatalogToDefault = () => {
+    setCatalogoKuche(initialCatalogoKuche);
+    setQuantities({});
+    setExcelImportSummary(null);
+    setExcelPreviewLines([]);
+    setIsExcelViewActive(false);
+    setMaterialSearch("");
+    setActiveTab(initialCatalogoKuche[0]?.category ?? "");
+    setMaterialBaseItemId(getDefaultMaterialBaseItemId());
+    setColorItemId(getDefaultColorItemId());
+    setThicknessItemId(getDefaultThicknessItemId());
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        "kuche.catalogoKuche.v1",
+        JSON.stringify(initialCatalogoKuche),
+      );
+    }
+  };
+
+  const handleExcelImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    const [file] = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const [firstSheetName] = workbook.SheetNames;
+      const sheet = workbook.Sheets[firstSheetName];
+      if (!sheet) {
+        setExcelPreviewLines([]);
+        setExcelImportSummary({
+          imported: 0,
+          skipped: 0,
+          errors: ["El archivo no contiene hojas válidas."],
+          fileName: file.name,
+        });
+        return;
+      }
+
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+        defval: null,
+      });
+
+      let imported = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+      const previewLines: Array<{
+        id: string;
+        categoria: string;
+        descripcion: string;
+        cantidad: number;
+        precioUnitario: number;
+        total: number;
+      }> = [];
+
+      const headerKeys = {
+        categoria: ["Categoria", "CATEGORIA", "category", "CATEGORY"],
+        codigo: ["Codigo", "CÓDIGO", "CODIGO", "code", "CODE"],
+        descripcion: ["Descripcion", "Descripción", "DESCRIPCION", "DESCRIPCIÓN", "description"],
+        cantidad: ["Cantidad", "CANTIDAD", "qty", "QTY"],
+        precioUnitario: [
+          "PrecioUnitario",
+          "PRECIOUNITARIO",
+          "Precio_Unitario",
+          "PRECIO_UNITARIO",
+          "unitPrice",
+        ],
+      };
+
+      const getCell = (row: Record<string, unknown>, keys: string[]) => {
+        for (const key of keys) {
+          if (key in row && row[key] != null && row[key] !== "") {
+            return row[key];
+          }
+        }
+        return null;
+      };
+
+      rows.forEach((row: Record<string, unknown>, index: number) => {
+        const rowNumber = index + 2;
+        const rawDescripcion = getCell(row, headerKeys.descripcion);
+        const rawCantidad = getCell(row, headerKeys.cantidad);
+        const rawCategoria = getCell(row, headerKeys.categoria);
+        const rawPrecio = getCell(row, headerKeys.precioUnitario);
+        const rawCodigo = getCell(row, headerKeys.codigo);
+
+        const descripcion = rawDescripcion ? String(rawDescripcion).trim() : "";
+        if (!descripcion) {
+          skipped += 1;
+          errors.push(`Fila ${rowNumber}: sin descripción, se omitió.`);
+          return;
+        }
+
+        const cantidadValue = Number(rawCantidad);
+        if (!Number.isFinite(cantidadValue) || cantidadValue <= 0) {
+          skipped += 1;
+          errors.push(`Fila ${rowNumber}: cantidad inválida, se omitió.`);
+          return;
+        }
+
+        const precioValueRaw = rawPrecio != null ? Number(rawPrecio) : NaN;
+        const precioUnitario = Number.isFinite(precioValueRaw) && precioValueRaw >= 0 ? precioValueRaw : 0;
+        if (!Number.isFinite(precioValueRaw)) {
+          errors.push(
+            `Fila ${rowNumber}: precio unitario vacío o inválido, se tomó 0 como valor temporal.`,
+          );
+        }
+
+        const categoriaName = rawCategoria
+          ? String(rawCategoria).toUpperCase().trim()
+          : "SIN CATEGORIA";
+        const id = `excel-${index}-${toCatalogId(descripcion)}`;
+        const total = precioUnitario * cantidadValue;
+
+        previewLines.push({
+          id,
+          categoria: categoriaName,
+          descripcion,
+          cantidad: cantidadValue,
+          precioUnitario,
+          total,
+        });
+
+        imported += 1;
+      });
+
+      setExcelPreviewLines(previewLines);
+      setExcelImportSummary({
+        imported,
+        skipped,
+        errors,
+        fileName: file.name,
+      });
+      setIsExcelViewActive(true);
+    } catch (error) {
+      console.error(error);
+      setExcelPreviewLines([]);
+      setExcelImportSummary({
+        imported: 0,
+        skipped: 0,
+        errors: ["No se pudo leer el archivo. Verifica que sea un Excel válido."],
+        fileName: file.name,
+      });
+    }
+  };
 
   const handleAddMaterial = () => {
     const trimmedName = newItemName.trim();
@@ -645,7 +921,7 @@ export default function CotizadorPage() {
       .map((line) => `${line.label} (${line.qty})`)
       .join(", ");
     const hasElectroCategorySelections = selectedLines.some((line) =>
-      /electrodom/i.test(line.category),
+      /extra[ií]bles|electrodom/i.test(line.category),
     );
 
     const largoValue = Number.parseFloat(largo) || 0;
@@ -660,8 +936,8 @@ export default function CotizadorPage() {
     const ivaEstimado = Math.round(montoIva);
 
     const projectDescription =
-      `Proyecto de ${formalProjectType} fabricado en ${baseMaterial.label} (${materialThickness}mm), ` +
-      `tono ${materialColor.toLowerCase()}, con medidas generales de ` +
+      `Proyecto de ${formalProjectType} fabricado en ${baseMaterialLabel} (${thicknessMm}mm), ` +
+      `tono ${colorLabel.toLowerCase()}, con medidas generales de ` +
       `${largoValue.toFixed(1)}m de largo, ${altoValue.toFixed(1)}m de alto y ${fondoValue.toFixed(1)}m de fondo, ` +
       `considerando ${metrosLinealesForDescription.toFixed(1)} m lineales. ` +
       "Incluye fabricación e instalación de módulos y componentes seleccionados.";
@@ -1143,60 +1419,119 @@ export default function CotizadorPage() {
           </p>
         </div>
 
-        <div className="rounded-3xl border border-primary/10 bg-white p-6">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-secondary">Base técnica</p>
-            <h3 className="mt-2 text-lg font-semibold">Materiales de referencia del proyecto</h3>
-            <p className="mt-1 text-xs text-secondary">
-              Estos valores se usan en el resumen comercial y en la descripción del PDF.
-            </p>
+        <div className="rounded-3xl border border-dashed border-primary/20 bg-white p-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-secondary">Importar</p>
+              <h3 className="mt-2 text-lg font-semibold">Subir Excel desde app de diseños</h3>
+              <p className="mt-1 text-[11px] text-secondary">
+                Sube un archivo Excel con columnas como{" "}
+                <span className="font-semibold">Categoria, Descripcion, Cantidad, PrecioUnitario</span>.
+              </p>
+            </div>
+            <label className="ml-auto inline-flex cursor-pointer items-center rounded-2xl bg-accent px-4 py-2 text-xs font-semibold text-white">
+              Subir Excel de materiales
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleExcelImport}
+                className="hidden"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={resetCatalogToDefault}
+              className="rounded-2xl border border-primary/10 bg-white px-4 py-2 text-xs font-semibold text-secondary hover:border-primary/30"
+            >
+              Restablecer catálogo base
+            </button>
           </div>
-          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <label className="text-xs font-semibold text-secondary">
-              Material base
-              <select
-                value={materialBase}
-                onChange={(event) => setMaterialBase(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="rounded-full border border-primary/10 bg-primary/5 px-3 py-1 text-secondary">
+              Vista actual:{" "}
+              <span className="font-semibold">
+                {isExcelViewActive ? "Excel importado" : "Catálogo manual"}
+              </span>
+            </span>
+            {excelImportSummary ? (
+              <button
+                type="button"
+                className="rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-secondary hover:border-primary/30"
+                onClick={() => setIsExcelViewActive((prev) => !prev)}
               >
-                {baseMaterials.map((material) => (
-                  <option key={material.id} value={material.id}>
-                    {material.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs font-semibold text-secondary">
-              Color material
-              <select
-                value={materialColor}
-                onChange={(event) => setMaterialColor(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-              >
-                {materialColors.map((color) => (
-                  <option key={color} value={color}>
-                    {color}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs font-semibold text-secondary">
-              Espesor (mm)
-              <select
-                value={materialThickness}
-                onChange={(event) => setMaterialThickness(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-              >
-                {materialThicknessOptions.map((thickness) => (
-                  <option key={thickness} value={thickness}>
-                    {thickness} mm
-                  </option>
-                ))}
-              </select>
-            </label>
+                Cambiar a vista {isExcelViewActive ? "catálogo" : "Excel"}
+              </button>
+            ) : null}
           </div>
+          {excelImportSummary ? (
+            <div className="mt-4 space-y-2 rounded-2xl border border-primary/10 bg-primary/5 p-4 text-[11px] text-secondary">
+              <p className="font-semibold text-primary">
+                {excelImportSummary.fileName}: {excelImportSummary.imported} filas importadas,
+                {` `}
+                {excelImportSummary.skipped} filas omitidas.
+              </p>
+              {excelImportSummary.errors.length ? (
+                <ul className="list-disc space-y-1 pl-4">
+                  {excelImportSummary.errors.slice(0, 5).map((message, index) => (
+                    <li key={index}>{message}</li>
+                  ))}
+                  {excelImportSummary.errors.length > 5 ? (
+                    <li>… {excelImportSummary.errors.length - 5} detalles adicionales.</li>
+                  ) : null}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
+        {isExcelViewActive && excelImportSummary && (
+          <div className="rounded-3xl border border-primary/10 bg-white p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-secondary">Vista Excel</p>
+                <h3 className="mt-2 text-lg font-semibold">Resumen de materiales importados</h3>
+                <p className="mt-1 text-[11px] text-secondary">
+                  Tabla generada a partir del archivo Excel. El catálogo base no se modifica.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 max-h-[360px] overflow-auto rounded-2xl border border-primary/10">
+              <table className="min-w-full text-left text-[11px] text-secondary">
+                <thead className="bg-primary/5 text-[10px] uppercase tracking-[0.18em] text-secondary">
+                  <tr>
+                    <th className="px-3 py-2">Categoría</th>
+                    <th className="px-3 py-2">Material</th>
+                    <th className="px-3 py-2 text-right">Cantidad</th>
+                    <th className="px-3 py-2 text-right">Precio unitario</th>
+                    <th className="px-3 py-2 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {excelPreviewLines.map((line) => (
+                    <tr key={line.id} className="border-t border-primary/5">
+                      <td className="px-3 py-2 align-top text-[11px] font-semibold">
+                        {line.categoria}
+                      </td>
+                      <td className="px-3 py-2 align-top text-[11px]">{line.descripcion}</td>
+                      <td className="px-3 py-2 align-top text-right text-[11px]">
+                        {line.cantidad}
+                      </td>
+                      <td className="px-3 py-2 align-top text-right text-[11px]">
+                        {formatCurrency(line.precioUnitario)}
+                      </td>
+                      <td className="px-3 py-2 align-top text-right text-[11px]">
+                        {formatCurrency(line.total)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {!isExcelViewActive && (
+          <>
         <div className="flex flex-wrap gap-3">
           {catalogoKuche.map((category) => (
             <button
@@ -1349,7 +1684,7 @@ export default function CotizadorPage() {
               + Agregar material
             </button>
           </div>
-          {activeCategory?.category === "GASTOS FIJOS Y VARIOS" ? (
+          {activeCategory?.category === "GASTOS FIJOS" ? (
             <div className="mt-6 space-y-4 border-t border-gray-200 pt-6">
               <div className="group flex items-center justify-between">
                 <label className="text-sm font-medium text-gray-500">
@@ -1448,6 +1783,8 @@ export default function CotizadorPage() {
             </div>
           ) : null}
         </div>
+          </>
+        )}
       </motion.section>
 
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
@@ -1705,7 +2042,7 @@ export default function CotizadorPage() {
                   {formatCurrency(scenario.min)} - {formatCurrency(scenario.max)}
                 </div>
                 <p className="text-xs text-secondary">
-                  Base: {formatCurrency(materialSubtotal)} · {baseMaterial.label}
+                  Base: {formatCurrency(materialSubtotal)} · {baseMaterialLabel}
                 </p>
               </div>
             </motion.button>
@@ -1764,7 +2101,7 @@ export default function CotizadorPage() {
         <p className="text-xs uppercase tracking-[0.25em] text-secondary">Total Neto</p>
         <p className="mt-2 text-2xl font-semibold text-accent">{formatCurrency(totalNeto)}</p>
         <p className="mt-2 text-[11px] text-secondary">
-          {metrosValue} m lineales · {baseMaterial.label} · {materialColor}
+          {metrosValue} m lineales · {baseMaterialLabel} · {colorLabel} · {thicknessMm} mm
         </p>
       </div>
     </div>

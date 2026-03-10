@@ -1,16 +1,16 @@
-"use client";
+ "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, CheckCircle2, Download, FileText, Image as ImageIcon } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
-const mockProject = {
+const baseMockProject = {
   codigo: "K-8821",
   cliente: "Residencial Navarro",
-  isProspect: true,
+  isProspect: false,
   estadoProyecto: "Completado/Entregado",
   inversion: 145000,
   fechaInicio: "12 Octubre",
@@ -49,7 +49,7 @@ const mockProject = {
       src: "/images/render4.jpg",
     },
   ],
-};
+} as const;
 
 const timelineSteps = [
   "Diseño Aprobado",
@@ -138,6 +138,8 @@ const GarantiaCountdown = ({ startDate }: { startDate: string }) => {
 export default function SeguimientoPage() {
   const [codigo, setCodigo] = useState("");
   const [hasAccess, setHasAccess] = useState(false);
+  const [project, setProject] = useState<typeof baseMockProject | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<null | { name: string; src: string }>(
     null,
   );
@@ -146,22 +148,38 @@ export default function SeguimientoPage() {
   useEscapeClose(Boolean(selectedImage), () => setSelectedImage(null));
   useFocusTrap(Boolean(selectedImage), modalRef);
 
-  const isProspect = mockProject.isProspect;
+  const currentProject = project ?? baseMockProject;
+  const isProspect = currentProject.isProspect;
   const currentIndex = useMemo(
-    () => Math.max(0, timelineSteps.indexOf(mockProject.etapaActual)),
+    () => Math.max(0, timelineSteps.indexOf(currentProject.etapaActual)),
     [],
   );
   const totalPagado =
-    mockProject.pagos.anticipo.amount +
-    mockProject.pagos.segundoPago.amount +
-    mockProject.pagos.liquidacion.amount;
-  const restante = Math.max(0, mockProject.inversion - totalPagado);
+    currentProject.pagos.anticipo.amount +
+    currentProject.pagos.segundoPago.amount +
+    currentProject.pagos.liquidacion.amount;
+  const restante = Math.max(0, currentProject.inversion - totalPagado);
   const infoLockedText = "Esta información se activará una vez apruebes tu proyecto.";
-  const filesInSections = isProspect ? mockProject.archivos.slice(0, 1) : mockProject.archivos;
+  const filesInSections = isProspect
+    ? currentProject.archivos.slice(0, 1)
+    : currentProject.archivos;
   const quoteButtonLabel = isProspect ? "Ver cotización preliminar" : "Ver cotización formal";
   const quoteImageSrc = isProspect
-    ? mockProject.cotizacionPreliminarImage
-    : mockProject.cotizacionFormalImage;
+    ? currentProject.cotizacionPreliminarImage
+    : currentProject.cotizacionFormalImage;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storageKey = `kuche_project_${baseMockProject.codigo}`;
+    try {
+      const stored = window.localStorage.getItem(storageKey);
+      if (!stored) {
+        window.localStorage.setItem(storageKey, JSON.stringify(baseMockProject));
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
 
   return (
     <main className="min-h-screen bg-background text-primary">
@@ -184,18 +202,46 @@ export default function SeguimientoPage() {
                 <form
                   onSubmit={(event) => {
                     event.preventDefault();
-                    setHasAccess(true);
+                    if (!codigo.trim()) {
+                      setCodeError("Ingresa un código de proyecto.");
+                      return;
+                    }
+                    if (typeof window === "undefined") {
+                      setCodeError("No se pudo validar el código en este dispositivo.");
+                      return;
+                    }
+                    const codeKey = codigo.trim();
+                    const storageKey = `kuche_project_${codeKey}`;
+                    try {
+                      const stored = window.localStorage.getItem(storageKey);
+                      if (!stored) {
+                        setCodeError("No encontramos un proyecto con ese código.");
+                        return;
+                      }
+                      const parsed = JSON.parse(stored) as typeof baseMockProject;
+                      setProject(parsed);
+                      setHasAccess(true);
+                      setCodeError(null);
+                    } catch {
+                      setCodeError("Hubo un problema al leer tu proyecto. Intenta de nuevo.");
+                    }
                   }}
                 >
                   <label className="mt-6 block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                     Ingresa tu Código de Proyecto
                     <input
                       value={codigo}
-                      onChange={(event) => setCodigo(event.target.value)}
+                      onChange={(event) => {
+                        setCodigo(event.target.value);
+                        setCodeError(null);
+                      }}
                       placeholder="K-8821"
                       className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                     />
                   </label>
+                  {codeError ? (
+                    <p className="mt-3 text-xs font-semibold text-red-600">{codeError}</p>
+                  ) : null}
                   <button
                     type="submit"
                     className="mt-6 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
@@ -218,14 +264,14 @@ export default function SeguimientoPage() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.3em] text-secondary">Seguimiento</p>
                   <h1 className="mt-2 text-3xl font-semibold">
-                    Proyecto Residencial {mockProject.cliente}
+                    Proyecto Residencial {currentProject.cliente}
                   </h1>
                 </div>
                 <div className="grid gap-4 md:grid-cols-3">
                   {[
                     {
                       label: "Inversión total",
-                      value: formatCurrency(mockProject.inversion),
+                      value: formatCurrency(currentProject.inversion),
                       extra: (
                         <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-secondary">
                           <span className="rounded-full bg-primary/5 px-3 py-1">
@@ -240,8 +286,12 @@ export default function SeguimientoPage() {
                         </div>
                       ),
                     },
-                    { label: "Fecha inicio", value: mockProject.fechaInicio },
-                    { label: "Entrega estimada", value: mockProject.fechaEntrega, highlight: true },
+                    { label: "Fecha inicio", value: currentProject.fechaInicio },
+                    {
+                      label: "Entrega estimada",
+                      value: currentProject.fechaEntrega,
+                      highlight: true,
+                    },
                   ].map((item) => {
                     const valueNode = isProspect ? (
                       <span className="mt-3 inline-flex rounded-2xl bg-primary/5 px-3 py-2 text-xs font-semibold text-secondary">
@@ -294,7 +344,7 @@ export default function SeguimientoPage() {
                 {!isProspect ? (
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     {installments.map((item) => {
-                      const payment = mockProject.pagos[item.key];
+                      const payment = currentProject.pagos[item.key];
                       return (
                         <div
                           key={item.key}
@@ -369,7 +419,7 @@ export default function SeguimientoPage() {
                     <h2 className="mt-2 text-2xl font-semibold">Progreso de tu cocina</h2>
                   </div>
                   <span className="rounded-full bg-accent/10 px-4 py-2 text-xs font-semibold text-accent">
-                    {mockProject.etapaActual}
+                    {currentProject.etapaActual}
                   </span>
                 </div>
                 <div className="mt-8">
@@ -440,9 +490,9 @@ export default function SeguimientoPage() {
                 <div className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary">
                   La garantía se activará una vez completemos tu proyecto.
                 </div>
-              ) : mockProject.estadoProyecto === "Completado/Entregado" ? (
+              ) : currentProject.estadoProyecto === "Completado/Entregado" ? (
                 <section>
-                  <GarantiaCountdown startDate={mockProject.garantiaInicio} />
+                  <GarantiaCountdown startDate={currentProject.garantiaInicio} />
                 </section>
               ) : null}
             </motion.div>
