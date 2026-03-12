@@ -10,7 +10,7 @@ import { useFocusTrap } from "@/hooks/useFocusTrap";
 const baseMockProject = {
   codigo: "K-8821",
   cliente: "Residencial Navarro",
-  isProspect: false,
+  isProspect: true,
   estadoProyecto: "Completado/Entregado",
   inversion: 145000,
   fechaInicio: "12 Octubre",
