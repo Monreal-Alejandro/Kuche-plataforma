@@ -198,7 +198,7 @@ export default function OperacionesPage() {
             Control de tareas y citas
           </h1>
           <p className="mt-2 text-sm text-secondary">
-            Flujo: Citas → Diseño → Cotización formal → Contrato.
+            Flujo: Citas → Diseño → Cotización formal → Seguimiento.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

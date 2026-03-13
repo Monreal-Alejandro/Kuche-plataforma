@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { FileUp } from "lucide-react";
+import { FileUp, AlertTriangle, CheckCircle2, XCircle, Clock, Calendar } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -17,6 +17,7 @@ import {
   type TaskPriority,
   type TaskStage,
   type TaskStatus,
+  type FollowUpStatus,
 } from "@/lib/kanban";
 
 const currentUser = "Valeria";
@@ -48,6 +49,39 @@ const getInitials = (name: string) =>
     .join("")
     .toUpperCase();
 
+const getFollowUpAlertLevel = (enteredAt: number | undefined): "none" | "warning" | "urgent" => {
+  if (!enteredAt) return "none";
+  const now = Date.now();
+  const daysPassed = Math.floor((now - enteredAt) / (1000 * 60 * 60 * 24));
+  if (daysPassed >= 6) return "urgent";
+  if (daysPassed >= 3) return "warning";
+  return "none";
+};
+
+const getDaysInFollowUp = (enteredAt: number | undefined): number => {
+  if (!enteredAt) return 0;
+  return Math.floor((Date.now() - enteredAt) / (1000 * 60 * 60 * 24));
+};
+
+const getDemoFollowUpDate = (taskId: string): number => {
+  const hash = taskId.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const daysVariants = [1, 4, 7, 10];
+  const days = daysVariants[hash % daysVariants.length];
+  return Date.now() - (days * 24 * 60 * 60 * 1000);
+};
+
+const formatDate = (timestamp: number | undefined): string => {
+  if (!timestamp) return "Sin fecha";
+  const date = new Date(timestamp);
+  return date.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
+};
+
+const generateDateFromId = (taskId: string): number => {
+  const hash = taskId.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const daysAgo = (hash % 25) + 1;
+  return Date.now() - (daysAgo * 24 * 60 * 60 * 1000);
+};
+
 const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): KanbanTask => {
   const legacyType = typeof task.type === "string" ? task.type : undefined;
   const legacyStage =
@@ -71,6 +105,10 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
       : ["Sin asignar"];
   const priority: TaskPriority =
     task.priority === "alta" || task.priority === "baja" ? task.priority : "media";
+  const followUpStatus: FollowUpStatus =
+    task.followUpStatus === "confirmado" || task.followUpStatus === "descartado"
+      ? task.followUpStatus
+      : "pendiente";
   return {
     id: typeof task.id === "string" ? task.id : `task-${Date.now()}`,
     title: typeof task.title === "string" ? task.title : "Tarea sin título",
@@ -82,12 +120,32 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
     files: Array.isArray(task.files) ? (task.files as TaskFile[]) : [],
     priority,
     dueDate: typeof task.dueDate === "string" ? task.dueDate : undefined,
-    createdAt: typeof task.createdAt === "number" ? task.createdAt : Date.now(),
+    createdAt: typeof task.createdAt === "number" && task.createdAt > 1600000000000 
+      ? task.createdAt 
+      : generateDateFromId(typeof task.id === "string" ? task.id : `task-${Date.now()}`),
+    followUpEnteredAt: typeof task.followUpEnteredAt === "number" 
+      ? task.followUpEnteredAt 
+      : stage === "contrato" 
+        ? getDemoFollowUpDate(typeof task.id === "string" ? task.id : "") 
+        : undefined,
+    followUpStatus,
   };
 };
 
 const mergeTasks = (storedTasks: KanbanTask[]) => {
-  const map = new Map(storedTasks.map((task) => [task.id, task]));
+  const initialMap = new Map(initialKanbanTasks.map((task) => [task.id, task]));
+  const map = new Map(storedTasks.map((task) => {
+    const initialTask = initialMap.get(task.id);
+    if (initialTask) {
+      return [task.id, { 
+        ...task, 
+        createdAt: initialTask.createdAt,
+        files: initialTask.files && initialTask.files.length > 0 ? initialTask.files : task.files,
+        designApprovedByAdmin: initialTask.designApprovedByAdmin ?? task.designApprovedByAdmin,
+      }];
+    }
+    return [task.id, { ...task, createdAt: task.createdAt || generateDateFromId(task.id) }];
+  }));
   initialKanbanTasks.forEach((task) => {
     if (!map.has(task.id)) {
       map.set(task.id, task);
@@ -115,14 +173,19 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<TaskStage | null>(null);
   const [sortBy, setSortBy] = useState<"default" | "priority" | "date">("default");
+  const [dragErrorMessage, setDragErrorMessage] = useState<string | null>(null);
+  const [confirmClientTaskId, setConfirmClientTaskId] = useState<string | null>(null);
   const skipNextWriteRef = useRef(false);
   const activeTaskRef = useRef<HTMLDivElement | null>(null);
   const uploadTaskRef = useRef<HTMLDivElement | null>(null);
+  const confirmClientRef = useRef<HTMLDivElement | null>(null);
 
   useEscapeClose(Boolean(activeTaskId), () => setActiveTaskId(null));
   useEscapeClose(Boolean(uploadTaskId), () => setUploadTaskId(null));
+  useEscapeClose(Boolean(confirmClientTaskId), () => setConfirmClientTaskId(null));
   useFocusTrap(Boolean(activeTaskId), activeTaskRef);
   useFocusTrap(Boolean(uploadTaskId), uploadTaskRef);
+  useFocusTrap(Boolean(confirmClientTaskId), confirmClientRef);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -209,6 +272,39 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
+  useEffect(() => {
+    const autoDiscardExpiredFollowUps = () => {
+      const MAX_FOLLOWUP_DAYS = 10;
+      let hasChanges = false;
+      
+      setKanbanTasks((prev) => {
+        const updated = prev.map((task) => {
+          if (
+            task.stage === "contrato" &&
+            task.followUpStatus === "pendiente" &&
+            task.followUpEnteredAt
+          ) {
+            const daysPassed = Math.floor((Date.now() - task.followUpEnteredAt) / (1000 * 60 * 60 * 24));
+            if (daysPassed >= MAX_FOLLOWUP_DAYS) {
+              hasChanges = true;
+              return {
+                ...task,
+                followUpStatus: "descartado" as FollowUpStatus,
+                status: "completada" as TaskStatus,
+              };
+            }
+          }
+          return task;
+        });
+        return hasChanges ? updated : prev;
+      });
+    };
+
+    autoDiscardExpiredFollowUps();
+    const interval = setInterval(autoDiscardExpiredFollowUps, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   const filteredTasks = useMemo(() => {
     if (filterByEmployee !== undefined) {
       if (filterByEmployee === null || filterByEmployee === "") return kanbanTasks;
@@ -235,7 +331,58 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   };
 
   const moveTaskToStage = (taskId: string, stage: TaskStage) => {
-    updateTask(taskId, (task) => ({ ...task, stage }));
+    updateTask(taskId, (task) => {
+      const updates: Partial<KanbanTask> = { stage };
+      if (stage === "contrato" && task.stage !== "contrato") {
+        updates.followUpEnteredAt = Date.now();
+        updates.followUpStatus = "pendiente";
+      }
+      return { ...task, ...updates };
+    });
+  };
+
+  const tryMoveTaskToStage = (taskId: string, targetStage: TaskStage): boolean => {
+    const task = kanbanTasks.find((t) => t.id === taskId);
+    if (!task) return false;
+    
+    if (task.stage === targetStage) return true;
+    
+    if (task.status !== "completada") {
+      setDragErrorMessage("Debes completar la tarea antes de moverla a otra columna");
+      setTimeout(() => setDragErrorMessage(null), 3000);
+      return false;
+    }
+    
+    moveTaskToStage(taskId, targetStage);
+    return true;
+  };
+
+  const confirmFollowUp = (taskId: string) => {
+    updateTask(taskId, (task) => ({ ...task, followUpStatus: "confirmado" as FollowUpStatus, status: "completada" as TaskStatus }));
+  };
+
+  const discardFollowUp = (taskId: string) => {
+    updateTask(taskId, (task) => ({ ...task, followUpStatus: "descartado" as FollowUpStatus, status: "completada" as TaskStatus }));
+  };
+
+  const startCita = (taskId: string) => {
+    updateTask(taskId, (task) => ({ ...task, citaStarted: true }));
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(activeCitaTaskStorageKey, taskId);
+    }
+    router.push("/dashboard/cotizador");
+  };
+
+  const finishCita = (taskId: string) => {
+    updateTask(taskId, (task) => ({ ...task, citaFinished: true, status: "completada" as TaskStatus }));
+  };
+
+  const approveDesignAsAdmin = (taskId: string) => {
+    updateTask(taskId, (task) => ({ ...task, designApprovedByAdmin: true }));
+  };
+
+  const approveDesignAsClient = (taskId: string) => {
+    updateTask(taskId, (task) => ({ ...task, designApprovedByClient: true, status: "completada" as TaskStatus }));
   };
 
   const deleteTask = (taskId: string) => {
@@ -290,22 +437,6 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       ...task,
       files: [...(task.files ?? []), ...nextFiles],
     }));
-  };
-
-  const handleStartCita = (taskId: string) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(activeCitaTaskStorageKey, taskId);
-    }
-    setActiveTaskId(null);
-    router.push("/dashboard/cotizador");
-  };
-
-  const handleFinishCita = (taskId: string) => {
-    updateTask(taskId, (task) => ({ ...task, status: "completada" }));
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(activeCitaTaskStorageKey);
-    }
-    setActiveTaskId(null);
   };
 
   return (
@@ -374,7 +505,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                   event.preventDefault();
                   const taskId = event.dataTransfer.getData("text/plain");
                   if (taskId) {
-                    moveTaskToStage(taskId, column.id);
+                    tryMoveTaskToStage(taskId, column.id);
                   }
                   setDraggedTaskId(null);
                   setDragOverColumnId(null);
@@ -408,26 +539,67 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                           setDraggedTaskId(null);
                           setDragOverColumnId(null);
                         }}
-                        className={`flex h-48 cursor-pointer flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white px-4 py-4 text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                        className={`flex min-h-[220px] cursor-pointer flex-col rounded-2xl border border-primary/10 bg-white px-4 py-4 text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
                           stageStyle?.border ? `border-l-4 ${stageStyle.border}` : ""
                         }`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${
-                              statusStyles[task.status]
-                            }`}
-                          >
-                            {task.status === "completada" ? "Completada" : "Pendiente"}
-                          </span>
-                          <span
-                            className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${
-                              priorityStyles[task.priority ?? "media"]
-                            }`}
-                          >
-                            {(task.priority ?? "media").charAt(0).toUpperCase() +
-                              (task.priority ?? "media").slice(1)}
-                          </span>
+                          {task.stage === "contrato" && task.followUpStatus === "pendiente" ? (
+                            (() => {
+                              const alertLevel = getFollowUpAlertLevel(task.followUpEnteredAt);
+                              const days = getDaysInFollowUp(task.followUpEnteredAt);
+                              if (alertLevel === "urgent") {
+                                return (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-1 text-[10px] font-semibold text-rose-700 animate-pulse">
+                                    <AlertTriangle className="h-3 w-3" />
+                                    ¡Contactar urgente! ({days} días)
+                                  </span>
+                                );
+                              }
+                              if (alertLevel === "warning") {
+                                return (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-700">
+                                    <Clock className="h-3 w-3" />
+                                    Dar seguimiento ({days} días)
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-600">
+                                  <Clock className="h-3 w-3" />
+                                  En seguimiento
+                                </span>
+                              );
+                            })()
+                          ) : task.stage === "disenos" && task.files && task.files.length > 0 && !task.designApprovedByAdmin ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-700">
+                              <Clock className="h-3 w-3" />
+                              Esperando aprobación
+                            </span>
+                          ) : task.stage === "disenos" && task.designApprovedByAdmin && !task.designApprovedByClient ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-1 text-[10px] font-semibold text-violet-700">
+                              <Clock className="h-3 w-3" />
+                              Pendiente de cliente
+                            </span>
+                          ) : (
+                            <span
+                              className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${
+                                statusStyles[task.status]
+                              }`}
+                            >
+                              {task.status === "completada" ? "Completada" : "Pendiente"}
+                            </span>
+                          )}
+                          {task.stage !== "contrato" ? (
+                            <span
+                              className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${
+                                priorityStyles[task.priority ?? "media"]
+                              }`}
+                            >
+                              {(task.priority ?? "media").charAt(0).toUpperCase() +
+                                (task.priority ?? "media").slice(1)}
+                            </span>
+                          ) : null}
                         </div>
                         <div className="mt-3 flex flex-1 flex-col">
                           <div className="min-h-[3.75rem] max-h-[3.75rem]">
@@ -448,79 +620,166 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                           </div>
                           <div className="mt-3 min-h-[1.75rem]">
                             <div className="flex flex-wrap gap-2">
-                              {task.stage === "citas" && task.status === "pendiente" ? (
+                              {/* CITAS: Iniciar → Terminar */}
+                              {task.stage === "citas" && task.status === "pendiente" && !task.citaStarted ? (
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleStartCita(task.id);
+                                    startCita(task.id);
                                   }}
-                                  className="inline-flex w-auto items-center rounded-full border border-primary/10 bg-white px-3 py-1 text-[11px] font-semibold text-secondary"
+                                  className="inline-flex w-auto items-center rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-white"
                                 >
                                   Iniciar cita
                                 </button>
                               ) : null}
-                              {task.stage === "cotizacion" && task.status === "pendiente" ? (
+                              {task.stage === "citas" && task.citaStarted && !task.citaFinished ? (
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleStartCita(task.id);
+                                    finishCita(task.id);
                                   }}
-                                  className="inline-flex w-auto items-center rounded-full border border-primary/10 bg-white px-3 py-1 text-[11px] font-semibold text-secondary"
+                                  className="inline-flex w-auto items-center rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white"
+                                >
+                                  Terminar cita
+                                </button>
+                              ) : null}
+                              {task.stage === "citas" && task.status === "completada" ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  Cita completada
+                                </span>
+                              ) : null}
+
+                              {/* COTIZACIÓN: Iniciar → Terminar */}
+                              {task.stage === "cotizacion" && task.status === "pendiente" && !task.citaStarted ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    startCita(task.id);
+                                  }}
+                                  className="inline-flex w-auto items-center rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-white"
                                 >
                                   Iniciar
                                 </button>
                               ) : null}
-                              {task.stage === "disenos" ? (
+                              {task.stage === "cotizacion" && task.citaStarted && !task.citaFinished ? (
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    setUploadTaskId(task.id);
+                                    finishCita(task.id);
                                   }}
-                                  className="inline-flex w-auto items-center rounded-full border border-primary/10 bg-white px-3 py-1 text-[11px] font-semibold text-secondary"
+                                  className="inline-flex w-auto items-center rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white"
                                 >
-                                  Subir
+                                  Terminar
                                 </button>
                               ) : null}
-                              {task.stage === "contrato" ? (
+                              {task.stage === "cotizacion" && task.status === "completada" ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  Completada
+                                </span>
+                              ) : null}
+
+                              {/* DISEÑOS: Subir → Admin aprueba → Cliente acepta */}
+                              {task.stage === "disenos" && task.status === "pendiente" && (!task.files || task.files.length === 0) ? (
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     setUploadTaskId(task.id);
                                   }}
-                                  className="inline-flex w-auto items-center rounded-full border border-primary/10 bg-white px-3 py-1 text-[11px] font-semibold text-secondary"
+                                  className="inline-flex w-auto items-center rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-white"
                                 >
-                                  Subir
+                                  Subir archivo
                                 </button>
+                              ) : null}
+                              {task.stage === "disenos" && task.designApprovedByAdmin && !task.designApprovedByClient ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setConfirmClientTaskId(task.id);
+                                  }}
+                                  className="inline-flex w-auto items-center gap-1 rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white"
+                                >
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  Cliente aceptó
+                                </button>
+                              ) : null}
+
+                              {/* SEGUIMIENTO: Confirmar/Descartar cliente */}
+                              {task.stage === "contrato" && task.followUpStatus === "pendiente" ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      confirmFollowUp(task.id);
+                                    }}
+                                    className="inline-flex w-auto items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                                  >
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    Confirmar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      discardFollowUp(task.id);
+                                    }}
+                                    className="inline-flex w-auto items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100"
+                                  >
+                                    <XCircle className="h-3 w-3" />
+                                    Descartar
+                                  </button>
+                                </>
+                              ) : null}
+                              {task.stage === "contrato" && task.followUpStatus === "confirmado" ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  Cliente confirmado
+                                </span>
+                              ) : null}
+                              {task.stage === "contrato" && task.followUpStatus === "descartado" ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-[11px] font-semibold text-gray-500">
+                                  <XCircle className="h-3 w-3" />
+                                  Descartado
+                                </span>
                               ) : null}
                             </div>
                           </div>
                         </div>
-                        <div className="mt-auto flex flex-wrap items-center gap-2 pb-3 pt-3 text-sm text-gray-600">
-                          {(Array.isArray(task.assignedTo) ? task.assignedTo : []).length === 0 ? (
-                            <span className="text-xs text-secondary">Sin asignar</span>
-                          ) : (Array.isArray(task.assignedTo) ? task.assignedTo : []).length <= 2 ? (
-                            (Array.isArray(task.assignedTo) ? task.assignedTo : []).map((name) => (
-                              <span key={name} className="flex items-center gap-1.5">
-                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[9px] font-semibold text-primary">
-                                  {getInitials(name)}
+                        <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-primary/5 pt-3 text-sm text-gray-600">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {(Array.isArray(task.assignedTo) ? task.assignedTo : []).length === 0 ? (
+                              <span className="text-xs text-secondary">Sin asignar</span>
+                            ) : (Array.isArray(task.assignedTo) ? task.assignedTo : []).length <= 2 ? (
+                              (Array.isArray(task.assignedTo) ? task.assignedTo : []).map((name) => (
+                                <span key={name} className="flex items-center gap-1.5">
+                                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[9px] font-semibold text-primary">
+                                    {getInitials(name)}
+                                  </span>
                                 </span>
-                                <span>{name}</span>
-                              </span>
-                            ))
-                          ) : (
-                            <>
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[9px] font-semibold text-primary">
-                                {getInitials((task.assignedTo as string[])[0])}
-                              </span>
-                              <span className="text-xs text-secondary">
-                                +{(task.assignedTo as string[]).length - 1} más
-                              </span>
-                            </>
-                          )}
+                              ))
+                            ) : (
+                              <>
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[9px] font-semibold text-primary">
+                                  {getInitials((task.assignedTo as string[])[0])}
+                                </span>
+                                <span className="text-xs text-secondary">
+                                  +{(task.assignedTo as string[]).length - 1}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                          <span className="flex items-center gap-1 text-[10px] text-secondary">
+                            <Calendar className="h-3 w-3" />
+                            {formatDate(task.createdAt)}
+                          </span>
                         </div>
                       </div>
                     );
@@ -652,9 +911,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                     </p>
                     <select
                       value={activeTask.stage}
-                      onChange={(event) =>
-                        moveTaskToStage(activeTask.id, event.target.value as TaskStage)
-                      }
+                      onChange={(event) => {
+                        const moved = tryMoveTaskToStage(activeTask.id, event.target.value as TaskStage);
+                        if (!moved) {
+                          event.target.value = activeTask.stage;
+                        }
+                      }}
                       className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm font-semibold text-secondary"
                     >
                       {kanbanColumns.map((col) => (
@@ -719,134 +981,241 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                   </select>
                 </div>
 
-                {activeTask.stage === "citas" ? (
+                {activeTask.stage === "citas" && activeTask.status === "pendiente" ? (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Acciones de cita
+                      Flujo de cita
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {activeTask.status === "pendiente" ? (
+                    <div className="mt-3 space-y-2">
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaStarted ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {activeTask.citaStarted ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                        <span>1. Iniciar cita</span>
+                      </div>
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaFinished ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {activeTask.citaFinished ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                        <span>2. Terminar cita</span>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {!activeTask.citaStarted ? (
                         <button
                           type="button"
-                          onClick={() => handleStartCita(activeTask.id)}
+                          onClick={() => startCita(activeTask.id)}
                           className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
                         >
                           Iniciar cita
                         </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => handleFinishCita(activeTask.id)}
-                        className="rounded-full border border-primary/10 bg-white px-4 py-2 text-xs font-semibold text-secondary"
-                      >
-                        Terminar cita
-                      </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => finishCita(activeTask.id)}
+                          className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                        >
+                          Terminar cita
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : null}
-                {activeTask.stage === "cotizacion" ? (
+                {activeTask.stage === "cotizacion" && activeTask.status === "pendiente" ? (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Acciones de cotización
+                      Flujo de cotización
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {activeTask.status === "pendiente" ? (
+                    <div className="mt-3 space-y-2">
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaStarted ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {activeTask.citaStarted ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                        <span>1. Iniciar cotización</span>
+                      </div>
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaFinished ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {activeTask.citaFinished ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                        <span>2. Terminar cotización</span>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {!activeTask.citaStarted ? (
                         <button
                           type="button"
-                          onClick={() => handleStartCita(activeTask.id)}
+                          onClick={() => startCita(activeTask.id)}
                           className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
                         >
                           Iniciar
                         </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => handleFinishCita(activeTask.id)}
-                        className="rounded-full border border-primary/10 bg-white px-4 py-2 text-xs font-semibold text-secondary"
-                      >
-                        Terminar
-                      </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => finishCita(activeTask.id)}
+                          className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                        >
+                          Terminar
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : null}
                 {activeTask.stage === "disenos" ? (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Entregables de diseño
+                      Flujo de diseño
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => setUploadTaskId(activeTask.id)}
-                      className="mt-3 inline-flex items-center rounded-full border border-primary/10 bg-white px-4 py-2 text-xs font-semibold text-secondary"
-                    >
-                      Subir diseño
-                    </button>
+                    <div className="mt-3 space-y-2">
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.files && activeTask.files.length > 0 ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {activeTask.files && activeTask.files.length > 0 ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                        <span>1. Subir archivo</span>
+                      </div>
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.designApprovedByAdmin ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {activeTask.designApprovedByAdmin ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                        <span>2. Aprobación del admin</span>
+                      </div>
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.designApprovedByClient ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {activeTask.designApprovedByClient ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                        <span>3. Cliente acepta</span>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {!activeTask.files || activeTask.files.length === 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setUploadTaskId(activeTask.id)}
+                          className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
+                        >
+                          Subir archivo
+                        </button>
+                      ) : !activeTask.designApprovedByAdmin ? (
+                        <span className="text-sm text-amber-600 font-medium">Esperando aprobación del admin</span>
+                      ) : !activeTask.designApprovedByClient ? (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmClientTaskId(activeTask.id)}
+                          className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                        >
+                          Cliente aceptó
+                        </button>
+                      ) : (
+                        <span className="text-sm text-emerald-600 font-medium">Diseño aprobado</span>
+                      )}
+                    </div>
                   </div>
                 ) : null}
-                {activeTask.stage === "contrato" ? (
+                {activeTask.stage === "contrato" && activeTask.followUpStatus === "pendiente" ? (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Archivos de contrato
+                      Alertas de seguimiento
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => setUploadTaskId(activeTask.id)}
-                      className="mt-3 inline-flex items-center rounded-full border border-primary/10 bg-white px-4 py-2 text-xs font-semibold text-secondary"
-                    >
-                      Subir contrato
-                    </button>
+                    {(() => {
+                      const alertLevel = getFollowUpAlertLevel(activeTask.followUpEnteredAt);
+                      const days = getDaysInFollowUp(activeTask.followUpEnteredAt);
+                      if (alertLevel === "urgent") {
+                        return (
+                          <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3">
+                            <div className="flex items-center gap-2 text-rose-700">
+                              <AlertTriangle className="h-5 w-5 animate-pulse" />
+                              <span className="font-semibold">¡Contactar urgente!</span>
+                            </div>
+                            <p className="mt-1 text-xs text-rose-600">
+                              Han pasado {days} días. Contacta al cliente para saber si continúa con el proyecto.
+                            </p>
+                          </div>
+                        );
+                      }
+                      if (alertLevel === "warning") {
+                        return (
+                          <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3">
+                            <div className="flex items-center gap-2 text-amber-700">
+                              <Clock className="h-5 w-5" />
+                              <span className="font-semibold">Dar seguimiento</span>
+                            </div>
+                            <p className="mt-1 text-xs text-amber-600">
+                              Han pasado {days} días. Es momento de contactar al cliente.
+                            </p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="mt-3 rounded-2xl bg-sky-50 px-4 py-3">
+                          <div className="flex items-center gap-2 text-sky-600">
+                            <Clock className="h-5 w-5" />
+                            <span className="font-semibold">En seguimiento</span>
+                          </div>
+                          <p className="mt-1 text-xs text-sky-500">
+                            {days > 0 ? `${days} día${days > 1 ? "s" : ""} en seguimiento.` : "Recién agregado."}
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : null}
 
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                    Archivos
+                    Estado del cliente
                   </p>
-                  <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-white px-4 py-6 text-sm text-secondary">
-                    <FileUp className="h-4 w-4" />
-                    Subir PDF o renders
-                    <input
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(event) => handleFilesUpload(activeTask.id, event.target.files)}
-                    />
-                  </label>
-                  <div className="mt-4 space-y-2">
-                    {(activeTask.files ?? []).length === 0 ? (
-                      <div className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-xs text-secondary">
-                        Sin archivos cargados.
-                      </div>
-                    ) : (
-                      (activeTask.files ?? []).map((file) => (
-                        <div
-                          key={file.id}
-                          className="flex items-center justify-between rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm"
-                        >
-                          <span>{file.name}</span>
-                          <span className="text-xs uppercase text-secondary">{file.type}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                  {activeTask.followUpStatus === "confirmado" ? (
+                    <div className="mt-3 flex items-center gap-2 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                      <CheckCircle2 className="h-5 w-5" />
+                      <span className="font-semibold">Cliente confirmado</span>
+                    </div>
+                  ) : activeTask.followUpStatus === "descartado" ? (
+                    <div className="mt-3 flex items-center gap-2 rounded-2xl bg-gray-100 px-4 py-3 text-sm text-gray-500">
+                      <XCircle className="h-5 w-5" />
+                      <span className="font-semibold">Cliente descartado</span>
+                    </div>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => confirmFollowUp(activeTask.id)}
+                        className="flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        Confirmar cliente
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => discardFollowUp(activeTask.id)}
+                        className="flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                      >
+                        <XCircle className="h-4 w-4" />
+                        Descartar
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                    Notas
-                  </p>
-                  <textarea
-                    value={activeTask.notes ?? ""}
-                    onChange={(event) =>
-                      updateTask(activeTask.id, (task) => ({
-                        ...task,
-                        notes: event.target.value,
-                      }))
-                    }
-                    placeholder="Agrega detalles o avances relevantes."
-                    className="mt-3 min-h-[120px] w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                  />
-                </div>
+                {activeTask.stage === "disenos" || activeTask.stage === "contrato" ? (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                      Archivos
+                    </p>
+                    <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-white px-4 py-6 text-sm text-secondary">
+                      <FileUp className="h-4 w-4" />
+                      Subir PDF o renders
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(event) => handleFilesUpload(activeTask.id, event.target.files)}
+                      />
+                    </label>
+                    <div className="mt-4 space-y-2">
+                      {(activeTask.files ?? []).length === 0 ? (
+                        <div className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-xs text-secondary">
+                          Sin archivos cargados.
+                        </div>
+                      ) : (
+                        (activeTask.files ?? []).map((file) => (
+                          <div
+                            key={file.id}
+                            className="flex items-center justify-between rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm"
+                          >
+                            <span>{file.name}</span>
+                            <span className="text-xs uppercase text-secondary">{file.type}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 {teamMembers && teamMembers.length > 0 ? (
                   <div className="border-t border-primary/10 pt-6">
@@ -888,11 +1257,11 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
               onClick={(event) => event.stopPropagation()}
             >
               <h3 className="text-lg font-semibold">
-                {uploadTask?.stage === "contrato" ? "Subir contrato" : "Subir diseño"}
+                {uploadTask?.stage === "contrato" ? "Subir archivo de seguimiento" : "Subir diseño"}
               </h3>
               <p className="mt-2 text-sm text-secondary">
                 {uploadTask?.stage === "contrato"
-                  ? "Adjunta el contrato firmado o sus anexos."
+                  ? "Adjunta documentos de seguimiento del proyecto."
                   : "Adjunta renders o planos para esta tarea de diseño."}
               </p>
               <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-white px-4 py-8 text-center text-sm text-secondary">
@@ -916,6 +1285,75 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 Listo
               </button>
             </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {confirmClientTaskId ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+            onClick={() => setConfirmClientTaskId(null)}
+          >
+            <motion.div
+              ref={confirmClientRef}
+              tabIndex={-1}
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-sm rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
+                  <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+                </div>
+              </div>
+              <h3 className="mt-4 text-center text-lg font-semibold">
+                ¿Confirmar que el cliente aceptó?
+              </h3>
+              <p className="mt-2 text-center text-sm text-secondary">
+                Esta acción marcará el diseño como aprobado por el cliente y completará la tarea.
+              </p>
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setConfirmClientTaskId(null)}
+                  className="flex-1 rounded-2xl border border-primary/10 bg-white py-3 text-sm font-semibold text-secondary"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    approveDesignAsClient(confirmClientTaskId);
+                    setConfirmClientTaskId(null);
+                  }}
+                  className="flex-1 rounded-2xl bg-emerald-600 py-3 text-sm font-semibold text-white"
+                >
+                  Sí, confirmar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {dragErrorMessage ? (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-2xl border border-amber-200 bg-amber-50 px-6 py-4 shadow-lg"
+          >
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              <p className="text-sm font-medium text-amber-800">{dragErrorMessage}</p>
+            </div>
           </motion.div>
         ) : null}
       </AnimatePresence>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, CalendarX, LayoutDashboard, Palette, Tags } from "lucide-react";
+import { Calendar, CalendarX, LayoutDashboard, Palette, Tags, CheckCircle2, XCircle } from "lucide-react";
 
 type TaskLike = {
   status?: string;
@@ -10,6 +10,7 @@ type TaskLike = {
   type?: string;
   title?: string;
   client?: string;
+  followUpStatus?: string;
 };
 
 type AppointmentLike = {
@@ -56,16 +57,19 @@ const getGreeting = (date: Date) => {
 
 export default function AdminPage() {
   const [tasks, setTasks] = useState<TaskLike[]>([]);
+  const [kanbanTasks, setKanbanTasks] = useState<TaskLike[]>([]);
   const [appointments, setAppointments] = useState<AppointmentLike[]>([]);
   const [catalogItems, setCatalogItems] = useState<unknown[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
     const storedTasks = window.localStorage.getItem("kuche_kanban_tasks");
+    const storedKanbanTasks = window.localStorage.getItem("kuche-kanban-tasks");
     const storedAppointments = window.localStorage.getItem("kuche_agenda_events");
     const storedCatalog = window.localStorage.getItem("kuche_catalogo_precios");
 
     setTasks(safeParseArray<TaskLike>(storedTasks));
+    setKanbanTasks(safeParseArray<TaskLike>(storedKanbanTasks));
     setAppointments(safeParseArray<AppointmentLike>(storedAppointments));
     setCatalogItems(safeParseArray<unknown>(storedCatalog));
     setIsHydrated(true);
@@ -99,6 +103,16 @@ export default function AdminPage() {
   );
 
   const totalMaterials = useMemo(() => catalogItems.length, [catalogItems]);
+
+  const confirmedClients = useMemo(
+    () => kanbanTasks.filter((task) => task.followUpStatus === "confirmado").length,
+    [kanbanTasks],
+  );
+
+  const discardedClients = useMemo(
+    () => kanbanTasks.filter((task) => task.followUpStatus === "descartado").length,
+    [kanbanTasks],
+  );
 
   const today = useMemo(() => new Date(), []);
   const todayKey = useMemo(() => today.toISOString().slice(0, 10), [today]);
@@ -168,6 +182,20 @@ export default function AdminPage() {
       href: "/admin/precios",
       icon: Tags,
       accent: "bg-amber-100 text-amber-700",
+    },
+    {
+      title: "Clientes confirmados",
+      value: isHydrated ? confirmedClients.toString() : "—",
+      href: "/admin/clientes-confirmados",
+      icon: CheckCircle2,
+      accent: "bg-emerald-100 text-emerald-700",
+    },
+    {
+      title: "Clientes descartados",
+      value: isHydrated ? discardedClients.toString() : "—",
+      href: "/admin/clientes-descartados",
+      icon: XCircle,
+      accent: "bg-gray-200 text-gray-600",
     },
   ];
 
