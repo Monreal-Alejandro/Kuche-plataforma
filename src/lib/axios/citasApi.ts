@@ -94,12 +94,115 @@ export interface ActualizarEstadoData {
   fechaTermino?: Date | string;
 }
 
+export interface HorarioOcupado {
+  hora: string; // Formato "HH:mm"
+}
+
+export interface DisponibilidadDia {
+  fecha: string; // Fecha en formato ISO
+  horariosOcupados: string[]; // Array de horas ocupadas en formato "HH:mm"
+}
+
+/**
+ * Obtener horarios ocupados de un día específico (PÚBLICA - No requiere autenticación)
+ * Solo devuelve las horas ocupadas, sin información sensible del cliente
+ */
+export const obtenerDisponibilidadDia = async (fecha: string): Promise<ApiResponse<DisponibilidadDia>> => {
+  try {
+    const response = await axiosInstance.get('/api/citas/disponibilidad', {
+      params: { fecha }
+    });
+    
+    // Si la respuesta tiene la estructura esperada
+    if (response.data && 'horariosOcupados' in response.data) {
+      return {
+        success: true,
+        data: response.data
+      };
+    }
+    
+    // Si ya viene con el formato ApiResponse
+    return response.data;
+  } catch (error) {
+    console.error('Error en obtenerDisponibilidadDia:', error);
+    return {
+      success: false,
+      message: 'Error al obtener disponibilidad',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    };
+  }
+};
+
 /**
  * Crear nueva cita (PÚBLICA - No requiere autenticación)
+ * @param data - Datos de la cita a crear
+ * @param captchaToken - Token reCAPTCHA para validación de seguridad
  */
-export const crearCita = async (data: CitaCreate): Promise<ApiResponse<Cita>> => {
-  const response = await axiosInstance.post<ApiResponse<Cita>>('/api/citas/agregarCita', data);
-  return response.data;
+export const crearCita = async (
+  data: CitaCreate,
+  captchaToken: string = ''
+): Promise<ApiResponse<Cita> & { citasOcupadas?: string[] }> => {
+  try {
+    const response = await axiosInstance.post<ApiResponse<Cita> | Cita>(
+      '/api/citas/agregarCita',
+      data,
+      {
+        headers: {
+          'captcha-token': captchaToken,
+        },
+      }
+    );
+
+    // Si la respuesta es un objeto con estructura ApiResponse
+    if ('success' in response.data) {
+      return response.data as ApiResponse<Cita>;
+    }
+
+    // Si el backend devuelve directamente la Cita (objeto sin estructura ApiResponse)
+    if (response.data && '_id' in response.data) {
+      return {
+        success: true,
+        data: response.data as Cita,
+        message: 'Cita creada exitosamente',
+      };
+    }
+
+    // Si es un array o estructura inesperada
+    return {
+      success: true,
+      data: response.data as Cita,
+      message: 'Cita creada exitosamente',
+    };
+  } catch (error: any) {
+    console.error('Error en crearCita:', error);
+
+    // Si el backend devolvió un error con mensaje
+    if (error.response?.data) {
+      const errorData = error.response.data;
+      return {
+        success: false,
+        message: errorData.message || 'Error al crear la cita',
+        error: errorData.error || 'Error desconocido',
+        citasOcupadas: errorData.citasOcupadas || [],
+      };
+    }
+
+    // Error de red o servidor no disponible
+    if (error.request && !error.response) {
+      return {
+        success: false,
+        message: 'No se pudo conectar con el servidor. Verifica tu conexión o intenta más tarde.',
+        error: 'Error de conexión',
+      };
+    }
+
+    // Otro tipo de error
+    return {
+      success: false,
+      message: 'Error al crear la cita. Por favor, intenta nuevamente.',
+      error: error.message || 'Error desconocido',
+    };
+  }
 };
 
 /**

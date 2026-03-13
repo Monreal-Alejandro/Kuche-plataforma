@@ -67,3 +67,19 @@ export type {
   FinalizarCitaData,
   ActualizarEstadoData,
 } from './citasApi';
+
+// Exportar APIs de tareas (Kanban)
+export * as tareasApi from './tareasApi';
+export type {
+  ArchivoTarea,
+  Tarea,
+  CrearTareaData,
+  ActualizarTareaData,
+  FiltrosTareas,
+} from './tareasApi';
+
+// Exportar APIs de kanban explícito por columna
+export * as kanbanApi from './kanbanApi';
+export type {
+  KanbanItem,
+} from './kanbanApi';

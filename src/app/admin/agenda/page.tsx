@@ -1,498 +1,275 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
-
-import { useEscapeClose } from "@/hooks/useEscapeClose";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
-
-type AppointmentType =
-  | "Levantamiento / Medidas"
-  | "Cotización en sitio"
-  | "Presentación de diseño";
-
-type AppointmentStatus = "Pendiente" | "Confirmada";
-
-type Appointment = {
-  id: string;
-  title: string;
-  client: string;
-  location: string;
-  date: string;
-  time: string;
-  type: AppointmentType;
-  assignedTo: string | null;
-  status: AppointmentStatus;
-};
-
-type TeamMember = {
-  id: string;
-  name: string;
-  role: string;
-};
-
-const APPOINTMENTS_KEY = "kuche_agenda_events";
-const TEAM_KEY = "kuche_team_members";
-const UNASSIGNED_FILTER = "__unassigned__";
-
-const typeStyles: Record<AppointmentType, string> = {
-  "Levantamiento / Medidas": "bg-sky-100 text-sky-700",
-  "Cotización en sitio": "bg-emerald-100 text-emerald-700",
-  "Presentación de diseño": "bg-purple-100 text-purple-700",
-};
-
-const weekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-
-const formatMonthLabel = (date: Date) =>
-  date.toLocaleDateString("es-MX", { month: "long", year: "numeric" });
-
-const toDateInput = (date: Date) => date.toISOString().slice(0, 10);
+import { useEffect, useState } from "react";
+import { Plus, Users, Loader2 } from "lucide-react";
+import KanbanBoard from "@/components/admin/KanbanBoard";
+import CitaModal from "@/components/admin/CitaModal";
+import { 
+  Cita, 
+  obtenerTodasLasCitas, 
+  asignarIngeniero, 
+  actualizarEstadoCita 
+} from "@/lib/axios/citasApi";
+import { Usuario, listarEmpleados } from "@/lib/axios/usuariosApi";
 
 export default function AgendaPage() {
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [selectedEmployee, setSelectedEmployee] = useState("Todos");
-  const [currentMonth, setCurrentMonth] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  });
-
+  const [citas, setCitas] = useState<Cita[]>([]);
+  const [empleados, setEmpleados] = useState<Usuario[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedCita, setSelectedCita] = useState<Cita | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [formState, setFormState] = useState<Appointment>({
-    id: "",
-    title: "",
-    client: "",
-    location: "",
-    date: toDateInput(new Date()),
-    time: "09:00",
-    type: "Levantamiento / Medidas",
-    assignedTo: "",
-    status: "Confirmada",
-  });
-  const modalRef = useRef<HTMLDivElement | null>(null);
 
-  useEscapeClose(isModalOpen, () => setIsModalOpen(false));
-  useFocusTrap(isModalOpen, modalRef);
-
+  // Cargar citas y empleados al montar el componente
   useEffect(() => {
-    const stored = window.localStorage.getItem(APPOINTMENTS_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          const normalized = parsed.map((item) => ({
-            ...item,
-            assignedTo: item.assignedTo ?? "",
-            status: item.status ?? (item.assignedTo ? "Confirmada" : "Pendiente"),
-          }));
-          setAppointments(normalized);
-        }
-      } catch {
-        // ignore corrupted storage
-      }
-    }
+    cargarDatos();
   }, []);
 
-  useEffect(() => {
-    window.localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(appointments));
-  }, [appointments]);
+  const cargarDatos = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      // Cargar citas y empleados en paralelo
+      const [citasResponse, empleadosResponse] = await Promise.all([
+        obtenerTodasLasCitas(),
+        listarEmpleados()
+      ]);
 
-  useEffect(() => {
-    const storedTeam = window.localStorage.getItem(TEAM_KEY);
-    if (storedTeam) {
-      try {
-        const parsed = JSON.parse(storedTeam);
-        if (Array.isArray(parsed)) {
-          setTeamMembers(parsed);
-          if (!formState.assignedTo && parsed[0]?.id) {
-            setFormState((prev) => ({
-              ...prev,
-              assignedTo: parsed[0].id,
-              status: "Confirmada",
-            }));
-          }
+      if (citasResponse.success && citasResponse.data) {
+        setCitas(citasResponse.data);
+      } else {
+        setError(citasResponse.message || "Error al cargar las citas");
+      }
+
+      if (empleadosResponse.success && empleadosResponse.data) {
+        setEmpleados(empleadosResponse.data);
+      }
+    } catch (err) {
+      console.error("Error al cargar datos:", err);
+      setError("Error al conectar con el servidor");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCitaClick = (cita: Cita) => {
+    setSelectedCita(cita);
+    setIsModalOpen(true);
+  };
+
+  const handleMoverCita = async (citaId: string, nuevoEstado: 'programada' | 'en_proceso' | 'completada') => {
+    try {
+      const response = await actualizarEstadoCita(citaId, { 
+        estado: nuevoEstado,
+        ...(nuevoEstado === 'completada' ? { fechaTermino: new Date().toISOString() } : {})
+      });
+
+      if (response.success && response.data) {
+        // Actualizar la cita en el estado local
+        setCitas(prevCitas => 
+          prevCitas.map(cita => 
+            cita._id === citaId ? response.data! : cita
+          )
+        );
+      } else {
+        alert(response.message || "Error al actualizar el estado");
+      }
+    } catch (err) {
+      console.error("Error al mover cita:", err);
+      alert("Error al actualizar el estado de la cita");
+    }
+  };
+
+  const handleAsignarIngeniero = async (citaId: string, ingenieroId: string | null) => {
+    try {
+      const response = await asignarIngeniero(citaId, { 
+        ingenieroId: ingenieroId || undefined 
+      });
+
+      if (response.success && response.data) {
+        // Actualizar la cita en el estado local
+        const citaActualizada = response.data.cita;
+        setCitas(prevCitas => 
+          prevCitas.map(cita => 
+            cita._id === citaId ? citaActualizada : cita
+          )
+        );
+        
+        // Actualizar la cita seleccionada en el modal
+        if (selectedCita?._id === citaId) {
+          setSelectedCita(citaActualizada);
         }
-      } catch {
-        // ignore corrupted storage
+
+        alert(response.data.message || "Ingeniero asignado correctamente");
+      } else {
+        alert(response.message || "Error al asignar ingeniero");
       }
+    } catch (err) {
+      console.error("Error al asignar ingeniero:", err);
+      alert("Error al asignar el ingeniero");
     }
-  }, [formState.assignedTo]);
+  };
 
-  useEffect(() => {
-    if (!isModalOpen) {
-      return;
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsModalOpen(false);
+  const handleActualizarEstado = async (citaId: string, nuevoEstado: 'programada' | 'en_proceso' | 'completada' | 'cancelada') => {
+    try {
+      const response = await actualizarEstadoCita(citaId, { 
+        estado: nuevoEstado,
+        ...(nuevoEstado === 'completada' ? { fechaTermino: new Date().toISOString() } : {})
+      });
+
+      if (response.success && response.data) {
+        // Actualizar la cita en el estado local
+        setCitas(prevCitas => 
+          prevCitas.map(cita => 
+            cita._id === citaId ? response.data! : cita
+          )
+        );
+        
+        // Actualizar la cita seleccionada en el modal
+        if (selectedCita?._id === citaId) {
+          setSelectedCita(response.data);
+        }
+      } else {
+        alert(response.message || "Error al actualizar el estado");
       }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isModalOpen]);
-
-  const filteredAppointments = useMemo(() => {
-    if (selectedEmployee === "Todos") {
-      return appointments;
+    } catch (err) {
+      console.error("Error al actualizar estado:", err);
+      alert("Error al actualizar el estado de la cita");
     }
-    if (selectedEmployee === UNASSIGNED_FILTER) {
-      return appointments.filter((appointment) => !appointment.assignedTo);
-    }
-    return appointments.filter((appointment) => appointment.assignedTo === selectedEmployee);
-  }, [appointments, selectedEmployee]);
-
-  const daysInMonth = useMemo(() => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    return Array.from({ length: lastDay }, (_, index) => {
-      const day = index + 1;
-      return new Date(year, month, day);
-    });
-  }, [currentMonth]);
-
-  const calendarCells = useMemo(() => {
-    const firstDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-    const startOffset = (firstDay.getDay() + 6) % 7;
-    const totalCells = startOffset + daysInMonth.length;
-    const trailing = (7 - (totalCells % 7)) % 7;
-    return [
-      ...Array.from({ length: startOffset }, () => null),
-      ...daysInMonth,
-      ...Array.from({ length: trailing }, () => null),
-    ];
-  }, [currentMonth, daysInMonth]);
-
-  const openNewModal = (date: string) => {
-    setEditingId(null);
-    setFormState({
-      id: "",
-      title: "",
-      client: "",
-      location: "",
-      date,
-      time: "09:00",
-      type: "Levantamiento / Medidas",
-      assignedTo: teamMembers[0]?.id ?? "",
-      status: "Confirmada",
-    });
-    setIsModalOpen(true);
   };
 
-  const openEditModal = (appointment: Appointment) => {
-    setEditingId(appointment.id);
-    setFormState(appointment);
-    setIsModalOpen(true);
-  };
-
-  const handleSave = () => {
-    if (!formState.title.trim() || !formState.client.trim() || !formState.date || !formState.time) {
-      return;
-    }
-    const normalizedStatus =
-      formState.assignedTo && formState.status === "Pendiente" ? "Confirmada" : formState.status;
-    if (editingId) {
-      setAppointments((prev) =>
-        prev.map((item) =>
-          item.id === editingId ? { ...formState, id: editingId, status: normalizedStatus } : item,
-        ),
-      );
-    } else {
-      const newAppointment: Appointment = {
-        ...formState,
-        status: normalizedStatus,
-        id: `a${Date.now().toString(36)}`,
-      };
-      setAppointments((prev) => [...prev, newAppointment]);
-    }
+  const handleCloseModal = () => {
     setIsModalOpen(false);
+    setSelectedCita(null);
   };
 
-  const handleDelete = () => {
-    if (!editingId) {
-      return;
-    }
-    setAppointments((prev) => prev.filter((item) => item.id !== editingId));
-    setIsModalOpen(false);
-  };
+  // Filtrar citas por estado
+  const programadas = citas.filter(cita => cita.estado === 'programada');
+  const enProceso = citas.filter(cita => cita.estado === 'en_proceso');
+  const completadas = citas.filter(cita => cita.estado === 'completada');
+
+  // Estadísticas
+  const sinAsignar = citas.filter(cita => !cita.ingenieroAsignado).length;
+  const totalCitas = citas.length;
+
+  if (isLoading) {
+    return (
+      <div className="flex h-[calc(100vh-200px)] items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-12 w-12 animate-spin text-accent" />
+          <p className="mt-4 text-sm text-secondary">Cargando citas...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-[calc(100vh-200px)] items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
+            <span className="text-2xl">⚠️</span>
+          </div>
+          <h3 className="mt-4 text-lg font-semibold text-primary">Error al cargar</h3>
+          <p className="mt-2 text-sm text-secondary">{error}</p>
+          <button
+            onClick={cargarDatos}
+            className="mt-4 rounded-full bg-accent px-6 py-2 text-sm font-semibold text-white transition hover:bg-accent/90"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-[calc(100vh-2rem)] flex-col gap-6 overflow-hidden">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Agenda de Citas y Visitas</h1>
-          <p className="mt-1 text-sm text-gray-500 capitalize">{formatMonthLabel(currentMonth)}</p>
+          <h1 className="text-3xl font-semibold text-primary">
+            Agenda de Citas
+          </h1>
+          <p className="mt-2 text-sm text-secondary">
+            Gestiona las citas de levantamiento y asigna ingenieros
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
-            }
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm transition hover:bg-gray-50"
-            aria-label="Mes anterior"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
-            }
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm transition hover:bg-gray-50"
-            aria-label="Mes siguiente"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <select
-            value={selectedEmployee}
-            onChange={(event) => setSelectedEmployee(event.target.value)}
-            className="rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 shadow-sm outline-none"
-          >
-            <option value="Todos">Todos</option>
-            <option value={UNASSIGNED_FILTER}>🚨 Citas sin asignar</option>
-            {teamMembers.map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => openNewModal(toDateInput(new Date()))}
-            className="rounded-2xl bg-[#8B1C1C] px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
-          >
-            Agendar visita
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-1 min-h-0 flex-col gap-2">
-        <div className="grid grid-cols-7 gap-2">
-          {weekDays.map((day) => (
-            <div key={day} className="px-2 text-sm font-medium text-gray-500">
-              {day}
-            </div>
-          ))}
-        </div>
-        <div className="grid flex-1 min-h-0 grid-cols-7 grid-rows-6 gap-2">
-          {calendarCells.map((date, index) => {
-            if (!date) {
-              return <div key={`empty-${index}`} className="rounded-2xl border border-transparent p-1" />;
-            }
-            const dateKey = toDateInput(date);
-            const dayAppointments = filteredAppointments.filter((item) => item.date === dateKey);
-            return (
-              <button
-                key={dateKey}
-                type="button"
-                onClick={() => openNewModal(dateKey)}
-                className="flex min-h-0 flex-col rounded-2xl border border-gray-100 bg-white p-1.5 text-left transition-colors hover:bg-gray-50"
-              >
-                <div className="text-xs font-semibold text-gray-500">{date.getDate()}</div>
-                <div className="mt-1 flex-1 min-h-0 space-y-1 overflow-y-auto custom-scrollbar">
-                  {dayAppointments.map((appointment) => {
-                    const isPending = appointment.status === "Pendiente" || !appointment.assignedTo;
-                    return (
-                      <button
-                        key={appointment.id}
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openEditModal(appointment);
-                        }}
-                        className={`flex w-full items-center gap-1 truncate rounded-md px-2 py-0.5 text-left text-[10px] shadow-sm ${
-                          isPending
-                            ? "bg-red-500 text-white animate-pulse"
-                            : typeStyles[appointment.type]
-                        }`}
-                      >
-                        {isPending ? <AlertCircle className="h-3 w-3" /> : null}
-                        <span className="truncate">
-                          {appointment.time} · {appointment.client}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {isModalOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
-          onClick={() => setIsModalOpen(false)}
+        <button
+          onClick={cargarDatos}
+          className="rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-accent/90"
         >
-          <div
-            ref={modalRef}
-            tabIndex={-1}
-            className="w-full max-w-xl max-h-[90vh] overflow-y-auto custom-scrollbar rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">
-                {editingId ? "Editar visita" : "Agendar visita"}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-500"
-              >
-                Cerrar
-              </button>
+          <Plus className="mr-2 inline-block h-4 w-4" />
+          Recargar
+        </button>
+      </div>
+
+      {/* Estadísticas */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-secondary">Total</p>
+              <p className="mt-1 text-2xl font-bold text-primary">{totalCitas}</p>
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="text-xs font-semibold text-gray-500 sm:col-span-2">
-                Título
-                <input
-                  value={formState.title}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, title: event.target.value }))}
-                  placeholder="Ej. Medición cocina principal"
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                />
-              </label>
-              <label className="text-xs font-semibold text-gray-500 sm:col-span-2">
-                Cliente
-                <input
-                  value={formState.client}
-                  onChange={(event) =>
-                    setFormState((prev) => ({ ...prev, client: event.target.value }))
-                  }
-                  placeholder="Ej. Mariana Fuentes"
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                />
-              </label>
-              <label className="text-xs font-semibold text-gray-500 sm:col-span-2">
-                Dirección / Ubicación
-                <textarea
-                  value={formState.location}
-                  onChange={(event) =>
-                    setFormState((prev) => ({ ...prev, location: event.target.value }))
-                  }
-                  placeholder="Ej. Calle 123, Col. Centro, CDMX"
-                  className="mt-2 min-h-[90px] w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                />
-              </label>
-              <label className="text-xs font-semibold text-gray-500">
-                Fecha
-                <input
-                  value={formState.date}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, date: event.target.value }))}
-                  type="date"
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                />
-              </label>
-              <label className="text-xs font-semibold text-gray-500">
-                Hora
-                <input
-                  value={formState.time}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, time: event.target.value }))}
-                  type="time"
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                />
-              </label>
-              <label className="text-xs font-semibold text-gray-500">
-                Tipo de visita
-                <select
-                  value={formState.type}
-                  onChange={(event) =>
-                    setFormState((prev) => ({
-                      ...prev,
-                      type: event.target.value as AppointmentType,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                >
-                  <option value="Levantamiento / Medidas">Levantamiento / Medidas</option>
-                  <option value="Cotización en sitio">Cotización en sitio</option>
-                  <option value="Presentación de diseño">Presentación de diseño</option>
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-gray-500">
-                Asignar a
-                <select
-                  value={formState.assignedTo ?? ""}
-                  onChange={(event) =>
-                    setFormState((prev) => ({
-                      ...prev,
-                      assignedTo: event.target.value,
-                      status: event.target.value ? "Confirmada" : prev.status,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                >
-                  {teamMembers.length === 0 ? (
-                    <option value="">Sin integrantes</option>
-                  ) : null}
-                  <option value="">Sin asignar</option>
-                  {teamMembers.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-gray-500">
-                Estado
-                <select
-                  value={formState.status}
-                  onChange={(event) =>
-                    setFormState((prev) => ({
-                      ...prev,
-                      status: event.target.value as AppointmentStatus,
-                      assignedTo:
-                        event.target.value === "Pendiente" ? "" : prev.assignedTo,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                  disabled={Boolean(formState.assignedTo)}
-                >
-                  <option value="Pendiente">Pendiente</option>
-                  <option value="Confirmada">Confirmada</option>
-                </select>
-                {formState.assignedTo ? (
-                  <span className="mt-2 block text-[10px] font-medium text-gray-400">
-                    Asignación requerida completada.
-                  </span>
-                ) : null}
-              </label>
-            </div>
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-              {editingId ? (
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  className="rounded-2xl border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-600"
-                >
-                  Eliminar cita
-                </button>
-              ) : (
-                <span />
-              )}
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="rounded-2xl border border-gray-200 bg-white px-5 py-2 text-xs font-semibold text-gray-600"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  className="rounded-2xl bg-[#8B1C1C] px-5 py-2 text-xs font-semibold text-white"
-                >
-                  {editingId ? "Guardar cambios" : "Guardar cita"}
-                </button>
-              </div>
+            <div className="rounded-lg bg-blue-100 p-2">
+              <span className="text-xl">📋</span>
             </div>
           </div>
         </div>
-      ) : null}
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-secondary">Programadas</p>
+              <p className="mt-1 text-2xl font-bold text-yellow-600">{programadas.length}</p>
+            </div>
+            <div className="rounded-lg bg-yellow-100 p-2">
+              <span className="text-xl">📅</span>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-secondary">En Proceso</p>
+              <p className="mt-1 text-2xl font-bold text-blue-600">{enProceso.length}</p>
+            </div>
+            <div className="rounded-lg bg-blue-100 p-2">
+              <span className="text-xl">🔄</span>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-secondary">Sin Asignar</p>
+              <p className="mt-1 text-2xl font-bold text-red-600">{sinAsignar}</p>
+            </div>
+            <div className="rounded-lg bg-red-100 p-2">
+              <Users className="h-5 w-5 text-red-600" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Kanban Board */}
+      <KanbanBoard
+        programadas={programadas}
+        enProceso={enProceso}
+        completadas={completadas}
+        onCitaClick={handleCitaClick}
+        onMoverCita={handleMoverCita}
+      />
+
+      {/* Modal de Detalles */}
+      <CitaModal
+        cita={selectedCita}
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        empleados={empleados}
+        onAsignarIngeniero={handleAsignarIngeniero}
+        onActualizarEstado={handleActualizarEstado}
+      />
     </div>
   );
 }

@@ -1,34 +1,3 @@
-/**
- * Dashboard de Empleado - Panel Kanban de Gestión de Tareas
- * 
- * Este componente implementa un tablero Kanban completo para que los empleados
- * gestionen tareas de proyectos a través de diferentes etapas: Citas, Diseños,
- * Cotización y Levantamiento.
- * 
- * Funcionalidades principales:
- * - Tablero Kanban con drag & drop entre columnas
- * - Filtrado de tareas (todas / solo mis tareas)
- * - Modal de detalles de tarea con gestión de estado
- * - Subida de archivos (diseños, contratos, renders)
- * - Editor de estatus público visible al cliente
- * - Sincronización de estado con localStorage (temporal)
- * 
- * Estado actual:
- * - ✅ Código limpio y comentado según buenas prácticas
- * - ✅ Estructura segmentada para fácil mantenimiento
- * - ⏳ Pendiente: Integración con backend APIs
- * 
- * TODOs Backend:
- * 1. Importar tareasApi y proyectosApi cuando estén listos
- * 2. Reemplazar localStorage por llamadas al backend
- * 3. Usar user del AuthContext para filtrar tareas del empleado actual
- * 4. Implementar carga real de archivos al servidor
- * 5. Conectar timeline público con datos reales del proyecto
- * 
- * @author Frontend Team
- * @version 2.0 - Refactorizado y listo para backend
- */
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -36,39 +5,34 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, FileUp } from "lucide-react";
 
-// Hooks personalizados
-import { useAuth } from "@/hooks/useAuth";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
-
-// Tipos y utilidades de Kanban
+import { useAuth } from "@/hooks/useAuth";
+import { actualizarEstadoCita } from "@/lib/axios/citasApi";
+import {
+  actualizarCotizacionKanban,
+  actualizarDisenoKanban,
+  actualizarProyectoKanban,
+  obtenerKanbanCitas,
+  obtenerKanbanContrato,
+  obtenerKanbanCotizacion,
+  obtenerKanbanDisenos,
+  type KanbanItem,
+} from "@/lib/axios/kanbanApi";
+import { agregarArchivos } from "@/lib/axios/tareasApi";
 import {
   kanbanColumns,
-  kanbanStorageKey,
-  initialKanbanTasks,
-  activeCitaTaskStorageKey,
   type KanbanTask,
   type TaskFile,
   type TaskStage,
   type TaskStatus,
 } from "@/lib/kanban";
 
-// TODO: Importar APIs cuando estén disponibles
-// import * as tareasApi from "@/lib/axios/tareasApi";
-// import * as proyectosApi from "@/lib/axios/proyectosApi";
+type DashboardFlowItem = KanbanTask & {
+  assignedToId?: string;
+  raw?: Record<string, unknown>;
+};
 
-// TODO: Importar APIs cuando estén disponibles
-// import * as tareasApi from "@/lib/axios/tareasApi";
-// import * as proyectosApi from "@/lib/axios/proyectosApi";
-
-/* ========================================================================
-   CONSTANTES Y CONFIGURACIÓN
-   ======================================================================== */
-
-/**
- * Pasos del timeline público que el cliente puede ver
- * TODO: Mover a configuración del backend
- */
 const publicTimelineSteps = [
   "Diseño Aprobado",
   "Materiales en Taller",
@@ -77,15 +41,8 @@ const publicTimelineSteps = [
   "Instalación Final",
 ];
 
-/**
- * Presupuesto de ejemplo para demostración
- * TODO: Obtener del backend según el proyecto seleccionado
- */
 const projectBudget = 145000;
 
-/**
- * Formateador de moneda en formato mexicano
- */
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
     style: "currency",
@@ -93,14 +50,8 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 0,
   }).format(value);
 
-/**
- * Calcula el monto de cada pago en 3 parcialidades
- */
 const installmentAmount = projectBudget / 3;
 
-/**
- * Estilos según la etapa de la tarea en el flujo
- */
 const stageStyles: Record<TaskStage, { border: string; badge: string }> = {
   citas: { border: "border-sky-500", badge: "bg-sky-50 text-sky-600" },
   disenos: { border: "border-violet-500", badge: "bg-violet-50 text-violet-600" },
@@ -108,26 +59,11 @@ const stageStyles: Record<TaskStage, { border: string; badge: string }> = {
   contrato: { border: "border-amber-500", badge: "bg-amber-50 text-amber-700" },
 };
 
-/**
- * Estilos según el status de la tarea
- */
-/**
- * Estilos según el status de la tarea
- */
 const statusStyles: Record<TaskStatus, string> = {
   pendiente: "bg-rose-50 text-rose-600",
   completada: "bg-emerald-50 text-emerald-600",
 };
 
-/* ========================================================================
-   FUNCIONES DE UTILIDAD
-   ======================================================================== */
-
-/**
- * Genera las iniciales de un nombre para mostrar en avatares
- * @param name - Nombre completo del usuario
- * @returns Iniciales en mayúsculas (máximo 2 letras)
- */
 const getInitials = (name: string) =>
   name
     .split(" ")
@@ -137,107 +73,58 @@ const getInitials = (name: string) =>
     .join("")
     .toUpperCase();
 
-/**
- * Normaliza una tarea para asegurar que tenga todos los campos requeridos
- * Convierte formatos legacy al formato actual
- * @param task - Tarea parcial que puede venir de diferentes fuentes
- * @returns Tarea normalizada con todos los campos requeridos
- */
-const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): KanbanTask => {
-  // Conversión de formato legacy (type) a formato nuevo (stage)
-  const legacyType = typeof task.type === "string" ? task.type : undefined;
-  const legacyStage =
-    legacyType === "cita"
-      ? "citas"
-      : legacyType === "diseño" || legacyType === "diseno"
-        ? "disenos"
-        : legacyType === "todo"
-          ? "cotizacion"
-          : undefined;
-  
-  // Validar que el stage pertenece a las columnas disponibles
-  const stage =
-    typeof task.stage === "string" && kanbanColumns.some((col) => col.id === task.stage)
-      ? (task.stage as TaskStage)
-      : legacyStage ?? "citas";
-  
-  const status = task.status === "completada" ? "completada" : "pendiente";
-  
-  return {
-    id: typeof task.id === "string" ? task.id : `task-${Date.now()}`,
-    title: typeof task.title === "string" ? task.title : "Tarea sin título",
-    stage,
-    status,
-    assignedTo:
-      typeof task.assignedTo === "string"
-        ? task.assignedTo
-        : typeof task.employee === "string"
-          ? task.employee
-          : "Sin asignar",
-    project: typeof task.project === "string" ? task.project : "General",
-    notes: typeof task.notes === "string" ? task.notes : "",
-    files: Array.isArray(task.files) ? (task.files as TaskFile[]) : [],
-  };
+const normalizeStage = (value: string): TaskStage => {
+  const stage = value.toLowerCase();
+  if (stage === "citas" || stage === "cita") return "citas";
+  if (stage === "disenos" || stage === "diseños" || stage === "diseno" || stage === "diseño") return "disenos";
+  if (stage === "cotizacion" || stage === "cotización" || stage === "cotizacion_formal") return "cotizacion";
+  if (stage === "contrato" || stage === "seguimiento") return "contrato";
+  return "citas";
 };
 
-/**
- * Combina tareas del localStorage con las tareas iniciales
- * Evita duplicados usando el ID como clave única
- * @param storedTasks - Tareas almacenadas en localStorage
- * @returns Array de tareas sin duplicados
- */
-const mergeTasks = (storedTasks: KanbanTask[]) => {
-  const map = new Map(storedTasks.map((task) => [task.id, task]));
-  initialKanbanTasks.forEach((task) => {
-    if (!map.has(task.id)) {
-      map.set(task.id, task);
-    }
-  });
-  return Array.from(map.values());
+const normalizeStatus = (value: string): TaskStatus => {
+  const status = value.toLowerCase();
+  if (status === "completada" || status === "completado" || status === "done") {
+    return "completada";
+  }
+  return "pendiente";
 };
 
-/* ========================================================================
-   COMPONENTE PRINCIPAL
-   ======================================================================== */
+const mapTaskFromApi = (task: KanbanItem): DashboardFlowItem => ({
+  id: task._id,
+  title: task.titulo,
+  stage: normalizeStage(task.etapa),
+  status: normalizeStatus(task.estado),
+  assignedTo: task.asignadoANombre || "Sin asignar",
+  assignedToId: task.asignadoA,
+  project: task.nombreProyecto || "General",
+  notes: task.notas || "",
+  raw: task.raw,
+  files: (task.archivos || []).map((file) => ({
+    id: file.id,
+    name: file.nombre,
+    type: file.tipo,
+  })),
+});
 
-/**
- * Dashboard de empleado - Vista principal del tablero Kanban
- * Muestra todas las tareas organizadas por etapas y permite gestionarlas
- * 
- * TODO: Conectar con backend para:
- * - Obtener tareas del usuario autenticado
- * - Actualizar estados en tiempo real
- * - Sincronizar archivos con el servidor
- * - Cargar datos de proyectos reales
- */
+const COLUMN_REQUEST_PLAN: Array<{ stage: TaskStage; load: () => Promise<{ success: boolean; data?: KanbanItem[]; message?: string }> }> = [
+  { stage: "citas", load: obtenerKanbanCitas },
+  { stage: "disenos", load: obtenerKanbanDisenos },
+  { stage: "cotizacion", load: obtenerKanbanCotizacion },
+  { stage: "contrato", load: obtenerKanbanContrato },
+];
+
 export default function EmpleadoDashboard() {
   const router = useRouter();
-  const { user } = useAuth(); // TODO: Usar para cargar tareas del empleado autenticado
-  
-  /* ========================================================================
-     ESTADO DEL COMPONENTE
-     ======================================================================== */
-  
-  // Vista del tablero: "all" muestra todas las tareas, "mine" solo las asignadas al usuario
+  const { user } = useAuth();
   const [viewMode, setViewMode] = useState<"all" | "mine">("all");
-  
-  // ID de la tarea cuyo modal de detalles está abierto
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  
-  // ID de la tarea en la que se está subiendo archivos
   const [uploadTaskId, setUploadTaskId] = useState<string | null>(null);
-  
-  // Control del modal del editor público (vista del cliente)
   const [isPublicEditorOpen, setIsPublicEditorOpen] = useState(false);
-  
-  // Lista de todas las tareas del Kanban - TODO: Cargar desde backend con tareasApi
-  const [kanbanTasks, setKanbanTasks] = useState<KanbanTask[]>(initialKanbanTasks);
-  
-  // Estado de drag & drop
+  const [kanbanTasks, setKanbanTasks] = useState<DashboardFlowItem[]>([]);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<TaskStage | null>(null);
-  
-  // Estado del timeline público (demo) - TODO: Cargar desde proyecto real
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [publicStep, setPublicStep] = useState(publicTimelineSteps[2]);
   const [publicFiles, setPublicFiles] = useState([
     { id: "p1", name: "Render_Actualizado.jpg", type: "jpg" },
@@ -245,223 +132,138 @@ export default function EmpleadoDashboard() {
   ]);
   const [newFileName, setNewFileName] = useState("");
   const [newFileType, setNewFileType] = useState("pdf");
-  
-  // Entradas de pagos del proyecto (demo) - TODO: Cargar desde proyectos del backend
   const [paymentInputs, setPaymentInputs] = useState({
     anticipo: 45000,
     segundoPago: 30000,
     liquidacion: 0,
   });
-  
-  /* ========================================================================
-     REFS PARA MODALES Y SINCRONIZACIÓN
-     ======================================================================== */
-  
-  // Previene bucles infinitos en la sincronización con localStorage
-  const skipNextWriteRef = useRef(false);
-  
-  // Referencias a los modales para manejo de focus trap
   const activeTaskRef = useRef<HTMLDivElement | null>(null);
   const uploadTaskRef = useRef<HTMLDivElement | null>(null);
   const publicEditorRef = useRef<HTMLDivElement | null>(null);
 
-  /* ========================================================================
-     HOOKS PERSONALIZADOS
-     ======================================================================== */
-  
-  // Cerrar modales con tecla Escape
   useEscapeClose(Boolean(activeTaskId), () => setActiveTaskId(null));
   useEscapeClose(Boolean(uploadTaskId), () => setUploadTaskId(null));
   useEscapeClose(isPublicEditorOpen, () => setIsPublicEditorOpen(false));
-  
-  // Trap del focus dentro de los modales para accesibilidad
   useFocusTrap(Boolean(activeTaskId), activeTaskRef);
   useFocusTrap(Boolean(uploadTaskId), uploadTaskRef);
   useFocusTrap(isPublicEditorOpen, publicEditorRef);
 
-  /* ========================================================================
-     EFECTOS DE SINCRONIZACIÓN
-     ======================================================================== */
-  
-  /**
-   * Effect: Sincronización inicial con localStorage
-   * Carga las tareas guardadas o inicializa con las tareas por defecto
-   * TODO: Reemplazar con llamada al backend para obtener tareas reales
-   */
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const syncFromStorage = () => {
-      const stored = window.localStorage.getItem(kanbanStorageKey);
-      if (!stored) {
-        const merged = mergeTasks(initialKanbanTasks);
-        skipNextWriteRef.current = true;
-        setKanbanTasks(merged);
-        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(merged));
-        return;
-      }
+    const upsertColumnTasks = (columnStage: TaskStage, tasks: DashboardFlowItem[]) => {
+      setKanbanTasks((prev) => {
+        const withoutCurrentColumn = prev.filter((task) => task.stage !== columnStage);
+        return [...withoutCurrentColumn, ...tasks];
+      });
+    };
+
+    const cargarColumna = async (columnStage: TaskStage, load: () => Promise<{ success: boolean; data?: KanbanItem[] }>) => {
+      setIsLoadingTasks(true);
       try {
-        const parsed = JSON.parse(stored) as KanbanTask[];
-        if (Array.isArray(parsed) && parsed.length) {
-          const normalized = parsed.map((task) => normalizeTask(task));
-          const merged = mergeTasks(normalized);
-          skipNextWriteRef.current = true;
-          setKanbanTasks(merged);
-          if (merged.length !== normalized.length) {
-            window.localStorage.setItem(kanbanStorageKey, JSON.stringify(merged));
-          }
+        const response = await load();
+        if (response.success && response.data) {
+          upsertColumnTasks(columnStage, response.data.map(mapTaskFromApi));
         }
-      } catch {
-        // Ignorar errores de parsing en localStorage corrupto
+      } catch (error) {
+        console.error(`Error al cargar columna ${columnStage}:`, error);
+      } finally {
+        setIsLoadingTasks(false);
       }
     };
 
-    // Ejecutar sincronización inicial
-    syncFromStorage();
-    
-    // Sincronizar cuando la ventana recupera el foco (usuario regresa a la tab)
-    const handleFocus = () => syncFromStorage();
-    
-    // Sincronizar cuando la tab se vuelve visible
+    const cargarColumnas = async () => {
+      await Promise.all(
+        COLUMN_REQUEST_PLAN.map((column) => cargarColumna(column.stage, column.load)),
+      );
+    };
+
+    void cargarColumnas();
+    const handleFocus = () => {
+      void cargarColumnas();
+    };
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        syncFromStorage();
+        void cargarColumnas();
       }
     };
-    
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
-    
     return () => {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
 
-  /**
-   * Effect: Guardar cambios en localStorage
-   * Se ejecuta cada vez que cambia el array de tareas
-   * TODO: Reemplazar con llamadas al backend para persistir cambios
-   */
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    
-    // Saltar el siguiente guardado para evitar bucles
-    if (skipNextWriteRef.current) {
-      skipNextWriteRef.current = false;
-      return;
-    }
-    
-    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(kanbanTasks));
-  }, [kanbanTasks]);
-
-  /**
-   * Effect: Sincronización entre pestañas
-   * Escucha cambios de localStorage en otras tabs y actualiza la vista
-   */
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    
-    const handleStorage = (event: StorageEvent) => {
-      // Solo reaccionar a cambios en el key de Kanban
-      if (event.key !== kanbanStorageKey || !event.newValue) return;
-      
-      try {
-        const parsed = JSON.parse(event.newValue) as KanbanTask[];
-        if (Array.isArray(parsed)) {
-          setKanbanTasks(mergeTasks(parsed.map((task) => normalizeTask(task))));
-        }
-      } catch {
-        // Ignorar errores de parsing
-      }
-    };
-    
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
-
-  /* ========================================================================
-     DATOS COMPUTADOS
-     ======================================================================== */
-  
-  /**
-   * Filtra las tareas según el modo de vista seleccionado
-   * - "all": Muestra todas las tareas
-   * - "mine": Solo las tareas asignadas al usuario actual
-   * TODO: Usar user.name en lugar de currentUser cuando esté conectado al backend
-   */
   const filteredTasks = useMemo(() => {
+    const userId = user?._id ?? "";
+    const userName = user?.nombre ?? "";
     if (viewMode === "mine") {
-      // TODO: Cambiar currentUser por user?.name cuando esté integrado con AuthContext
-      return kanbanTasks.filter((task) => task.assignedTo === "Empleado 1");
+      return kanbanTasks.filter(
+        (task) => task.assignedToId === userId || task.assignedTo === userName,
+      );
     }
     return kanbanTasks;
-  }, [kanbanTasks, viewMode]);
+  }, [kanbanTasks, user?._id, user?.nombre, viewMode]);
 
-  /**
-   * Calcula los montos de pago del proyecto
-   * TODO: Obtener estos valores del backend (proyectosApi)
-   */
   const totalPagado =
     paymentInputs.anticipo + paymentInputs.segundoPago + paymentInputs.liquidacion;
   const restante = Math.max(0, projectBudget - totalPagado);
 
-  /* ========================================================================
-     FUNCIONES DE ACTUALIZACIÓN DE TAREAS
-     ======================================================================== */
-  
-  /**
-   * Actualiza una tarea específica usando una función transformadora
-   * @param taskId - ID de la tarea a actualizar
-   * @param updater - Función que recibe la tarea actual y retorna la tarea modificada
-   * TODO: Enviar actualización al backend con tareasApi.actualizarTarea()
-   */
   const updateTask = (taskId: string, updater: (task: KanbanTask) => KanbanTask) => {
     setKanbanTasks((prev) =>
       prev.map((task) => (task.id === taskId ? updater(task) : task)),
     );
   };
 
-  /**
-   * Cambia el estado de una tarea (pendiente/completada)
-   * TODO: Sincronizar con backend
-   */
-  const setTaskStatus = (taskId: string, status: TaskStatus) => {
+  const setTaskStatus = async (taskId: string, status: TaskStatus) => {
+    const previousTasks = kanbanTasks;
+    const currentTask = previousTasks.find((task) => task.id === taskId);
+    if (!currentTask) return;
+
     updateTask(taskId, (task) => ({ ...task, status }));
+    try {
+      let response: { success: boolean } = { success: false };
+
+      if (currentTask.stage === "citas") {
+        response = await actualizarEstadoCita(taskId, {
+          estado: status === "completada" ? "completada" : "programada",
+          ...(status === "completada" ? { fechaTermino: new Date().toISOString() } : {}),
+        });
+      } else if (currentTask.stage === "disenos") {
+        response = await actualizarDisenoKanban(taskId, { estado: status });
+      } else if (currentTask.stage === "cotizacion") {
+        response = await actualizarCotizacionKanban(taskId, { estado: status });
+      } else if (currentTask.stage === "contrato") {
+        response = await actualizarProyectoKanban(taskId, { estado: status });
+      }
+
+      if (!response.success) {
+        setKanbanTasks(previousTasks);
+      }
+    } catch (error) {
+      console.error("Error al cambiar estado:", error);
+      setKanbanTasks(previousTasks);
+    }
   };
 
-  /**
-   * Mueve una tarea a una columna diferente del Kanban
-   * TODO: Sincronizar con backend
-   */
-  const moveTaskToStage = (taskId: string, stage: TaskStage) => {
-    updateTask(taskId, (task) => ({ ...task, stage }));
+  const moveTaskToStage = async (taskId: string, stage: TaskStage) => {
+    const currentTask = kanbanTasks.find((task) => task.id === taskId);
+    if (!currentTask) return;
+
+    if (currentTask.stage !== stage) {
+      window.alert("Mover tarjetas entre columnas requiere un flujo de negocio explícito en backend. La acción fue bloqueada.");
+      return;
+    }
   };
 
-  /**
-   * Obtiene la tarea activa para mostrar en el modal de detalles
-   */
   const activeTask = useMemo(
     () => kanbanTasks.find((task) => task.id === activeTaskId) ?? null,
     [activeTaskId, kanbanTasks],
   );
-  
-  /**
-   * Obtiene la tarea para la cual se están cargando archivos
-   */
   const uploadTask = useMemo(
     () => kanbanTasks.find((task) => task.id === uploadTaskId) ?? null,
     [kanbanTasks, uploadTaskId],
   );
 
-  /* ========================================================================
-     MANEJADORES DE ARCHIVOS
-     ======================================================================== */
-  
-  /**
-   * Infiere el tipo de archivo basado en su extensión
-   * @param name - Nombre del archivo con extensión
-   * @returns Tipo de archivo para categorización
-   */
   const inferFileType = (name: string): TaskFile["type"] => {
     const lower = name.toLowerCase();
     if (lower.endsWith(".pdf")) return "pdf";
@@ -471,64 +273,51 @@ export default function EmpleadoDashboard() {
     return "otro";
   };
 
-  /**
-   * Maneja la carga de archivos a una tarea específica
-   * TODO: Implementar carga real al servidor con API de archivos
-   * @param taskId - ID de la tarea que recibirá los archivos
-   * @param files - Lista de archivos seleccionados
-   */
-  const handleFilesUpload = (taskId: string, files: FileList | null) => {
+  const handleFilesUpload = async (taskId: string, files: FileList | null) => {
     if (!files?.length) return;
-    
+
     const nextFiles: TaskFile[] = Array.from(files).map((file) => ({
       id: `file-${Date.now()}-${file.name}`,
       name: file.name,
       type: inferFileType(file.name),
     }));
-    
+
+    const previousTasks = kanbanTasks;
     updateTask(taskId, (task) => ({
       ...task,
       files: [...(task.files ?? []), ...nextFiles],
     }));
+
+    try {
+      const response = await agregarArchivos(
+        taskId,
+        nextFiles.map((file) => ({
+          nombre: file.name,
+          tipo: file.type,
+          url: "",
+        })),
+      );
+      if (!response.success) {
+        setKanbanTasks(previousTasks);
+      }
+    } catch (error) {
+      console.error("Error al subir archivos:", error);
+      setKanbanTasks(previousTasks);
+    }
   };
 
-  /* ========================================================================
-     NAVEGACIÓN Y ACCIONES ESPECIALES
-     ======================================================================== */
-  
-  /**
-   * Inicia el flujo de una cita, guardando su ID y navegando a la agenda
-   * @param taskId - ID de la tarea de tipo cita
-   */
   const handleStartCita = (taskId: string) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(activeCitaTaskStorageKey, taskId);
-    }
     setActiveTaskId(null);
-    router.push("/dashboard/cotizador");
+    router.push(`/dashboard/cotizador?tareaId=${taskId}`);
   };
 
-  /**
-   * Marca una cita como completada y limpia el estado temporal
-   * @param taskId - ID de la tarea de cita a finalizar
-   */
-  const handleFinishCita = (taskId: string) => {
-    updateTask(taskId, (task) => ({ ...task, status: "completada" }));
-    
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(activeCitaTaskStorageKey);
-    }
-    
+  const handleFinishCita = async (taskId: string) => {
+    await setTaskStatus(taskId, "completada");
     setActiveTaskId(null);
   };
 
-  /* ========================================================================
-     RENDER DEL COMPONENTE
-     ======================================================================== */
-  
   return (
     <div className="space-y-8">
-      {/* Encabezado del dashboard */}
       <div>
         <p className="text-xs uppercase tracking-[0.3em] text-secondary">Dashboard Empleado</p>
         <h1 className="mt-2 text-3xl font-semibold">Tablero general</h1>
@@ -537,7 +326,6 @@ export default function EmpleadoDashboard() {
         </p>
       </div>
 
-      {/* Filtros y controles */}
       <motion.section
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -549,8 +337,6 @@ export default function EmpleadoDashboard() {
             <p className="text-xs uppercase tracking-[0.3em] text-secondary">Flujo de la empresa</p>
             <h2 className="mt-2 text-xl font-semibold">Tablero general</h2>
           </div>
-          
-          {/* Toggle entre ver todas las tareas o solo las tareas propias */}
           <div className="flex items-center gap-2 rounded-full border border-primary/10 bg-white p-1">
             {[
               { id: "all", label: "Ver todo" },
@@ -571,16 +357,13 @@ export default function EmpleadoDashboard() {
           </div>
         </div>
 
-        {/* Grid de columnas Kanban: Citas, Diseños, Cotización, Levantamiento */}
         <div className="mt-6 grid gap-4 lg:grid-cols-4">
           {kanbanColumns.map((column) => {
             const columnTasks = filteredTasks.filter((task) => task.stage === column.id);
             const isDragOver = dragOverColumnId === column.id;
-            
             return (
               <div
                 key={column.id}
-                // Handlers para drag & drop de tareas entre columnas
                 onDragOver={(event) => {
                   event.preventDefault();
                   setDragOverColumnId(column.id);
@@ -590,7 +373,7 @@ export default function EmpleadoDashboard() {
                   event.preventDefault();
                   const taskId = event.dataTransfer.getData("text/plain");
                   if (taskId) {
-                    moveTaskToStage(taskId, column.id);
+                    void moveTaskToStage(taskId, column.id);
                   }
                   setDraggedTaskId(null);
                   setDragOverColumnId(null);
@@ -599,7 +382,6 @@ export default function EmpleadoDashboard() {
                   isDragOver ? "bg-accent/5 ring-2 ring-accent/30" : ""
                 }`}
               >
-                {/* Header de la columna con contador de tareas */}
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                     {column.label}
@@ -608,18 +390,14 @@ export default function EmpleadoDashboard() {
                     {columnTasks.length}
                   </span>
                 </div>
-                
-                {/* Lista de tarjetas de tareas en esta columna */}
                 <div className="mt-3 space-y-3">
                   {columnTasks.map((task) => {
                     const stageStyle = stageStyles[task.stage];
-                    
                     return (
                       <div
                         key={task.id}
                         draggable
                         onClick={() => setActiveTaskId(task.id)}
-                        // Handlers para drag & drop de una tarea individual
                         onDragStart={(event) => {
                           event.dataTransfer.setData("text/plain", task.id);
                           event.dataTransfer.effectAllowed = "move";
@@ -633,7 +411,6 @@ export default function EmpleadoDashboard() {
                           stageStyle?.border ? `border-l-4 ${stageStyle.border}` : ""
                         }`}
                       >
-                        {/* Badge de estado: Pendiente o Completada */}
                         <span
                           className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${
                             statusStyles[task.status]
@@ -641,9 +418,7 @@ export default function EmpleadoDashboard() {
                         >
                           {task.status === "completada" ? "Completada" : "Pendiente"}
                         </span>
-                        
                         <div className="mt-3 flex flex-1 flex-col">
-                          {/* Título y proyecto de la tarea */}
                           <div className="min-h-[3.75rem] max-h-[3.75rem]">
                             <p
                               className="line-clamp-2 break-words text-base font-semibold leading-6 text-gray-900"
@@ -658,11 +433,8 @@ export default function EmpleadoDashboard() {
                               {task.project}
                             </p>
                           </div>
-                          
-                          {/* Botones de acción según el tipo de tarea */}
                           <div className="mt-3 min-h-[1.75rem]">
                             <div className="flex flex-wrap gap-2">
-                              {/* Botón "Iniciar cita" para tareas pendientes en columna de Citas */}
                               {task.stage === "citas" && task.status === "pendiente" ? (
                                 <button
                                   type="button"
@@ -675,8 +447,6 @@ export default function EmpleadoDashboard() {
                                   Iniciar cita
                                 </button>
                               ) : null}
-                              
-                              {/* Botón "Iniciar" para tareas de cotización */}
                               {task.stage === "cotizacion" && task.status === "pendiente" ? (
                                 <button
                                   type="button"
@@ -689,8 +459,6 @@ export default function EmpleadoDashboard() {
                                   Iniciar
                                 </button>
                               ) : null}
-                              
-                              {/* Botón "Subir" para tareas de diseño */}
                               {task.stage === "disenos" ? (
                                 <button
                                   type="button"
@@ -703,8 +471,6 @@ export default function EmpleadoDashboard() {
                                   Subir
                                 </button>
                               ) : null}
-                              
-                              {/* Botón "Subir" para tareas de contrato */}
                               {task.stage === "contrato" ? (
                                 <button
                                   type="button"
@@ -809,11 +575,6 @@ export default function EmpleadoDashboard() {
         </div>
       </motion.section>
 
-      {/* ========================================================================
-           MODAL: Detalles de Tarea
-           Modal lateral que muestra información completa de una tarea
-           Permite cambiar estado, ver archivos, agregar notas, etc.
-           ======================================================================== */}
       <AnimatePresence>
         {activeTask ? (
           <motion.div
@@ -1020,11 +781,6 @@ export default function EmpleadoDashboard() {
         ) : null}
       </AnimatePresence>
 
-      {/* ========================================================================
-           MODAL: Subida de Archivos
-           Modal para cargar archivos (diseños, contratos, renders, etc.)
-           TODO: Implementar carga real al servidor
-           ======================================================================== */}
       <AnimatePresence>
         {uploadTaskId ? (
           <motion.div
@@ -1076,12 +832,6 @@ export default function EmpleadoDashboard() {
         ) : null}
       </AnimatePresence>
 
-      {/* ========================================================================
-           MODAL: Editor de Estatus Público
-           Permite editar el paso del timeline visible al cliente
-           Administra archivos (renders, planos) que el cliente puede ver
-           TODO: Conectar con backend para actualizar proyecto del cliente
-           ======================================================================== */}
       <AnimatePresence>
         {isPublicEditorOpen ? (
           <motion.div

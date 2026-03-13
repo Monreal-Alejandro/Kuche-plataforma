@@ -1,8 +1,8 @@
  "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Captcha from "@/components/Captcha";
-import { crearCita, type CitaCreate } from "@/lib/axios/citasApi";
+import { crearCita, obtenerDisponibilidadDia, type CitaCreate } from "@/lib/axios/citasApi";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
@@ -22,7 +22,7 @@ export default function BookingSection() {
     "Noviembre",
     "Diciembre",
   ];
-  const timeSlots = ["10:00", "12:00", "16:00"];
+  const timeSlots = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
   const today = new Date();
   const todayStart = useMemo(
     () => new Date(today.getFullYear(), today.getMonth(), today.getDate()),
@@ -49,9 +49,114 @@ export default function BookingSection() {
     time: string;
     locationLabel: string;
   } | null>(null);
+  const [horariosOcupados, setHorariosOcupados] = useState<string[]>([]);
+  const [loadingCitas, setLoadingCitas] = useState(false);
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+  const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const successModalRef = useRef<HTMLDivElement | null>(null);
+  const errorModalRef = useRef<HTMLDivElement | null>(null);
 
   useEscapeClose(isModalOpen, () => setIsModalOpen(false));
+  useEscapeClose(isSuccessModalOpen, () => setIsSuccessModalOpen(false));
+  useEscapeClose(isErrorModalOpen, () => setIsErrorModalOpen(false));
   useFocusTrap(isModalOpen, modalRef);
+  useFocusTrap(isSuccessModalOpen, successModalRef);
+  useFocusTrap(isErrorModalOpen, errorModalRef);
+
+  // Cargar horarios ocupados del día seleccionado
+  useEffect(() => {
+    const cargarDisponibilidad = async () => {
+      if (!selectedDate) {
+        setHorariosOcupados([]);
+        return;
+      }
+
+      setLoadingCitas(true);
+      try {
+        // Formatear fecha en ISO para el backend
+        const fechaISO = selectedDate.toISOString().split('T')[0];
+        const response = await obtenerDisponibilidadDia(fechaISO);
+        
+        if (response.success && response.data) {
+          setHorariosOcupados(response.data.horariosOcupados);
+        } else {
+          setHorariosOcupados([]);
+        }
+      } catch (error) {
+        console.error('Error al cargar disponibilidad:', error);
+        setHorariosOcupados([]);
+      } finally {
+        setLoadingCitas(false);
+      }
+    };
+
+    cargarDisponibilidad();
+  }, [selectedDate]);
+
+  // Verificar si un horario está disponible (considerando horarios ocupados)
+  const isTimeSlotAvailable = (timeSlot: string): boolean => {
+    if (!selectedDate) return false;
+
+    // Convertir timeSlot a hora numérica
+    const [hours] = timeSlot.split(':').map(Number);
+
+    // Verificar cada horario ocupado
+    for (const horarioOcupado of horariosOcupados) {
+      const [horaOcupada] = horarioOcupado.split(':').map(Number);
+
+      // Bloquear la hora exacta ocupada y la hora siguiente (buffer de 1 hora)
+      if (hours === horaOcupada || hours === horaOcupada + 1) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  // Verificar si un horario cumple la validación de mínimo 1 hora en el futuro
+  const isTimeSlotInFuture = (date: Date, timeSlot: string): boolean => {
+    const now = new Date();
+    const [hours, minutes] = timeSlot.split(':').map(Number);
+    
+    // Crear una fecha con la hora seleccionada
+    const citaDateTime = new Date(date);
+    citaDateTime.setHours(hours, minutes, 0, 0);
+    
+    // Calcular la diferencia en milisegundos
+    const differentMs = citaDateTime.getTime() - now.getTime();
+    const differenceHours = differentMs / (1000 * 60 * 60);
+    
+    // Debe haber al menos 1 hora de diferencia
+    return differenceHours >= 1;
+  };
+
+  // Auto-cierre del modal de éxito después de 3 segundos
+  useEffect(() => {
+    if (isSuccessModalOpen) {
+      const timer = setTimeout(() => {
+        setIsSuccessModalOpen(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isSuccessModalOpen]);
+
+  // Validar que el horario sea en el futuro (mínimo 1 hora)
+  useEffect(() => {
+    if (selectedTime && selectedDate && !isTimeSlotInFuture(selectedDate, selectedTime)) {
+      setSelectedTime("");
+      const now = new Date();
+      const isToday = selectedDate.toDateString() === now.toDateString();
+      
+      if (isToday) {
+        setFormError("Debes seleccionar un horario con mínimo 1 hora de anticipación desde ahora.");
+      } else {
+        setFormError("El horario seleccionado ya ha pasado. Por favor, selecciona otro.");
+      }
+      setFormMessage(null);
+    }
+  }, [selectedDate, selectedTime]);
+
   const monthLabel = useMemo(() => {
     return `${monthNames[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`;
   }, [currentMonth, monthNames]);
@@ -84,8 +189,19 @@ export default function BookingSection() {
   const handleConfirmBooking = async () => {
     if (!selectedDate || !pendingSummary) return;
 
+    // Validar reCAPTCHA antes de proceder
+    if (!captchaToken) {
+      setErrorMessage("Por favor valida el CAPTCHA antes de continuar.");
+      setIsErrorModalOpen(true);
+      return;
+    }
+
     setIsSubmitting(true);
     setIsModalOpen(false);
+    // Asegurar que los modales anteriores estén cerrados
+    setIsSuccessModalOpen(false);
+    setIsErrorModalOpen(false);
+    setErrorMessage("");
 
     try {
       // Formatear la fecha al formato que espera el backend
@@ -102,26 +218,35 @@ export default function BookingSection() {
         informacionAdicional: `Horario solicitado: ${selectedTime}`,
       };
 
-      const response = await crearCita(citaData);
+      const response = await crearCita(citaData, captchaToken);
 
-      if (response.success) {
-        setFormMessage(
-          "¡Cita agendada exitosamente! Te contactaremos pronto para confirmar."
-        );
-        setFormError(null);
+      console.log("Respuesta del servidor:", response);
+
+      // Verificar si la respuesta indica éxito
+      const isSuccess = 
+        (response && response.success === true) || 
+        (response && 'data' in response && response.data !== null);
+
+      if (isSuccess) {
+        setIsSuccessModalOpen(true);
         resetForm();
       } else {
-        setFormError(
-          response.message || "No se pudo agendar la cita. Intenta nuevamente."
-        );
-        setFormMessage(null);
+        // Construir mensaje de error con horarios sugeridos si existen
+        let errorMsg = response?.message || "No se pudo agendar la cita. Intenta nuevamente.";
+        
+        if (response?.citasOcupadas && response.citasOcupadas.length > 0) {
+          errorMsg += ` | Horarios recomendados: ${response.citasOcupadas.join(', ')}`;
+        }
+        
+        setErrorMessage(errorMsg);
+        setIsErrorModalOpen(true);
       }
     } catch (error) {
       console.error("Error al crear la cita:", error);
-      setFormError(
+      setErrorMessage(
         "Ocurrió un error al procesar tu solicitud. Por favor, intenta de nuevo."
       );
-      setFormMessage(null);
+      setIsErrorModalOpen(true);
     } finally {
       setIsSubmitting(false);
       setPendingSummary(null);
@@ -152,6 +277,18 @@ export default function BookingSection() {
           if (!captchaToken) {
             setFormMessage(null);
             setFormError("Confirma el captcha para continuar.");
+            return;
+          }
+          // Validar que el horario no sea en el pasado y tenga mínimo 1 hora de anticipación
+          if (!isTimeSlotInFuture(selectedDate, selectedTime)) {
+            setFormMessage(null);
+            setFormError("La cita debe ser agendada con al menos 1 hora de anticipación y no puede ser en el pasado.");
+            return;
+          }
+          // Validar que el horario esté disponible
+          if (!isTimeSlotAvailable(selectedTime)) {
+            setFormMessage(null);
+            setFormError("El horario seleccionado no está disponible. Por favor, selecciona otro.");
             return;
           }
           const dateLabel = selectedDate
@@ -279,22 +416,42 @@ export default function BookingSection() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-secondary">
               Horarios disponibles
             </p>
-            <div className="mt-3 grid grid-cols-3 gap-3">
+            {loadingCitas ? (
+              <p className="mt-3 text-xs text-secondary">Cargando disponibilidad...</p>
+            ) : null}
+            <div className="mt-3 grid grid-cols-3 gap-3 md:grid-cols-5">
               {timeSlots.map((time) => {
                 const isActive = time === selectedTime;
+                const isAvailable = isTimeSlotAvailable(time);
+                let disabledReason = "";
+                
+                if (!isAvailable) {
+                  if (selectedDate && !isTimeSlotInFuture(selectedDate, time)) {
+                    disabledReason = "Este horario no cumple con la anticipación mínima de 1 hora";
+                  } else {
+                    disabledReason = "Este horario ya está ocupado";
+                  }
+                }
+                
                 return (
                   <button
                     key={time}
                     type="button"
+                    disabled={!isAvailable}
+                    title={disabledReason}
                     onClick={() => {
-                      setSelectedTime(time);
-                      setFormMessage(null);
-                      setFormError(null);
+                      if (isAvailable) {
+                        setSelectedTime(time);
+                        setFormMessage(null);
+                        setFormError(null);
+                      }
                     }}
                     className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
-                      isActive
-                        ? "border-accent bg-accent text-white shadow-sm"
-                        : "border-gray-200 text-secondary hover:border-gray-300"
+                      !isAvailable
+                        ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 line-through"
+                        : isActive
+                          ? "border-accent bg-accent text-white shadow-sm"
+                          : "border-gray-200 text-secondary hover:border-gray-300"
                     }`}
                   >
                     {time}
@@ -302,6 +459,9 @@ export default function BookingSection() {
                 );
               })}
             </div>
+            <p className="mt-3 text-[10px] text-secondary">
+              ℹ️ Los horarios disponibles son de lunes a viernes. Debes seleccionar un horario con mínimo 1 hora de anticipación.
+            </p>
           </div>
         </div>
 
@@ -473,6 +633,79 @@ export default function BookingSection() {
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? "Enviando..." : "Confirmar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Modal de Éxito */}
+        {isSuccessModalOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              ref={successModalRef}
+              tabIndex={-1}
+              className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+            >
+              <div className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-600">
+                ¡Éxito!
+              </div>
+              <h3 className="mt-3 text-xl font-semibold text-primary">
+                ¡Cita agendada exitosamente!
+              </h3>
+              <p className="mt-4 text-sm text-secondary">
+                Tu solicitud ha sido registrada correctamente. Te contactaremos pronto a tu teléfono para confirmar los detalles de tu visita.
+              </p>
+
+              <div className="mt-6">
+                <button
+                  type="button"
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white hover:bg-emerald-700 transition"
+                  onClick={() => setIsSuccessModalOpen(false)}
+                >
+                  Entendido
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Modal de Error */}
+        {isErrorModalOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              ref={errorModalRef}
+              tabIndex={-1}
+              className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+            >
+              <div className="text-xs font-semibold uppercase tracking-[0.3em] text-red-600">
+                Error
+              </div>
+              <h3 className="mt-3 text-xl font-semibold text-primary">
+                No se pudo agendar la cita
+              </h3>
+              <p className="mt-4 text-sm text-secondary">
+                {errorMessage || "Ocurrió un error al procesar tu solicitud. Por favor, intenta de nuevo."}
+              </p>
+
+              <div className="mt-6">
+                <button
+                  type="button"
+                  className="w-full rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white hover:bg-red-700 transition"
+                  onClick={() => {
+                    setIsErrorModalOpen(false);
+                    setErrorMessage("");
+                  }}
+                >
+                  Cerrar
                 </button>
               </div>
             </div>
