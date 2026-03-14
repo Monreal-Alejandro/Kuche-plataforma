@@ -9,6 +9,21 @@ export type TaskFile = {
   type: "pdf" | "render" | "otro";
 };
 
+/** Datos del cotizador preliminar guardados en la tarjeta del cliente (para regenerar PDF). */
+export type PreliminarData = {
+  client: string;
+  projectType: string;
+  location: string;
+  date: string;
+  rangeLabel: string;
+  cubierta: string;
+  frente: string;
+  herraje: string;
+};
+
+/** Datos del cotizador formal guardados en la tarjeta del cliente (para regenerar PDF). */
+export type CotizacionFormalData = PreliminarData; // Misma estructura por ahora; se puede ampliar
+
 export type KanbanTask = {
   id: string;
   title: string;
@@ -34,6 +49,10 @@ export type KanbanTask = {
   designApprovedByAdmin?: boolean;
   /** Diseños: si el cliente aprobó el diseño */
   designApprovedByClient?: boolean;
+  /** Datos de la cotización preliminar (cita); para ver/descargar PDF en Clientes en proceso */
+  preliminarData?: PreliminarData;
+  /** Datos de la cotización formal; para ver/descargar PDF en Clientes en proceso */
+  cotizacionFormalData?: CotizacionFormalData;
 };
 
 export const kanbanColumns = [
@@ -68,7 +87,19 @@ export const initialKanbanTasks: KanbanTask[] = [
   { id: "t20", title: "Seguimiento cliente San Telmo", stage: "contrato", status: "pendiente", assignedTo: ["Luis"], project: "Familia San Telmo", files: [], priority: "alta", createdAt: ts(20), followUpEnteredAt: Date.now() - (4 * 24 * 60 * 60 * 1000), followUpStatus: "pendiente" },
   { id: "t21", title: "Cotización formal Paseo Norte", stage: "cotizacion", status: "pendiente", assignedTo: ["Majo"], project: "Paseo Norte", files: [], priority: "media", createdAt: ts(21) },
   { id: "t22", title: "Nuevo cliente Monterrey", stage: "contrato", status: "pendiente", assignedTo: ["Valeria"], project: "Familia García", files: [], priority: "media", createdAt: ts(22), followUpEnteredAt: Date.now() - (1 * 24 * 60 * 60 * 1000), followUpStatus: "pendiente" },
+  { id: "t23", title: "Cocina integral confirmada", stage: "contrato", status: "completada", assignedTo: ["Carlos"], project: "Familia Rodríguez", files: [{ id: "f10", name: "Contrato_Rodriguez.pdf", type: "pdf" }, { id: "f11", name: "Render_Rodriguez_final.jpg", type: "render" }], priority: "alta", createdAt: ts(23), followUpEnteredAt: Date.now() - (12 * 24 * 60 * 60 * 1000), followUpStatus: "confirmado" },
+  { id: "t24", title: "Proyecto residencial completo", stage: "contrato", status: "completada", assignedTo: ["Luis", "Valeria"], project: "Familia Mendoza", files: [{ id: "f12", name: "Contrato_Mendoza.pdf", type: "pdf" }], priority: "alta", createdAt: ts(24), followUpEnteredAt: Date.now() - (8 * 24 * 60 * 60 * 1000), followUpStatus: "confirmado" },
+  { id: "t25", title: "Closet y cocina Polanco", stage: "contrato", status: "completada", assignedTo: ["Majo"], project: "Residencial Polanco", files: [{ id: "f13", name: "Cotizacion_Polanco.pdf", type: "pdf" }, { id: "f14", name: "Render_Polanco.jpg", type: "render" }], priority: "media", createdAt: ts(25), followUpEnteredAt: Date.now() - (15 * 24 * 60 * 60 * 1000), followUpStatus: "confirmado" },
+  { id: "t26", title: "Remodelación cocina confirmada", stage: "contrato", status: "completada", assignedTo: ["Carlos"], project: "Familia Torres", files: [{ id: "f15", name: "Contrato_Torres.pdf", type: "pdf" }], priority: "media", createdAt: ts(26), followUpEnteredAt: Date.now() - (20 * 24 * 60 * 60 * 1000), followUpStatus: "confirmado" },
+  { id: "t27", title: "Cocina premium Santa Fe", stage: "contrato", status: "completada", assignedTo: ["Valeria", "Majo"], project: "Residencial Santa Fe", files: [{ id: "f16", name: "Contrato_SantaFe.pdf", type: "pdf" }, { id: "f17", name: "Plano_SantaFe.pdf", type: "pdf" }, { id: "f18", name: "Render_SantaFe.jpg", type: "render" }], priority: "alta", createdAt: ts(27), followUpEnteredAt: Date.now() - (25 * 24 * 60 * 60 * 1000), followUpStatus: "confirmado" },
+  { id: "t28", title: "Proyecto cancelado por presupuesto", stage: "contrato", status: "completada", assignedTo: ["Carlos"], project: "Familia Herrera", files: [{ id: "f19", name: "Cotizacion_Herrera.pdf", type: "pdf" }], priority: "media", createdAt: ts(28), followUpEnteredAt: Date.now() - (18 * 24 * 60 * 60 * 1000), followUpStatus: "descartado" },
+  { id: "t29", title: "Cliente no respondió", stage: "contrato", status: "completada", assignedTo: ["Luis"], project: "Residencial Bosques", files: [], priority: "baja", createdAt: ts(29), followUpEnteredAt: Date.now() - (30 * 24 * 60 * 60 * 1000), followUpStatus: "descartado" },
+  { id: "t30", title: "Decidió otra empresa", stage: "contrato", status: "completada", assignedTo: ["Valeria"], project: "Familia Reyes", files: [{ id: "f20", name: "Render_Reyes.jpg", type: "render" }], priority: "media", createdAt: ts(30), followUpEnteredAt: Date.now() - (22 * 24 * 60 * 60 * 1000), followUpStatus: "descartado" },
+  { id: "t31", title: "Proyecto pospuesto indefinidamente", stage: "contrato", status: "completada", assignedTo: ["Majo"], project: "Depto Centro", files: [{ id: "f21", name: "Plano_Centro.pdf", type: "pdf" }], priority: "baja", createdAt: ts(31), followUpEnteredAt: Date.now() - (35 * 24 * 60 * 60 * 1000), followUpStatus: "descartado" },
+  { id: "t32", title: "Sin respuesta tras cotización", stage: "contrato", status: "completada", assignedTo: ["Carlos", "Luis"], project: "Familia Ortega", files: [{ id: "f22", name: "Cotizacion_Ortega.pdf", type: "pdf" }, { id: "f23", name: "Render_Ortega.jpg", type: "render" }], priority: "media", createdAt: ts(32), followUpEnteredAt: Date.now() - (28 * 24 * 60 * 60 * 1000), followUpStatus: "descartado" },
 ];
 
 export const kanbanStorageKey = "kuche-kanban-tasks";
 export const activeCitaTaskStorageKey = "kuche-active-cita-task";
+export const citaReturnUrlStorageKey = "kuche-cita-return-url";
+export const activeCotizacionFormalTaskStorageKey = "kuche-active-cotizacion-formal-task";

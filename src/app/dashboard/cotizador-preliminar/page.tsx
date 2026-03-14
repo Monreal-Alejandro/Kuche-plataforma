@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, CheckCircle2 } from "lucide-react";
+import { activeCitaTaskStorageKey, kanbanStorageKey, citaReturnUrlStorageKey, type KanbanTask, type PreliminarData } from "@/lib/kanban";
+import { buildPreliminarPdf, downloadPreliminarPdf } from "@/lib/pdf-preliminar";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
@@ -13,7 +16,7 @@ const formatCurrency = (value: number) =>
 type MaterialOption = {
   id: string;
   name: string;
-  tier: "Estándar" | "Premium" | "Lujo";
+  tier: "Estandar" | "Premium" | "Lujo";
   multiplier: number;
   image: string;
 };
@@ -22,7 +25,7 @@ type MaterialCategory = "cubiertas" | "frentes" | "herrajes";
 
 const materialImageMap: Record<MaterialCategory, { match: RegExp; src: string }[]> = {
   cubiertas: [
-    { match: /calacatta|mármol|marble/i, src: "/images/materiales/calaccata_marble.jpg" },
+    { match: /calacatta|m?rmol|marble/i, src: "/images/materiales/calaccata_marble.jpg" },
     { match: /granito negro/i, src: "/images/materiales/black_granite.jpg" },
     { match: /cuarzo/i, src: "/images/materiales/quartz_texture.jpg" },
     { match: /sinterizada/i, src: "/images/materiales/smooth_stone.jpg" },
@@ -34,13 +37,13 @@ const materialImageMap: Record<MaterialCategory, { match: RegExp; src: string }[
     { match: /nogal|parota|cedro|encino|madera|chapa/i, src: "/images/materiales/walnut_wood_texture.jpg" },
     { match: /melamina blanca|blanca/i, src: "/images/materiales/white_seamless_texture.jpg" },
     { match: /melamina|mdf/i, src: "/images/materiales/plywood_texture.jpg" },
-    { match: /laca metálica|metalica/i, src: "/images/materiales/metalic_textures.jpg" },
+    { match: /laca met?lica|metalica/i, src: "/images/materiales/metalic_textures.jpg" },
     { match: /laca/i, src: "/images/materiales/white_marble_texture.jpg" },
   ],
   herrajes: [
     { match: /inox|stainless/i, src: "/images/materiales/stainless_steel_hinge.jpg" },
     { match: /cierre|drawer|slide|push/i, src: "/images/materiales/drawer_slide.jpg" },
-    { match: /soft|hinge|amortiguado|hidráulico|smart|lux/i, src: "/images/materiales/cabinet_hinge.jpg" },
+    { match: /soft|hinge|amortiguado|hidr?ulico|smart|lux/i, src: "/images/materiales/cabinet_hinge.jpg" },
   ],
 };
 
@@ -76,7 +79,7 @@ const materialCatalog = {
     {
       id: "laminado-blanco",
       name: "Laminado Blanco",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1,
       image:
         "https://image.pollinations.ai/prompt/white%20laminate%20texture?width=500&height=500&nologo=true",
@@ -92,7 +95,7 @@ const materialCatalog = {
     {
       id: "granito-ivory",
       name: "Granito Ivory",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.05,
       image:
         "https://image.pollinations.ai/prompt/ivory%20granite%20texture?width=500&height=500&nologo=true",
@@ -116,7 +119,7 @@ const materialCatalog = {
     {
       id: "cuarzo-gris-humo",
       name: "Cuarzo Gris Humo",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.1,
       image:
         "https://image.pollinations.ai/prompt/smoky%20grey%20quartz%20texture?width=500&height=500&nologo=true",
@@ -139,7 +142,7 @@ const materialCatalog = {
     },
     {
       id: "cuarzo-onix",
-      name: "Cuarzo Ónix",
+      name: "Cuarzo ?nix",
       tier: "Lujo",
       multiplier: 1.48,
       image:
@@ -156,7 +159,7 @@ const materialCatalog = {
     {
       id: "porcelanato-marfil",
       name: "Porcelanato Marfil",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.08,
       image:
         "https://image.pollinations.ai/prompt/ivory%20porcelain%20texture?width=500&height=500&nologo=true",
@@ -172,7 +175,7 @@ const materialCatalog = {
     {
       id: "cuarzo-nieve",
       name: "Cuarzo Nieve",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.04,
       image:
         "https://image.pollinations.ai/prompt/snow%20white%20quartz%20texture?width=500&height=500&nologo=true",
@@ -188,7 +191,7 @@ const materialCatalog = {
     {
       id: "granito-perla",
       name: "Granito Perla",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.06,
       image:
         "https://image.pollinations.ai/prompt/pearl%20granite%20texture?width=500&height=500&nologo=true",
@@ -206,7 +209,7 @@ const materialCatalog = {
     {
       id: "melamina-premium",
       name: "Melamina Premium",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1,
       image:
         "https://image.pollinations.ai/prompt/premium%20wood%20melamine%20texture?width=500&height=500&nologo=true",
@@ -230,7 +233,7 @@ const materialCatalog = {
     {
       id: "melamina-texturizada",
       name: "Melamina Texturizada",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.05,
       image:
         "https://image.pollinations.ai/prompt/textured%20grey%20melamine%20surface?width=500&height=500&nologo=true",
@@ -254,7 +257,7 @@ const materialCatalog = {
     {
       id: "melamina-blanca",
       name: "Melamina Blanca",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1,
       image:
         "https://image.pollinations.ai/prompt/white%20melamine%20board%20texture?width=500&height=500&nologo=true",
@@ -262,7 +265,7 @@ const materialCatalog = {
     {
       id: "melamina-ceniza",
       name: "Melamina Ceniza",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.03,
       image:
         "https://image.pollinations.ai/prompt/ash%20wood%20melamine%20texture?width=500&height=500&nologo=true",
@@ -293,7 +296,7 @@ const materialCatalog = {
     },
     {
       id: "laca-metalica",
-      name: "Laca Metálica",
+      name: "Laca Met?lica",
       tier: "Lujo",
       multiplier: 1.4,
       image:
@@ -326,7 +329,7 @@ const materialCatalog = {
     {
       id: "mdf-textura",
       name: "MDF Texturizado",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.06,
       image:
         "https://image.pollinations.ai/prompt/beige%20textured%20mdf%20surface?width=500&height=500&nologo=true",
@@ -342,7 +345,7 @@ const materialCatalog = {
     {
       id: "melamina-menta",
       name: "Melamina Menta",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.02,
       image:
         "https://image.pollinations.ai/prompt/mint%20green%20melamine%20texture?width=500&height=500&nologo=true",
@@ -352,7 +355,7 @@ const materialCatalog = {
     {
       id: "soft-close",
       name: "Soft Close",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1,
       image:
         "https://image.pollinations.ai/prompt/soft%20close%20cabinet%20hinge%20hardware?width=500&height=500&nologo=true",
@@ -392,7 +395,7 @@ const materialCatalog = {
     {
       id: "soft-basic",
       name: "Soft Basic",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.02,
       image:
         "https://image.pollinations.ai/prompt/basic%20metal%20cabinet%20hinge?width=500&height=500&nologo=true",
@@ -424,7 +427,7 @@ const materialCatalog = {
     {
       id: "grafito-matte",
       name: "Grafito Matte",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.04,
       image:
         "https://image.pollinations.ai/prompt/matte%20graphite%20black%20cabinet%20hinge?width=500&height=500&nologo=true",
@@ -432,7 +435,7 @@ const materialCatalog = {
     {
       id: "cierre-suave",
       name: "Cierre Suave",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.03,
       image:
         "https://image.pollinations.ai/prompt/soft%20close%20drawer%20slide%20metal?width=500&height=500&nologo=true",
@@ -456,14 +459,14 @@ const materialCatalog = {
     {
       id: "amortiguado",
       name: "Amortiguado",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.05,
       image:
         "https://image.pollinations.ai/prompt/cabinet%20hinge%20with%20damper%20mechanism?width=500&height=500&nologo=true",
     },
     {
       id: "hidraulico",
-      name: "Hidráulico",
+      name: "Hidr?ulico",
       tier: "Premium",
       multiplier: 1.2,
       image:
@@ -471,7 +474,7 @@ const materialCatalog = {
     },
     {
       id: "lux-autom",
-      name: "Lux Automático",
+      name: "Lux Autom?tico",
       tier: "Lujo",
       multiplier: 1.32,
       image:
@@ -488,7 +491,7 @@ const materialCatalog = {
     {
       id: "soft-basic-plus",
       name: "Soft Basic Plus",
-      tier: "Estándar",
+      tier: "Estandar",
       multiplier: 1.06,
       image:
         "https://image.pollinations.ai/prompt/standard%20cabinet%20drawer%20slide%20metal?width=500&height=500&nologo=true",
@@ -496,90 +499,10 @@ const materialCatalog = {
   ] satisfies MaterialOption[],
 };
 
-const escapePdfText = (value: string) =>
-  value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-
-const sanitizePdfText = (value: string) =>
-  escapePdfText(value.normalize("NFD").replace(/\p{Diacritic}/gu, ""));
-
-const buildElegantPdf = (data: {
-  client: string;
-  projectType: string;
-  location: string;
-  date: string;
-  rangeLabel: string;
-  cubierta: string;
-  frente: string;
-  herraje: string;
-}) => {
-  const drawRect = (x: number, y: number, w: number, h: number, color: string) =>
-    `q\n${color} rg\n${x} ${y} ${w} ${h} re\nf\nQ`;
-
-  const drawText = (x: number, y: number, size: number, color: string, text: string) =>
-    `BT\n/F1 ${size} Tf\n${color} rg\n${x} ${y} Td\n(${sanitizePdfText(text)}) Tj\nET`;
-
-  const content = [
-    drawRect(0, 732, 612, 60, "0.55 0.11 0.11"),
-    drawText(48, 755, 18, "1 1 1", "Cotizacion Preliminar"),
-    drawText(48, 738, 10, "1 1 1", "Kuche | Estimacion no vinculante"),
-    drawText(48, 700, 11, "0.15 0.15 0.15", "Resumen ejecutivo"),
-    drawRect(40, 610, 532, 90, "0.96 0.96 0.96"),
-    drawText(60, 670, 10, "0.45 0.45 0.45", "Rango estimado"),
-    drawText(60, 642, 20, "0.55 0.11 0.11", data.rangeLabel),
-    drawText(60, 618, 9, "0.35 0.35 0.35", "Sujeto a visita tecnica y definicion final."),
-    drawText(48, 575, 11, "0.15 0.15 0.15", "Datos del proyecto"),
-    drawText(48, 555, 10, "0.35 0.35 0.35", `Cliente: ${data.client || "Sin nombre"}`),
-    drawText(48, 538, 10, "0.35 0.35 0.35", `Tipo: ${data.projectType}`),
-    drawText(48, 521, 10, "0.35 0.35 0.35", `Ubicacion: ${data.location || "Por definir"}`),
-    drawText(48, 504, 10, "0.35 0.35 0.35", `Fecha tentativa: ${data.date || "Por definir"}`),
-    drawText(330, 575, 11, "0.15 0.15 0.15", "Materiales seleccionados"),
-    drawText(330, 555, 10, "0.35 0.35 0.35", `Cubierta: ${data.cubierta}`),
-    drawText(330, 538, 10, "0.35 0.35 0.35", `Frente: ${data.frente}`),
-    drawText(330, 521, 10, "0.35 0.35 0.35", `Herraje: ${data.herraje}`),
-    drawRect(40, 470, 532, 1, "0.85 0.85 0.85"),
-    drawText(
-      48,
-      445,
-      9,
-      "0.4 0.4 0.4",
-      "Este documento es preliminar. Los costos finales pueden variar segun medidas,",
-    ),
-    drawText(
-      48,
-      432,
-      9,
-      "0.4 0.4 0.4",
-      "materiales y complejidad del proyecto. Valido como guia inicial.",
-    ),
-  ].join("\n");
-
-  const objects = [
-    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
-    "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj",
-    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj",
-    `4 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj`,
-    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj",
-  ];
-
-  let offset = 0;
-  const offsets = objects.map((obj) => {
-    const current = offset;
-    offset += obj.length + 2;
-    return current;
-  });
-
-  const xrefEntries = offsets
-    .map((entry) => entry.toString().padStart(10, "0") + " 00000 n ")
-    .join("\n");
-
-  const xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${xrefEntries}`;
-  const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${
-    offset + xref.length + 2
-  }\n%%EOF`;
-  return `%PDF-1.4\n${objects.join("\n\n")}\n${xref}\n${trailer}`;
-};
-
 export default function CotizadorPreliminarPage() {
+  const router = useRouter();
+  const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
+  const [activeCitaTask, setActiveCitaTask] = useState<KanbanTask | null>(null);
   const [clientName, setClientName] = useState("");
   const [projectType, setProjectType] = useState("Cocina");
   const [location, setLocation] = useState("");
@@ -592,10 +515,98 @@ export default function CotizadorPreliminarPage() {
   const [selectedHerraje, setSelectedHerraje] = useState(materialCatalog.herrajes[0].id);
   const [selectedScenario, setSelectedScenario] = useState("esencial");
   const [materialSearch, setMaterialSearch] = useState("");
-  const [tierFilter, setTierFilter] = useState<"Todos" | "Estándar" | "Premium" | "Lujo">(
+  const [tierFilter, setTierFilter] = useState<"Todos" | "Estandar" | "Premium" | "Lujo">(
     "Todos",
   );
   const [pages, setPages] = useState({ cubiertas: 1, frentes: 1, herrajes: 1 });
+  const [finishError, setFinishError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const taskId = window.localStorage.getItem(activeCitaTaskStorageKey);
+    if (taskId) {
+      setActiveCitaTaskId(taskId);
+      const stored = window.localStorage.getItem(kanbanStorageKey);
+      if (stored) {
+        try {
+          const tasks = JSON.parse(stored) as KanbanTask[];
+          const task = tasks.find((t) => t.id === taskId);
+          if (task) {
+            setActiveCitaTask(task);
+            if (task.project) setClientName(task.project);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }, []);
+
+  const validatePreliminarSections = (): string | null => {
+    const hasDatos = clientName.trim() !== "" || location.trim() !== "" || installDate !== "";
+    const hasMedidas =
+      (Number.parseFloat(largo) || 0) > 0 ||
+      (Number.parseFloat(alto) || 0) > 0 ||
+      (Number.parseFloat(fondo) || 0) > 0;
+    if (!hasDatos) return "Completa al menos un campo de Datos del proyecto (cliente, ubicacion o fecha).";
+    if (!hasMedidas) return "Completa al menos una medida (largo, alto o fondo mayor a 0).";
+    return null;
+  };
+
+  const buildPreliminarDataFromForm = (): PreliminarData => {
+    const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
+    const frente = materialCatalog.frentes.find((item) => item.id === selectedFrente);
+    const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
+    return {
+      client: clientName || "Sin nombre",
+      projectType,
+      location: location || "Por definir",
+      date: installDate || "Por definir",
+      rangeLabel: scenarioRangeLabel,
+      cubierta: cubierta?.name ?? "Sin definir",
+      frente: frente?.name ?? "Sin definir",
+      herraje: herraje?.name ?? "Sin definir",
+    };
+  };
+
+  const handleFinishCita = () => {
+    setFinishError(null);
+    if (!activeCitaTaskId) return;
+
+    const err = validatePreliminarSections();
+    if (err) {
+      setFinishError(err);
+      return;
+    }
+
+    const preliminarData = buildPreliminarDataFromForm();
+    const stored = window.localStorage.getItem(kanbanStorageKey);
+    if (stored) {
+      try {
+        const tasks = JSON.parse(stored) as KanbanTask[];
+        const updatedTasks = tasks.map((task) => {
+          if (task.id === activeCitaTaskId) {
+            return {
+              ...task,
+              preliminarData,
+              citaFinished: true,
+              stage: "disenos" as const,
+              status: "pendiente" as const,
+            };
+          }
+          return task;
+        });
+        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasks));
+        window.localStorage.removeItem(activeCitaTaskStorageKey);
+        downloadPreliminarPdf(preliminarData, `cotizacion-preliminar-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`);
+        const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey);
+        window.localStorage.removeItem(citaReturnUrlStorageKey);
+        router.push(returnUrl || "/dashboard/empleado");
+      } catch {
+        setFinishError("No se pudo guardar. Intenta de nuevo.");
+      }
+    }
+  };
 
   const metrics = useMemo(() => {
     const largoValue = Number.parseFloat(largo) || 0;
@@ -636,7 +647,7 @@ export default function CotizadorPreliminarPage() {
     const largoValue = Number.parseFloat(largo) || 0;
     return {
       meters: largoValue,
-      label: [cubierta?.name, frente?.name, herraje?.name].filter(Boolean).join(" · "),
+      label: [cubierta?.name, frente?.name, herraje?.name].filter(Boolean).join(" ? "),
     };
   }, [largo, selectedCubierta, selectedFrente, selectedHerraje]);
 
@@ -683,26 +694,8 @@ export default function CotizadorPreliminarPage() {
   }, [materialSearch, tierFilter]);
 
   const handleGeneratePdf = () => {
-    const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
-    const frente = materialCatalog.frentes.find((item) => item.id === selectedFrente);
-    const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
-    const pdf = buildElegantPdf({
-      client: clientName || "Sin nombre",
-      projectType,
-      location: location || "Por definir",
-      date: installDate || "Por definir",
-      rangeLabel: scenarioRangeLabel,
-      cubierta: cubierta?.name ?? "Sin definir",
-      frente: frente?.name ?? "Sin definir",
-      herraje: herraje?.name ?? "Sin definir",
-    });
-    const blob = new Blob([pdf], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "cotizacion-preliminar.pdf";
-    link.click();
-    URL.revokeObjectURL(url);
+    const data = buildPreliminarDataFromForm();
+    downloadPreliminarPdf(data, "cotizacion-preliminar.pdf");
   };
 
   const SectionCard = ({ children }: { children: React.ReactNode }) => (
@@ -824,12 +817,43 @@ export default function CotizadorPreliminarPage() {
     <main className="min-h-screen bg-background px-4 py-10 text-primary">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
         <header>
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotización</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotizacion</p>
           <h1 className="mt-2 text-3xl font-semibold">Cotizador Preliminar</h1>
           <p className="mt-3 text-sm text-secondary">
-            Estimación rápida para prospectos. No sustituye una cotización formal.
+            Estimacion rapida para prospectos. No sustituye una cotizacion formal.
           </p>
         </header>
+
+        {activeCitaTask ? (
+          <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-emerald-800">
+                    Cita activa: {activeCitaTask.project}
+                  </p>
+                  <p className="text-xs text-emerald-600">
+                    Completa la cotizacion y termina la cita cuando estes listo.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleFinishCita}
+                className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-700"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Terminar cita
+              </button>
+              {finishError ? (
+                <p className="mt-3 text-sm text-rose-600">{finishError}</p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <SectionCard>
           <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
@@ -855,12 +879,12 @@ export default function CotizadorPreliminarPage() {
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
                   >
                     <option value="Cocina">Cocina</option>
-                    <option value="Clóset">Clóset</option>
+                    <option value="Cl?set">Cl?set</option>
                     <option value="TV Unit">TV Unit</option>
                   </select>
                 </label>
                 <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Ubicación
+                  Ubicaci?n
                   <input
                     value={location}
                     onChange={(event) => setLocation(event.target.value)}
@@ -935,7 +959,7 @@ export default function CotizadorPreliminarPage() {
                 />
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-semibold">
-                {(["Todos", "Estándar", "Premium", "Lujo"] as const).map((tier) => (
+                {(["Todos", "Estandar", "Premium", "Lujo"] as const).map((tier) => (
                   <button
                     key={tier}
                     type="button"
@@ -991,11 +1015,11 @@ export default function CotizadorPreliminarPage() {
           <div className="space-y-6">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-                Estimación visual
+                Estimaci?n visual
               </p>
               <h2 className="mt-2 text-2xl font-semibold">Selecciona el nivel de acabados</h2>
               <p className="mt-2 text-sm text-secondary">
-                Presentación rápida para ayudar al cliente a imaginar el resultado.
+                Presentaci?n r?pida para ayudar al cliente a imaginar el resultado.
               </p>
             </div>
             <div className="grid gap-6 lg:grid-cols-3">
@@ -1030,7 +1054,7 @@ export default function CotizadorPreliminarPage() {
                         {formatCurrency(min)} - {formatCurrency(max)}
                       </div>
                       <p className="text-xs text-secondary">
-                        Basado en medidas generales y selección del showroom.
+                        Basado en medidas generales y selecci?n del showroom.
                       </p>
                     </div>
                   </button>
@@ -1044,7 +1068,7 @@ export default function CotizadorPreliminarPage() {
           <div className="grid gap-6 md:grid-cols-[1.2fr_1fr]">
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-                Cierre y estimación
+                Cierre y estimaci?n
               </p>
               <p className="text-sm text-secondary">
                 Presenta el rango estimado y genera un PDF preliminar para el cliente.
@@ -1053,15 +1077,15 @@ export default function CotizadorPreliminarPage() {
                 onClick={handleGeneratePdf}
                 className="mt-4 inline-flex items-center justify-center rounded-2xl bg-[#8B1C1C] px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
               >
-                Generar Estimación en PDF
+                Generar Estimaci?n en PDF
               </button>
               <p className="mt-3 text-xs text-secondary">
-                El PDF incluye datos generales y el rango estimado, sin desglose técnico.
+                El PDF incluye datos generales y el rango estimado, sin desglose t?cnico.
               </p>
             </div>
             <div className="rounded-2xl border border-primary/10 bg-primary/5 p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-                Estimación preliminar
+                Estimaci?n preliminar
               </p>
               <div className="mt-4 space-y-4">
                 <div>
@@ -1096,7 +1120,7 @@ export default function CotizadorPreliminarPage() {
           {scenarioRangeLabel}
         </p>
         <p className="mt-2 text-[11px] text-secondary">
-          {selectedSummary.meters} m lineales · {selectedSummary.label || "Selección en curso"}
+          {selectedSummary.meters} m lineales ? {selectedSummary.label || "Selecci?n en curso"}
         </p>
       </div>
     </main>

@@ -12,10 +12,14 @@ import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import {
   activeCitaTaskStorageKey,
+  activeCotizacionFormalTaskStorageKey,
+  citaReturnUrlStorageKey,
   kanbanStorageKey,
   initialKanbanTasks,
   type KanbanTask,
+  type CotizacionFormalData,
 } from "@/lib/kanban";
+import { downloadPreliminarPdf } from "@/lib/pdf-preliminar";
 
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
 /** Precio por metro lineal para material base (según ítem de ESTRUCTURA seleccionado). */
@@ -186,6 +190,55 @@ function getDefaultThicknessItemId(): string {
   return cat?.items?.[0]?.id ?? "16";
 }
 
+function FormalCotizacionBanner({
+  taskId,
+  onTerminar,
+  error,
+}: {
+  taskId: string;
+  onTerminar: () => void;
+  error: string;
+}) {
+  const [projectName, setProjectName] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(kanbanStorageKey);
+    if (!raw) {
+      setProjectName("Proyecto");
+      return;
+    }
+    try {
+      const tasks = JSON.parse(raw) as KanbanTask[];
+      const task = Array.isArray(tasks) ? tasks.find((t) => t.id === taskId) : undefined;
+      setProjectName(task?.project ?? "Proyecto");
+    } catch {
+      setProjectName("Proyecto");
+    }
+  }, [taskId]);
+  return (
+    <div className="flex flex-col gap-3 rounded-3xl border border-emerald-200 bg-emerald-50/80 p-5 shadow-md backdrop-blur-md">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-emerald-700">Cotización formal</p>
+          <p className="mt-2 text-sm text-emerald-800">
+            Cotización formal para <strong>{projectName}</strong>. Completa las secciones y termina para guardar en el cliente y pasar a seguimiento.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onTerminar}
+          className="rounded-2xl bg-emerald-600 px-5 py-3 text-xs font-semibold text-white shadow hover:bg-emerald-700"
+        >
+          Terminar cotización
+        </button>
+      </div>
+      {error ? (
+        <p className="rounded-xl bg-rose-100 px-4 py-2 text-sm text-rose-700">{error}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function CotizadorPage() {
   const router = useRouter();
   const [clients, setClients] = useState([
@@ -224,6 +277,8 @@ export default function CotizadorPage() {
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemCategory, setNewItemCategory] = useState(initialCatalogoKuche[0]?.category ?? "");
   const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
+  const [activeCotizacionFormalTaskId, setActiveCotizacionFormalTaskId] = useState<string | null>(null);
+  const [finishFormalError, setFinishFormalError] = useState("");
   const [referenceImages, setReferenceImages] = useState<
     Array<{ id: string; name: string; dataUrl: string }>
   >([]);
@@ -371,6 +426,7 @@ export default function CotizadorPage() {
       return;
     }
     setActiveCitaTaskId(window.localStorage.getItem(activeCitaTaskStorageKey));
+    setActiveCotizacionFormalTaskId(window.localStorage.getItem(activeCotizacionFormalTaskStorageKey));
   }, []);
 
   useEffect(() => {
@@ -776,6 +832,75 @@ export default function CotizadorPage() {
     window.localStorage.removeItem(activeCitaTaskStorageKey);
     setActiveCitaTaskId(null);
     router.push("/dashboard/empleado");
+  };
+
+  const validateFormalSections = (): boolean => {
+    const hasProject = client.trim() !== "" || projectType !== "" || location.trim() !== "" || installDate !== "";
+    const largoN = Number.parseFloat(largo) || 0;
+    const altoN = Number.parseFloat(alto) || 0;
+    const fondoN = Number.parseFloat(fondo) || 0;
+    const hasMeasures = largoN > 0 || altoN > 0 || fondoN > 0;
+    const hasCatalog = Object.values(quantities).some((q) => q > 0);
+    return !!(hasProject && hasMeasures && hasCatalog);
+  };
+
+  const buildCotizacionFormalDataFromForm = (): CotizacionFormalData => ({
+    client: client.trim() || "—",
+    projectType: projectType || "—",
+    location: location.trim() || "—",
+    date: installDate || "—",
+    rangeLabel: "Cotización formal",
+    cubierta: baseMaterialLabel || "—",
+    frente: colorLabel || "—",
+    herraje: "—",
+  });
+
+  const handleTerminarCotizacion = () => {
+    setFinishFormalError("");
+    if (typeof window === "undefined") return;
+    const taskId = window.localStorage.getItem(activeCotizacionFormalTaskStorageKey);
+    if (!taskId) {
+      router.push("/dashboard/empleado");
+      return;
+    }
+    if (!validateFormalSections()) {
+      setFinishFormalError("Completa al menos un dato en cada sección: datos del proyecto, medidas y al menos un ítem en el catálogo.");
+      return;
+    }
+    const data = buildCotizacionFormalDataFromForm();
+    let baseTasks: KanbanTask[] = initialKanbanTasks as KanbanTask[];
+    const stored = window.localStorage.getItem(kanbanStorageKey);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as KanbanTask[];
+        if (Array.isArray(parsed) && parsed.length > 0) baseTasks = parsed;
+      } catch {
+        // ignore
+      }
+    }
+    const next = baseTasks.map((task) => {
+      if (task.id !== taskId) return task;
+      return {
+        ...task,
+        cotizacionFormalData: data,
+        citaFinished: true,
+        stage: "contrato" as const,
+        status: "pendiente" as const,
+        followUpEnteredAt: Date.now(),
+        followUpStatus: "pendiente" as const,
+      };
+    });
+    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+    window.localStorage.removeItem(activeCotizacionFormalTaskStorageKey);
+    setActiveCotizacionFormalTaskId(null);
+    try {
+      downloadPreliminarPdf(data, `Cotizacion-formal-${taskId}.pdf`);
+    } catch {
+      // optional PDF
+    }
+    const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey) || "/dashboard/empleado";
+    window.localStorage.removeItem(citaReturnUrlStorageKey);
+    router.push(returnUrl);
   };
 
   const buildPrintWindow = (title: string, bodyHtml: string) => {
@@ -1304,6 +1429,13 @@ export default function CotizadorPage() {
             Terminar cita
           </button>
         </div>
+      ) : null}
+      {activeCotizacionFormalTaskId ? (
+        <FormalCotizacionBanner
+          taskId={activeCotizacionFormalTaskId}
+          onTerminar={handleTerminarCotizacion}
+          error={finishFormalError}
+        />
       ) : null}
 
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">

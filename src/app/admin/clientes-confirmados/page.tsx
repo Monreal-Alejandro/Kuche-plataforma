@@ -4,24 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, CheckCircle2, User, FileText, Calendar, FolderOpen } from "lucide-react";
+import { initialKanbanTasks, kanbanStorageKey, type KanbanTask } from "@/lib/kanban";
 
 type TaskFile = {
   id: string;
   name: string;
   type: "pdf" | "render" | "otro";
-};
-
-type KanbanTask = {
-  id: string;
-  title: string;
-  stage: string;
-  status: string;
-  assignedTo: string[];
-  project: string;
-  files?: TaskFile[];
-  priority?: string;
-  createdAt?: number;
-  followUpStatus?: string;
 };
 
 const formatDate = (timestamp: number | undefined): string => {
@@ -30,21 +18,39 @@ const formatDate = (timestamp: number | undefined): string => {
   return date.toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" });
 };
 
+const mergeTasks = (storedTasks: KanbanTask[]): KanbanTask[] => {
+  const map = new Map(storedTasks.map((task) => [task.id, task]));
+  initialKanbanTasks.forEach((task) => {
+    if (!map.has(task.id)) {
+      map.set(task.id, task);
+    }
+  });
+  return Array.from(map.values());
+};
+
 export default function ClientesConfirmadosPage() {
   const [clients, setClients] = useState<KanbanTask[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("kuche-kanban-tasks");
+    const stored = window.localStorage.getItem(kanbanStorageKey);
+    let allTasks: KanbanTask[] = [];
+    
     if (stored) {
       try {
-        const tasks = JSON.parse(stored) as KanbanTask[];
-        const confirmed = tasks.filter((task) => task.followUpStatus === "confirmado");
-        setClients(confirmed);
+        const parsed = JSON.parse(stored) as KanbanTask[];
+        allTasks = mergeTasks(parsed);
+        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(allTasks));
       } catch {
-        setClients([]);
+        allTasks = initialKanbanTasks;
       }
+    } else {
+      allTasks = initialKanbanTasks;
+      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(allTasks));
     }
+    
+    const confirmed = allTasks.filter((task) => task.followUpStatus === "confirmado");
+    setClients(confirmed);
     setIsHydrated(true);
   }, []);
 

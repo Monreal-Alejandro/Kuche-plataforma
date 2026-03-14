@@ -12,12 +12,16 @@ import {
   kanbanStorageKey,
   initialKanbanTasks,
   activeCitaTaskStorageKey,
+  citaReturnUrlStorageKey,
+  activeCotizacionFormalTaskStorageKey,
   type KanbanTask,
   type TaskFile,
   type TaskPriority,
   type TaskStage,
   type TaskStatus,
   type FollowUpStatus,
+  type PreliminarData,
+  type CotizacionFormalData,
 } from "@/lib/kanban";
 
 const currentUser = "Valeria";
@@ -49,12 +53,17 @@ const getInitials = (name: string) =>
     .join("")
     .toUpperCase();
 
-const getFollowUpAlertLevel = (enteredAt: number | undefined): "none" | "warning" | "urgent" => {
+const FOLLOWUP_WARNING_DAYS = 3;
+const FOLLOWUP_URGENT_DAYS = 7;
+const FOLLOWUP_AUTO_DISCARD_DAYS = 10;
+
+const getFollowUpAlertLevel = (enteredAt: number | undefined): "none" | "warning" | "urgent" | "expired" => {
   if (!enteredAt) return "none";
   const now = Date.now();
   const daysPassed = Math.floor((now - enteredAt) / (1000 * 60 * 60 * 24));
-  if (daysPassed >= 6) return "urgent";
-  if (daysPassed >= 3) return "warning";
+  if (daysPassed >= FOLLOWUP_AUTO_DISCARD_DAYS) return "expired";
+  if (daysPassed >= FOLLOWUP_URGENT_DAYS) return "urgent";
+  if (daysPassed >= FOLLOWUP_WARNING_DAYS) return "warning";
   return "none";
 };
 
@@ -109,6 +118,19 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
     task.followUpStatus === "confirmado" || task.followUpStatus === "descartado"
       ? task.followUpStatus
       : "pendiente";
+  const preliminarData =
+    task.preliminarData &&
+    typeof task.preliminarData === "object" &&
+    typeof (task.preliminarData as PreliminarData).client === "string"
+      ? (task.preliminarData as PreliminarData)
+      : undefined;
+  const cotizacionFormalData =
+    task.cotizacionFormalData &&
+    typeof task.cotizacionFormalData === "object" &&
+    typeof (task.cotizacionFormalData as CotizacionFormalData).client === "string"
+      ? (task.cotizacionFormalData as CotizacionFormalData)
+      : undefined;
+
   return {
     id: typeof task.id === "string" ? task.id : `task-${Date.now()}`,
     title: typeof task.title === "string" ? task.title : "Tarea sin título",
@@ -120,15 +142,17 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
     files: Array.isArray(task.files) ? (task.files as TaskFile[]) : [],
     priority,
     dueDate: typeof task.dueDate === "string" ? task.dueDate : undefined,
-    createdAt: typeof task.createdAt === "number" && task.createdAt > 1600000000000 
-      ? task.createdAt 
+    createdAt: typeof task.createdAt === "number" && task.createdAt > 1600000000000
+      ? task.createdAt
       : generateDateFromId(typeof task.id === "string" ? task.id : `task-${Date.now()}`),
-    followUpEnteredAt: typeof task.followUpEnteredAt === "number" 
-      ? task.followUpEnteredAt 
-      : stage === "contrato" 
-        ? getDemoFollowUpDate(typeof task.id === "string" ? task.id : "") 
+    followUpEnteredAt: typeof task.followUpEnteredAt === "number"
+      ? task.followUpEnteredAt
+      : stage === "contrato"
+        ? getDemoFollowUpDate(typeof task.id === "string" ? task.id : "")
         : undefined,
     followUpStatus,
+    preliminarData,
+    cotizacionFormalData,
   };
 };
 
@@ -152,6 +176,39 @@ const mergeTasks = (storedTasks: KanbanTask[]) => {
     }
   });
   return Array.from(map.values());
+};
+
+/** Mueve a la siguiente columna las tareas que ya completaron su flujo en la etapa actual. */
+const autoAdvanceCompletedTasks = (tasks: KanbanTask[]): KanbanTask[] => {
+  let changed = false;
+  const next = tasks.map((task) => {
+    if (task.stage === "citas" && task.citaStarted && task.citaFinished) {
+      changed = true;
+      return { ...task, stage: "disenos" as TaskStage, status: "pendiente" as TaskStatus };
+    }
+    if (task.stage === "disenos" && task.designApprovedByAdmin && task.designApprovedByClient) {
+      changed = true;
+      return {
+        ...task,
+        stage: "cotizacion" as TaskStage,
+        status: "pendiente" as TaskStatus,
+        citaStarted: false,
+        citaFinished: false,
+      };
+    }
+    if (task.stage === "cotizacion" && task.citaStarted && task.citaFinished) {
+      changed = true;
+      return {
+        ...task,
+        stage: "contrato" as TaskStage,
+        status: "pendiente" as TaskStatus,
+        followUpEnteredAt: task.followUpEnteredAt ?? Date.now(),
+        followUpStatus: "pendiente" as FollowUpStatus,
+      };
+    }
+    return task;
+  });
+  return changed ? next : tasks;
 };
 
 export type KanbanTableroProps = {
@@ -193,9 +250,10 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       const stored = window.localStorage.getItem(kanbanStorageKey);
       if (!stored) {
         const merged = mergeTasks(initialKanbanTasks);
+        const advanced = autoAdvanceCompletedTasks(merged);
         skipNextWriteRef.current = true;
-        setKanbanTasks(merged);
-        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(merged));
+        setKanbanTasks(advanced);
+        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
         return;
       }
       try {
@@ -203,10 +261,11 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         if (Array.isArray(parsed) && parsed.length) {
           const normalized = parsed.map((task) => normalizeTask(task));
           const merged = mergeTasks(normalized);
+          const advanced = autoAdvanceCompletedTasks(merged);
           skipNextWriteRef.current = true;
-          setKanbanTasks(merged);
-          if (merged.length !== normalized.length) {
-            window.localStorage.setItem(kanbanStorageKey, JSON.stringify(merged));
+          setKanbanTasks(advanced);
+          if (advanced !== merged) {
+            window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
           }
         }
       } catch {
@@ -238,8 +297,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       if (Array.isArray(parsed) && parsed.length) {
         const normalized = parsed.map((task) => normalizeTask(task));
         const merged = mergeTasks(normalized);
+        const advanced = autoAdvanceCompletedTasks(merged);
         skipNextWriteRef.current = true;
-        setKanbanTasks(merged);
+        setKanbanTasks(advanced);
+        if (advanced !== merged) {
+          window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
+        }
       }
     } catch {
       // ignore
@@ -262,7 +325,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       try {
         const parsed = JSON.parse(event.newValue) as KanbanTask[];
         if (Array.isArray(parsed)) {
-          setKanbanTasks(mergeTasks(parsed.map((task) => normalizeTask(task))));
+          const merged = mergeTasks(parsed.map((task) => normalizeTask(task)));
+          const advanced = autoAdvanceCompletedTasks(merged);
+          setKanbanTasks(advanced);
+          if (advanced !== merged) {
+            window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
+          }
         }
       } catch {
         // ignore malformed storage
@@ -274,9 +342,8 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
 
   useEffect(() => {
     const autoDiscardExpiredFollowUps = () => {
-      const MAX_FOLLOWUP_DAYS = 10;
       let hasChanges = false;
-      
+
       setKanbanTasks((prev) => {
         const updated = prev.map((task) => {
           if (
@@ -285,7 +352,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
             task.followUpEnteredAt
           ) {
             const daysPassed = Math.floor((Date.now() - task.followUpEnteredAt) / (1000 * 60 * 60 * 24));
-            if (daysPassed >= MAX_FOLLOWUP_DAYS) {
+            if (daysPassed >= FOLLOWUP_AUTO_DISCARD_DAYS) {
               hasChanges = true;
               return {
                 ...task,
@@ -300,8 +367,19 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       });
     };
 
+    const runAutoAdvance = () => {
+      setKanbanTasks((prev) => {
+        const advanced = autoAdvanceCompletedTasks(prev);
+        return advanced !== prev ? advanced : prev;
+      });
+    };
+
     autoDiscardExpiredFollowUps();
-    const interval = setInterval(autoDiscardExpiredFollowUps, 60000);
+    runAutoAdvance();
+    const interval = setInterval(() => {
+      autoDiscardExpiredFollowUps();
+      runAutoAdvance();
+    }, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -346,13 +424,61 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     if (!task) return false;
     
     if (task.stage === targetStage) return true;
-    
-    if (task.status !== "completada") {
-      setDragErrorMessage("Debes completar la tarea antes de moverla a otra columna");
-      setTimeout(() => setDragErrorMessage(null), 3000);
+
+    const showError = (message: string) => {
+      setDragErrorMessage(message);
+      setTimeout(() => setDragErrorMessage(null), 4000);
+    };
+
+    // Validaciones específicas por etapa
+    if (task.stage === "citas") {
+      if (!task.citaStarted) {
+        showError("Debes iniciar la cita antes de mover esta tarea");
+        return false;
+      }
+      if (!task.citaFinished) {
+        showError("Debes terminar la cita antes de mover esta tarea");
+        return false;
+      }
+    }
+
+    if (task.stage === "disenos") {
+      if (!task.designApprovedByAdmin) {
+        showError("El diseño debe ser aprobado por el admin antes de mover esta tarea");
+        return false;
+      }
+      if (!task.designApprovedByClient) {
+        showError("El cliente debe aprobar el diseño antes de mover esta tarea");
+        return false;
+      }
+    }
+
+    if (task.stage === "cotizacion") {
+      if (!task.citaStarted || !task.citaFinished) {
+        showError("Debes iniciar y terminar la cotizacion antes de mover a seguimiento");
+        return false;
+      }
+    }
+
+    if (task.stage === "contrato") {
+      if (task.followUpStatus !== "confirmado" && task.followUpStatus !== "descartado") {
+        showError("Debes confirmar o descartar el seguimiento antes de mover esta tarea");
+        return false;
+      }
+    }
+
+    // Validación general: cada etapa se considera completa por sus propios flags
+    const flowComplete =
+      task.stage === "citas" ? Boolean(task.citaStarted && task.citaFinished) :
+      task.stage === "disenos" ? Boolean(task.designApprovedByAdmin && task.designApprovedByClient) :
+      task.stage === "cotizacion" ? Boolean(task.citaStarted && task.citaFinished) :
+      task.stage === "contrato" ? (task.followUpStatus === "confirmado" || task.followUpStatus === "descartado") :
+      task.status === "completada";
+    if (!flowComplete) {
+      showError("Debes completar la tarea antes de moverla a otra columna");
       return false;
     }
-    
+
     moveTaskToStage(taskId, targetStage);
     return true;
   };
@@ -369,12 +495,27 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     updateTask(taskId, (task) => ({ ...task, citaStarted: true }));
     if (typeof window !== "undefined") {
       window.localStorage.setItem(activeCitaTaskStorageKey, taskId);
+      window.localStorage.setItem(citaReturnUrlStorageKey, window.location.pathname);
     }
-    router.push("/dashboard/cotizador");
+    router.push("/dashboard/cotizador-preliminar");
   };
 
   const finishCita = (taskId: string) => {
-    updateTask(taskId, (task) => ({ ...task, citaFinished: true, status: "completada" as TaskStatus }));
+    updateTask(taskId, (task) => ({
+      ...task,
+      citaFinished: true,
+      stage: "disenos" as TaskStage,
+      status: "pendiente" as TaskStatus,
+    }));
+  };
+
+  const startCotizacionFormal = (taskId: string) => {
+    updateTask(taskId, (t) => ({ ...t, citaStarted: true }));
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(activeCotizacionFormalTaskStorageKey, taskId);
+      window.localStorage.setItem(citaReturnUrlStorageKey, window.location.pathname);
+    }
+    router.push("/dashboard/cotizador");
   };
 
   const approveDesignAsAdmin = (taskId: string) => {
@@ -382,7 +523,24 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   };
 
   const approveDesignAsClient = (taskId: string) => {
-    updateTask(taskId, (task) => ({ ...task, designApprovedByClient: true, status: "completada" as TaskStatus }));
+    updateTask(taskId, (task) => ({
+      ...task,
+      designApprovedByClient: true,
+      stage: "cotizacion" as TaskStage,
+      status: "pendiente" as TaskStatus,
+      citaStarted: false,
+      citaFinished: false,
+    }));
+  };
+
+  const completeCotizacion = (taskId: string) => {
+    updateTask(taskId, (task) => ({
+      ...task,
+      stage: "contrato" as TaskStage,
+      status: "pendiente" as TaskStatus,
+      followUpEnteredAt: Date.now(),
+      followUpStatus: "pendiente" as FollowUpStatus,
+    }));
   };
 
   const deleteTask = (taskId: string) => {
@@ -548,11 +706,20 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                             (() => {
                               const alertLevel = getFollowUpAlertLevel(task.followUpEnteredAt);
                               const days = getDaysInFollowUp(task.followUpEnteredAt);
+                              const daysUntilDiscard = FOLLOWUP_AUTO_DISCARD_DAYS - days;
+                              if (alertLevel === "expired" || daysUntilDiscard <= 0) {
+                                return (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold text-white animate-pulse">
+                                    <XCircle className="h-3 w-3" />
+                                    Descartando automáticamente...
+                                  </span>
+                                );
+                              }
                               if (alertLevel === "urgent") {
                                 return (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-1 text-[10px] font-semibold text-rose-700 animate-pulse">
                                     <AlertTriangle className="h-3 w-3" />
-                                    ¡Contactar urgente! ({days} días)
+                                    ¡Urgente! Se descarta en {daysUntilDiscard} días
                                   </span>
                                 );
                               }
@@ -567,7 +734,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                               return (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-600">
                                   <Clock className="h-3 w-3" />
-                                  En seguimiento
+                                  En seguimiento ({days} días)
                                 </span>
                               );
                             })()
@@ -652,17 +819,17 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                 </span>
                               ) : null}
 
-                              {/* COTIZACIÓN: Iniciar → Terminar */}
-                              {task.stage === "cotizacion" && task.status === "pendiente" && !task.citaStarted ? (
+                              {/* COTIZACIÓN FORMAL: Iniciar → Terminar → Completar y pasar a seguimiento */}
+                              {task.stage === "cotizacion" && !task.citaStarted ? (
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    startCita(task.id);
+                                    startCotizacionFormal(task.id);
                                   }}
                                   className="inline-flex w-auto items-center rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-white"
                                 >
-                                  Iniciar
+                                  Iniciar cotizacion
                                 </button>
                               ) : null}
                               {task.stage === "cotizacion" && task.citaStarted && !task.citaFinished ? (
@@ -670,18 +837,24 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    finishCita(task.id);
+                                    updateTask(task.id, (t) => ({ ...t, citaFinished: true }));
                                   }}
                                   className="inline-flex w-auto items-center rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white"
                                 >
-                                  Terminar
+                                  Terminar cotizacion
                                 </button>
                               ) : null}
-                              {task.stage === "cotizacion" && task.status === "completada" ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-                                  <CheckCircle2 className="h-3 w-3" />
-                                  Completada
-                                </span>
+                              {task.stage === "cotizacion" && task.citaStarted && task.citaFinished ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    completeCotizacion(task.id);
+                                  }}
+                                  className="inline-flex w-auto items-center rounded-full bg-emerald-700 px-3 py-1 text-[11px] font-semibold text-white"
+                                >
+                                  Pasar a seguimiento
+                                </button>
                               ) : null}
 
                               {/* DISEÑOS: Subir → Admin aprueba → Cliente acepta */}
@@ -1017,37 +1190,52 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                     </div>
                   </div>
                 ) : null}
-                {activeTask.stage === "cotizacion" && activeTask.status === "pendiente" ? (
+                {activeTask.stage === "cotizacion" ? (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Flujo de cotización
+                      Flujo de cotizacion formal
                     </p>
                     <div className="mt-3 space-y-2">
                       <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaStarted ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
                         {activeTask.citaStarted ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
-                        <span>1. Iniciar cotización</span>
+                        <span>1. Iniciar cotizacion</span>
                       </div>
                       <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaFinished ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
                         {activeTask.citaFinished ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
-                        <span>2. Terminar cotización</span>
+                        <span>2. Terminar cotizacion</span>
+                      </div>
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaStarted && activeTask.citaFinished ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {activeTask.citaStarted && activeTask.citaFinished ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                        <span>3. Pasar a seguimiento</span>
                       </div>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {!activeTask.citaStarted ? (
                         <button
                           type="button"
-                          onClick={() => startCita(activeTask.id)}
+                          onClick={() => startCotizacionFormal(activeTask.id)}
                           className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
                         >
-                          Iniciar
+                          Iniciar cotizacion
+                        </button>
+                      ) : activeTask.citaStarted && !activeTask.citaFinished ? (
+                        <button
+                          type="button"
+                          onClick={() => updateTask(activeTask.id, (t) => ({ ...t, citaFinished: true }))}
+                          className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                        >
+                          Terminar cotizacion
                         </button>
                       ) : (
                         <button
                           type="button"
-                          onClick={() => finishCita(activeTask.id)}
-                          className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                          onClick={() => {
+                            completeCotizacion(activeTask.id);
+                            setActiveTaskId(null);
+                          }}
+                          className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold text-white"
                         >
-                          Terminar
+                          Completar y pasar a seguimiento
                         </button>
                       )}
                     </div>
@@ -1345,14 +1533,28 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       <AnimatePresence>
         {dragErrorMessage ? (
           <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-2xl border border-amber-200 bg-amber-50 px-6 py-4 shadow-lg"
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ 
+              opacity: 1, 
+              y: 0, 
+              scale: 1,
+              x: [0, -10, 10, -10, 10, 0],
+            }}
+            exit={{ opacity: 0, y: 50, scale: 0.9 }}
+            transition={{ 
+              duration: 0.4,
+              x: { duration: 0.4, delay: 0.1 }
+            }}
+            className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-2xl border-2 border-rose-300 bg-rose-50 px-6 py-4 shadow-xl"
           >
             <div className="flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600" />
-              <p className="text-sm font-medium text-amber-800">{dragErrorMessage}</p>
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100">
+                <AlertTriangle className="h-5 w-5 text-rose-600" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-rose-500">No puedes mover esta tarea</p>
+                <p className="mt-1 text-sm font-medium text-rose-800">{dragErrorMessage}</p>
+              </div>
             </div>
           </motion.div>
         ) : null}

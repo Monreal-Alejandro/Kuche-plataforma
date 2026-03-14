@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { UserPlus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { UserPlus, Calculator, FileText } from "lucide-react";
 
 import { KanbanTablero } from "@/components/KanbanTablero";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
@@ -42,6 +43,7 @@ function loadTeamMembers(): { id: string; name: string }[] {
 }
 
 export default function OperacionesPage() {
+  const router = useRouter();
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>(defaultTeamMembers);
   const [selectedEmployeeFilter, setSelectedEmployeeFilter] = useState<string>("Todos");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -237,6 +239,52 @@ export default function OperacionesPage() {
         refreshTrigger={refreshTrigger}
         teamMembers={teamMembers}
       />
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
+              <Calculator className="h-6 w-6 text-primary" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotizacion</p>
+              <h3 className="mt-1 text-xl font-semibold">Cotizador Pro</h3>
+              <p className="mt-2 text-sm text-secondary">
+                Genera estimaciones detalladas con desglose tecnico completo para el taller.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push("/dashboard/cotizador")}
+                className="mt-4 rounded-2xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+              >
+                Abrir Cotizador Pro
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/10">
+              <FileText className="h-6 w-6 text-accent" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotizacion</p>
+              <h3 className="mt-1 text-xl font-semibold">Cotizador Preliminar</h3>
+              <p className="mt-2 text-sm text-secondary">
+                Crea una estimacion rapida para prospectos antes de formalizar el proyecto.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push("/dashboard/cotizador-preliminar")}
+                className="mt-4 rounded-2xl border border-primary/20 bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/40"
+              >
+                Abrir Preliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {isAssignModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

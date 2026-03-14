@@ -1,13 +1,20 @@
  "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Plus } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { KanbanTablero } from "@/components/KanbanTablero";
+import {
+  kanbanColumns,
+  kanbanStorageKey,
+  type KanbanTask,
+  type TaskPriority,
+  type TaskStage,
+} from "@/lib/kanban";
 
 const projectBudget = 145000;
 const formatCurrency = (value: number) =>
@@ -22,9 +29,41 @@ const publicTimelineSteps = [
   "Instalación Final",
 ];
 
+const CURRENT_USER = "Valeria";
+
+const TEAM_STORAGE_KEY = "kuche_team_members";
+const defaultTeamMembers = [
+  { id: "e1", name: "Valeria" },
+  { id: "e2", name: "Luis" },
+  { id: "e3", name: "Majo" },
+  { id: "e4", name: "Carlos" },
+];
+
+function loadTeamMembers(): { id: string; name: string }[] {
+  if (typeof window === "undefined") return defaultTeamMembers;
+  try {
+    const stored = window.localStorage.getItem(TEAM_STORAGE_KEY);
+    if (!stored) return defaultTeamMembers;
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((m: { id?: string; name?: string }) => ({
+        id: String(m?.id ?? `e${Date.now()}`),
+        name: String(m?.name ?? "").trim() || "Sin nombre",
+      })).filter((m) => m.name !== "Sin nombre");
+    }
+  } catch {
+    // ignore
+  }
+  return defaultTeamMembers;
+}
+
 export default function EmpleadoDashboard() {
   const router = useRouter();
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>(defaultTeamMembers);
+  const [viewMode, setViewMode] = useState<"all" | "mine">("mine");
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [isPublicEditorOpen, setIsPublicEditorOpen] = useState(false);
+  const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [publicStep, setPublicStep] = useState(publicTimelineSteps[2]);
   const [publicFiles, setPublicFiles] = useState([
     { id: "p1", name: "Render_Actualizado.jpg", type: "jpg" },
@@ -37,21 +76,116 @@ export default function EmpleadoDashboard() {
     segundoPago: 30000,
     liquidacion: 0,
   });
+  const [newTaskProject, setNewTaskProject] = useState("");
+  const [newTaskStage, setNewTaskStage] = useState<TaskStage>("citas");
+  const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("media");
+  const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [taskError, setTaskError] = useState("");
+
   const publicEditorRef = useRef<HTMLDivElement | null>(null);
+  const newTaskModalRef = useRef<HTMLDivElement | null>(null);
   const totalPagado =
     paymentInputs.anticipo + paymentInputs.segundoPago + paymentInputs.liquidacion;
   const restante = Math.max(0, projectBudget - totalPagado);
+  
   useEscapeClose(isPublicEditorOpen, () => setIsPublicEditorOpen(false));
+  useEscapeClose(isNewTaskModalOpen, () => setIsNewTaskModalOpen(false));
   useFocusTrap(isPublicEditorOpen, publicEditorRef);
+  useFocusTrap(isNewTaskModalOpen, newTaskModalRef);
+
+  useEffect(() => {
+    setTeamMembers(loadTeamMembers());
+  }, []);
+
+  const handleCreateTask = () => {
+    const project = newTaskProject.trim();
+    if (!project) {
+      setTaskError("Escribe el proyecto o cliente.");
+      return;
+    }
+    const newTask: KanbanTask = {
+      id: `task-${Date.now()}`,
+      title: project,
+      stage: newTaskStage,
+      status: "pendiente",
+      assignedTo: [CURRENT_USER],
+      project,
+      notes: "",
+      files: [],
+      priority: newTaskPriority,
+      dueDate: newTaskDueDate.trim() || undefined,
+      createdAt: Date.now(),
+    };
+    try {
+      const stored = window.localStorage.getItem(kanbanStorageKey);
+      const current: KanbanTask[] = stored ? JSON.parse(stored) : [];
+      const next = Array.isArray(current) ? [...current, newTask] : [newTask];
+      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+      setRefreshTrigger((t) => t + 1);
+      setIsNewTaskModalOpen(false);
+      setNewTaskProject("");
+      setNewTaskStage("citas");
+      setNewTaskPriority("media");
+      setNewTaskDueDate("");
+      setTaskError("");
+    } catch {
+      setTaskError("No se pudo guardar la tarea.");
+    }
+  };
+
+  const openNewTaskModal = () => {
+    setNewTaskProject("");
+    setNewTaskStage("citas");
+    setNewTaskPriority("media");
+    setNewTaskDueDate("");
+    setTaskError("");
+    setIsNewTaskModalOpen(true);
+  };
 
   return (
     <div className="space-y-8">
-      <div>
-        <p className="text-xs uppercase tracking-[0.3em] text-secondary">Dashboard Empleado</p>
-        <h1 className="mt-2 text-3xl font-semibold">Tablero general</h1>
-        <p className="mt-2 text-sm text-secondary">
-          Visibilidad completa del flujo activo y responsables asignados.
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Dashboard Empleado</p>
+          <h1 className="mt-2 text-3xl font-semibold">Tablero general</h1>
+          <p className="mt-2 text-sm text-secondary">
+            Hola {CURRENT_USER}, aquí está tu flujo de trabajo.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex rounded-2xl border border-primary/10 bg-white p-1 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setViewMode("mine")}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                viewMode === "mine"
+                  ? "bg-primary text-white"
+                  : "text-secondary hover:bg-primary/5"
+              }`}
+            >
+              Mis tareas
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("all")}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                viewMode === "all"
+                  ? "bg-primary text-white"
+                  : "text-secondary hover:bg-primary/5"
+              }`}
+            >
+              Ver todo
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={openNewTaskModal}
+            className="flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva tarea
+          </button>
+        </div>
       </div>
 
       <motion.section
@@ -60,7 +194,11 @@ export default function EmpleadoDashboard() {
         transition={{ duration: 0.4 }}
         className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md"
       >
-        <KanbanTablero />
+        <KanbanTablero
+          filterByEmployee={viewMode === "mine" ? CURRENT_USER : null}
+          refreshTrigger={refreshTrigger}
+          teamMembers={teamMembers}
+        />
       </motion.section>
 
       <motion.section
@@ -104,6 +242,19 @@ export default function EmpleadoDashboard() {
             className="mt-4 rounded-2xl border border-primary/20 bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition hover:border-primary/40"
           >
             Abrir preliminar
+          </button>
+        </div>
+        <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
+          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Clientes</p>
+          <h3 className="mt-2 text-xl font-semibold">Clientes en proceso</h3>
+          <p className="mt-3 text-sm text-secondary">
+            Ver tus clientes en proceso y los PDF de cotizaciones.
+          </p>
+          <button
+            onClick={() => router.push("/dashboard/clientes-en-proceso")}
+            className="mt-4 rounded-2xl border border-primary/20 bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition hover:border-primary/40"
+          >
+            Ver clientes
           </button>
         </div>
       </motion.section>
@@ -292,6 +443,99 @@ export default function EmpleadoDashboard() {
           </motion.div>
         ) : null}
       </AnimatePresence>
+
+      {isNewTaskModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <motion.div
+            ref={newTaskModalRef}
+            tabIndex={-1}
+            initial={{ y: 40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="w-full max-w-lg rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Nueva tarea</h3>
+              <button
+                type="button"
+                onClick={() => setIsNewTaskModalOpen(false)}
+                className="rounded-full border border-primary/10 px-3 py-1 text-xs font-semibold text-secondary"
+              >
+                Cerrar
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-secondary">
+              La tarea será asignada automáticamente a ti ({CURRENT_USER}).
+            </p>
+            <div className="mt-4 space-y-4">
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                Proyecto / Cliente
+                <input
+                  value={newTaskProject}
+                  onChange={(e) => setNewTaskProject(e.target.value)}
+                  placeholder="Ej. Residencial Vega"
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+              </label>
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                Etapa
+                <select
+                  value={newTaskStage}
+                  onChange={(e) => setNewTaskStage(e.target.value as TaskStage)}
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                >
+                  {kanbanColumns.map((col) => (
+                    <option key={col.id} value={col.id}>
+                      {col.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                Prioridad
+                <select
+                  value={newTaskPriority}
+                  onChange={(e) => setNewTaskPriority(e.target.value as TaskPriority)}
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                >
+                  <option value="alta">Alta</option>
+                  <option value="media">Media</option>
+                  <option value="baja">Baja</option>
+                </select>
+              </label>
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                Fecha límite (opcional)
+                <input
+                  type="date"
+                  value={newTaskDueDate}
+                  onChange={(e) => setNewTaskDueDate(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+              </label>
+            </div>
+            {taskError ? (
+              <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-600">
+                {taskError}
+              </p>
+            ) : null}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsNewTaskModalOpen(false)}
+                className="rounded-2xl border border-primary/10 bg-white px-5 py-2 text-xs font-semibold text-secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateTask}
+                className="rounded-2xl bg-primary px-5 py-2 text-xs font-semibold text-white"
+              >
+                Crear tarea
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      ) : null}
     </div>
   );
 }
