@@ -6,6 +6,8 @@ import { Bell, CheckCircle2, Download, FileText, Image as ImageIcon } from "luci
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import type { CotizacionFormalData, PreliminarData } from "@/lib/kanban";
+import { openPreliminarPdfInNewTab, downloadPreliminarPdf, openFormalPdfInNewTab, downloadFormalPdf } from "@/lib/pdf-preliminar";
 
 const baseMockProject = {
   codigo: "K-8821",
@@ -50,6 +52,24 @@ const baseMockProject = {
     },
   ],
 } as const;
+
+/** Proyecto guardado para seguimiento; puede venir del cotizador (preliminar/formal) o ser mock. */
+type SeguimientoProject = typeof baseMockProject & {
+  preliminarData?: PreliminarData;
+  cotizacionFormalData?: CotizacionFormalData;
+  preliminarCotizaciones?: PreliminarData[];
+  cotizacionesFormales?: CotizacionFormalData[];
+};
+
+function getPreliminarListFromProject(p: SeguimientoProject): PreliminarData[] {
+  if (p.preliminarCotizaciones && p.preliminarCotizaciones.length > 0) return p.preliminarCotizaciones;
+  return p.preliminarData ? [p.preliminarData] : [];
+}
+
+function getFormalesListFromProject(p: SeguimientoProject): CotizacionFormalData[] {
+  if (p.cotizacionesFormales && p.cotizacionesFormales.length > 0) return p.cotizacionesFormales;
+  return p.cotizacionFormalData ? [p.cotizacionFormalData] : [];
+}
 
 const timelineSteps = [
   "Diseño Aprobado",
@@ -138,7 +158,7 @@ const GarantiaCountdown = ({ startDate }: { startDate: string }) => {
 export default function SeguimientoPage() {
   const [codigo, setCodigo] = useState("");
   const [hasAccess, setHasAccess] = useState(false);
-  const [project, setProject] = useState<typeof baseMockProject | null>(null);
+  const [project, setProject] = useState<SeguimientoProject | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<null | { name: string; src: string }>(
     null,
@@ -218,8 +238,8 @@ export default function SeguimientoPage() {
                         setCodeError("No encontramos un proyecto con ese código.");
                         return;
                       }
-                      const parsed = JSON.parse(stored) as typeof baseMockProject;
-                      setProject(parsed);
+                      const parsed = JSON.parse(stored) as Record<string, unknown>;
+                      setProject({ ...baseMockProject, ...parsed } as SeguimientoProject);
                       setHasAccess(true);
                       setCodeError(null);
                     } catch {
@@ -309,21 +329,79 @@ export default function SeguimientoPage() {
                     >
                       <p className="text-xs uppercase tracking-[0.2em] text-secondary">{item.label}</p>
                       {item.label === "Inversión total" ? (
-                        <button
-                          className={
-                            isProspect
-                              ? "mt-4 w-full rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
-                              : "absolute right-6 top-6 rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                        (() => {
+                          const proj = currentProject as SeguimientoProject;
+                          const preliminarList = getPreliminarListFromProject(proj);
+                          const formalesList = getFormalesListFromProject(proj);
+                          const hasPdfData = isProspect ? preliminarList.length > 0 : formalesList.length > 0;
+                          const list = isProspect ? preliminarList : formalesList;
+                          const prefix = isProspect ? "cotizacion-preliminar" : "cotizacion-formal";
+                          if (hasPdfData && list.length > 0) {
+                            return (
+                              <div
+                                className={
+                                  isProspect
+                                    ? "mt-4 space-y-2"
+                                    : "absolute right-6 top-6 space-y-2"
+                                }
+                              >
+                                {list.map((data, idx) => (
+                                  <div key={idx} className="flex flex-wrap items-center gap-2">
+                                    <span className="text-xs font-medium text-secondary">{data.projectType}</span>
+                                    <button
+                                      type="button"
+                                      className={
+                                        isProspect
+                                          ? "rounded-2xl bg-accent px-3 py-2 text-xs font-semibold text-white shadow-lg transition hover:brightness-110"
+                                          : "rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                                      }
+                                      onClick={() =>
+                                        isProspect
+                                          ? openPreliminarPdfInNewTab(data)
+                                          : openFormalPdfInNewTab(data)
+                                      }
+                                    >
+                                      Ver PDF
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={
+                                        isProspect
+                                          ? "rounded-2xl border border-accent bg-white px-3 py-2 text-xs font-semibold text-accent transition hover:bg-accent/10"
+                                          : "rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                                      }
+                                      onClick={() => {
+                                        const filename = `${prefix}-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
+                                        isProspect
+                                          ? downloadPreliminarPdf(data, filename)
+                                          : downloadFormalPdf(data, filename);
+                                      }}
+                                    >
+                                      Descargar PDF
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            );
                           }
-                          onClick={() => {
-                            setSelectedImage({
-                              name: quoteButtonLabel,
-                              src: quoteImageSrc,
-                            });
-                          }}
-                        >
-                          {quoteButtonLabel}
-                        </button>
+                          return (
+                            <button
+                              className={
+                                isProspect
+                                  ? "mt-4 w-full rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
+                                  : "absolute right-6 top-6 rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                              }
+                              onClick={() => {
+                                setSelectedImage({
+                                  name: quoteButtonLabel,
+                                  src: quoteImageSrc,
+                                });
+                              }}
+                            >
+                              {quoteButtonLabel}
+                            </button>
+                          );
+                        })()
                       ) : null}
                       {isProspect ? (
                         valueNode

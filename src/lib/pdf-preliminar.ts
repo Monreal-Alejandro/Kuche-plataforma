@@ -1,4 +1,5 @@
-import type { PreliminarData } from "@/lib/kanban";
+import type { CotizacionFormalData, PreliminarData } from "@/lib/kanban";
+import { getFormalPdf } from "@/lib/formal-pdf-storage";
 
 const escapePdfText = (value: string) =>
   value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -94,4 +95,45 @@ export function downloadPreliminarPdf(data: PreliminarData, filename?: string): 
   link.download = filename ?? `cotizacion-preliminar-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/** Abre el PDF formal en una nueva pestaña. Busca en IndexedDB por formalPdfKey, o usa pdfDataUrl si existe; si no, genera el PDF preliminar como fallback. */
+export function openFormalPdfInNewTab(data: CotizacionFormalData): void {
+  if (data.pdfDataUrl) {
+    window.open(data.pdfDataUrl, "_blank", "noopener,noreferrer");
+    return;
+  }
+  if (data.formalPdfKey) {
+    getFormalPdf(data.formalPdfKey).then((url) => {
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+      else openPreliminarPdfInNewTab(data);
+    });
+    return;
+  }
+  openPreliminarPdfInNewTab(data);
+}
+
+/** Descarga el PDF formal. Busca en IndexedDB por formalPdfKey, o usa pdfDataUrl si existe; si no, genera el PDF preliminar como fallback. */
+export function downloadFormalPdf(data: CotizacionFormalData, filename?: string): void {
+  if (data.pdfDataUrl) {
+    const link = document.createElement("a");
+    link.href = data.pdfDataUrl;
+    link.download = filename ?? `cotizacion-formal-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
+    link.click();
+    return;
+  }
+  if (data.formalPdfKey) {
+    getFormalPdf(data.formalPdfKey).then((url) => {
+      if (url) {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename ?? `cotizacion-formal-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
+        link.click();
+      } else {
+        downloadPreliminarPdf(data, filename);
+      }
+    });
+    return;
+  }
+  downloadPreliminarPdf(data, filename);
 }

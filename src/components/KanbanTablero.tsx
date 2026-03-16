@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { FileUp, AlertTriangle, CheckCircle2, XCircle, Clock, Calendar } from "lucide-react";
+import { FileUp, AlertTriangle, CheckCircle2, XCircle, Clock, Calendar, Trash2 } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -85,6 +85,20 @@ const formatDate = (timestamp: number | undefined): string => {
   return date.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
 };
 
+/**
+ * Convierte el valor guardado en "Enlace de Google Maps" en una URL que abra correctamente.
+ * - Si ya es un enlace (http/https o contiene google.com/maps), se normaliza con protocolo.
+ * - Si es texto de dirección (ej. "Constitución 214, Durango"), se construye la búsqueda en Google Maps.
+ */
+const normalizeMapsUrl = (url: string | undefined): string => {
+  if (!url || !url.trim()) return "#";
+  const u = url.trim();
+  const hasProtocol = /^https?:\/\//i.test(u);
+  const looksLikeMapsLink = hasProtocol || /google\.com\/maps|maps\.google|goo\.gl\/maps/i.test(u);
+  if (looksLikeMapsLink) return hasProtocol ? u : `https://${u}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(u)}`;
+};
+
 const generateDateFromId = (taskId: string): number => {
   const hash = taskId.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const daysAgo = (hash % 25) + 1;
@@ -130,6 +144,23 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
     typeof (task.cotizacionFormalData as CotizacionFormalData).client === "string"
       ? (task.cotizacionFormalData as CotizacionFormalData)
       : undefined;
+  const preliminarCotizaciones: PreliminarData[] =
+    Array.isArray(task.preliminarCotizaciones) && task.preliminarCotizaciones.length > 0
+      ? task.preliminarCotizaciones.filter(
+          (p): p is PreliminarData => typeof p === "object" && typeof (p as PreliminarData).client === "string",
+        )
+      : preliminarData
+        ? [preliminarData]
+        : [];
+  const cotizacionesFormales: CotizacionFormalData[] =
+    Array.isArray(task.cotizacionesFormales) && task.cotizacionesFormales.length > 0
+      ? task.cotizacionesFormales.filter(
+          (c): c is CotizacionFormalData =>
+            typeof c === "object" && typeof (c as CotizacionFormalData).client === "string",
+        )
+      : cotizacionFormalData
+        ? [cotizacionFormalData]
+        : [];
 
   return {
     id: typeof task.id === "string" ? task.id : `task-${Date.now()}`,
@@ -142,6 +173,8 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
     files: Array.isArray(task.files) ? (task.files as TaskFile[]) : [],
     priority,
     dueDate: typeof task.dueDate === "string" ? task.dueDate : undefined,
+    location: typeof task.location === "string" ? task.location : undefined,
+    mapsUrl: typeof task.mapsUrl === "string" ? task.mapsUrl : undefined,
     createdAt: typeof task.createdAt === "number" && task.createdAt > 1600000000000
       ? task.createdAt
       : generateDateFromId(typeof task.id === "string" ? task.id : `task-${Date.now()}`),
@@ -153,29 +186,31 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
     followUpStatus,
     preliminarData,
     cotizacionFormalData,
+    preliminarCotizaciones,
+    cotizacionesFormales,
+    citaStarted: Boolean(task.citaStarted),
+    citaFinished: Boolean(task.citaFinished),
+    designApprovedByAdmin: Boolean(task.designApprovedByAdmin),
+    designApprovedByClient: Boolean(task.designApprovedByClient),
+    codigoProyecto: typeof task.codigoProyecto === "string" ? task.codigoProyecto : undefined,
   };
 };
 
+/** Enriquece las tareas guardadas con datos de initial (createdAt, files, etc.). No reañade tareas eliminadas: lo guardado en localStorage es la fuente de verdad. */
 const mergeTasks = (storedTasks: KanbanTask[]) => {
   const initialMap = new Map(initialKanbanTasks.map((task) => [task.id, task]));
-  const map = new Map(storedTasks.map((task) => {
+  return storedTasks.map((task) => {
     const initialTask = initialMap.get(task.id);
     if (initialTask) {
-      return [task.id, { 
-        ...task, 
+      return {
+        ...task,
         createdAt: initialTask.createdAt,
         files: initialTask.files && initialTask.files.length > 0 ? initialTask.files : task.files,
         designApprovedByAdmin: initialTask.designApprovedByAdmin ?? task.designApprovedByAdmin,
-      }];
+      };
     }
-    return [task.id, { ...task, createdAt: task.createdAt || generateDateFromId(task.id) }];
-  }));
-  initialKanbanTasks.forEach((task) => {
-    if (!map.has(task.id)) {
-      map.set(task.id, task);
-    }
+    return { ...task, createdAt: task.createdAt || generateDateFromId(task.id) };
   });
-  return Array.from(map.values());
 };
 
 /** Mueve a la siguiente columna las tareas que ya completaron su flujo en la etapa actual. */
@@ -212,16 +247,20 @@ const autoAdvanceCompletedTasks = (tasks: KanbanTask[]): KanbanTask[] => {
 };
 
 export type KanbanTableroProps = {
-  /** Admin: filtrar por nombre de empleado. null = ver todo, string = solo ese empleado. No pasar = modo empleado (Ver todo / Mis tareas). */
+  /** Filtrar por nombre de empleado. null = ver todo, string = solo ese empleado. */
   filterByEmployee?: string | null;
-  /** Admin: incrementar para forzar re-lectura desde localStorage (ej. tras crear tarea). */
+  /** Incrementar para forzar re-lectura desde localStorage (ej. tras crear tarea). */
   refreshTrigger?: number;
-  /** Admin: lista de integrantes para reasignar desde el detalle y para opciones al crear tarea. */
+  /** Lista de integrantes para reasignar desde el detalle. */
   teamMembers?: { id: string; name: string }[];
+  /** Si false, no se muestra el botón Eliminar tarea (ej. vista empleado). Por defecto true. */
+  allowDeleteTask?: boolean;
+  /** Llamado después de descartar un cliente en Seguimiento (ej. admin redirige a clientes-descartados). */
+  onAfterDiscard?: () => void;
 };
 
 export function KanbanTablero(props: KanbanTableroProps = {}) {
-  const { filterByEmployee, refreshTrigger = 0, teamMembers } = props;
+  const { filterByEmployee, refreshTrigger = 0, teamMembers, allowDeleteTask = true, onAfterDiscard } = props;
   const router = useRouter();
   const [viewMode, setViewMode] = useState<"all" | "mine">("all");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -232,17 +271,21 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   const [sortBy, setSortBy] = useState<"default" | "priority" | "date">("default");
   const [dragErrorMessage, setDragErrorMessage] = useState<string | null>(null);
   const [confirmClientTaskId, setConfirmClientTaskId] = useState<string | null>(null);
+  const [deleteConfirmTaskId, setDeleteConfirmTaskId] = useState<string | null>(null);
   const skipNextWriteRef = useRef(false);
   const activeTaskRef = useRef<HTMLDivElement | null>(null);
   const uploadTaskRef = useRef<HTMLDivElement | null>(null);
   const confirmClientRef = useRef<HTMLDivElement | null>(null);
+  const deleteConfirmRef = useRef<HTMLDivElement | null>(null);
 
   useEscapeClose(Boolean(activeTaskId), () => setActiveTaskId(null));
   useEscapeClose(Boolean(uploadTaskId), () => setUploadTaskId(null));
   useEscapeClose(Boolean(confirmClientTaskId), () => setConfirmClientTaskId(null));
+  useEscapeClose(Boolean(deleteConfirmTaskId), () => setDeleteConfirmTaskId(null));
   useFocusTrap(Boolean(activeTaskId), activeTaskRef);
   useFocusTrap(Boolean(uploadTaskId), uploadTaskRef);
   useFocusTrap(Boolean(confirmClientTaskId), confirmClientRef);
+  useFocusTrap(Boolean(deleteConfirmTaskId), deleteConfirmRef);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -258,15 +301,19 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       }
       try {
         const parsed = JSON.parse(stored) as KanbanTask[];
-        if (Array.isArray(parsed) && parsed.length) {
-          const normalized = parsed.map((task) => normalizeTask(task));
-          const merged = mergeTasks(normalized);
-          const advanced = autoAdvanceCompletedTasks(merged);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
           skipNextWriteRef.current = true;
-          setKanbanTasks(advanced);
-          if (advanced !== merged) {
-            window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
-          }
+          setKanbanTasks([]);
+          window.localStorage.setItem(kanbanStorageKey, JSON.stringify([]));
+          return;
+        }
+        const normalized = parsed.map((task) => normalizeTask(task));
+        const merged = mergeTasks(normalized);
+        const advanced = autoAdvanceCompletedTasks(merged);
+        skipNextWriteRef.current = true;
+        setKanbanTasks(advanced);
+        if (advanced !== merged) {
+          window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
         }
       } catch {
         // ignore malformed storage
@@ -489,6 +536,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
 
   const discardFollowUp = (taskId: string) => {
     updateTask(taskId, (task) => ({ ...task, followUpStatus: "descartado" as FollowUpStatus, status: "completada" as TaskStatus }));
+    onAfterDiscard?.();
   };
 
   const startCita = (taskId: string) => {
@@ -584,13 +632,36 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     return "otro";
   };
 
-  const handleFilesUpload = (taskId: string, files: FileList | null) => {
-    if (!files?.length) return;
-    const nextFiles: TaskFile[] = Array.from(files).map((file) => ({
-      id: `file-${Date.now()}-${file.name}`,
-      name: file.name,
-      type: inferFileType(file.name),
-    }));
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const handleFilesUpload = async (taskId: string, fileList: FileList | null) => {
+    if (!fileList?.length) return;
+    const files = Array.from(fileList);
+    const nextFiles: TaskFile[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const type = inferFileType(file.name);
+      let src: string | undefined;
+      if (type === "render") {
+        try {
+          src = await readFileAsDataUrl(file);
+        } catch {
+          // omit src on read error
+        }
+      }
+      nextFiles.push({
+        id: `file-${Date.now()}-${i}-${file.name}`,
+        name: file.name,
+        type,
+        ...(src ? { src } : {}),
+      });
+    }
     updateTask(taskId, (task) => ({
       ...task,
       files: [...(task.files ?? []), ...nextFiles],
@@ -776,6 +847,14 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                             >
                               {task.project}
                             </p>
+                            {(task.location || task.mapsUrl) ? (
+                              <p className="mt-1 line-clamp-1 break-words text-xs leading-4 text-secondary">
+                                {task.location}
+                                {task.mapsUrl ? (
+                                  <> · <a href={normalizeMapsUrl(task.mapsUrl)} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline" onClick={(e) => e.stopPropagation()}>Ver en Maps</a></>
+                                ) : null}
+                              </p>
+                            ) : null}
                             {task.title && task.title !== task.project ? (
                               <p
                                 className="mt-1 line-clamp-1 break-words text-xs leading-4 text-secondary"
@@ -999,6 +1078,14 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                   {activeTask.title && activeTask.title !== activeTask.project ? (
                     <p className="mt-1 text-sm text-secondary">{activeTask.title}</p>
                   ) : null}
+                  {activeTask.location || activeTask.mapsUrl ? (
+                    <p className="mt-1 text-sm text-secondary">
+                      {activeTask.location}
+                      {activeTask.mapsUrl ? (
+                        <> · <a href={normalizeMapsUrl(activeTask.mapsUrl)} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline">Ver en Maps</a></>
+                      ) : null}
+                    </p>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -1121,6 +1208,40 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                   </select>
                 </div>
 
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Dirección / Localidad (opcional)
+                  </p>
+                  <input
+                    type="text"
+                    value={activeTask.location ?? ""}
+                    onChange={(e) =>
+                      updateTask(activeTask.id, (task) => ({
+                        ...task,
+                        location: e.target.value.trim() || undefined,
+                      }))
+                    }
+                    placeholder="Ej. Av. Principal 123, Monterrey"
+                    className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Enlace de Google Maps (opcional)
+                  </p>
+                  <input
+                    type="url"
+                    value={activeTask.mapsUrl ?? ""}
+                    onChange={(e) =>
+                      updateTask(activeTask.id, (task) => ({
+                        ...task,
+                        mapsUrl: e.target.value.trim() || undefined,
+                      }))
+                    }
+                    placeholder="https://maps.google.com/..."
+                    className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  />
+                </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                     Fecha límite (opcional)
@@ -1405,15 +1526,11 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                   </div>
                 ) : null}
 
-                {teamMembers && teamMembers.length > 0 ? (
+                {allowDeleteTask && teamMembers && teamMembers.length > 0 ? (
                   <div className="border-t border-primary/10 pt-6">
                     <button
                       type="button"
-                      onClick={() => {
-                        if (typeof window !== "undefined" && window.confirm("¿Eliminar esta tarea? Esta acción no se puede deshacer.")) {
-                          deleteTask(activeTask.id);
-                        }
-                      }}
+                      onClick={() => setDeleteConfirmTaskId(activeTask.id)}
                       className="w-full rounded-2xl border border-rose-200 bg-rose-50 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
                     >
                       Eliminar tarea
@@ -1422,6 +1539,65 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 ) : null}
               </div>
             </motion.aside>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {deleteConfirmTaskId ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4"
+            onClick={() => setDeleteConfirmTaskId(null)}
+          >
+            <motion.div
+              ref={deleteConfirmRef}
+              tabIndex={-1}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-confirm-title"
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-sm rounded-3xl border border-rose-200 bg-white p-6 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-rose-100">
+                  <Trash2 className="h-7 w-7 text-rose-600" />
+                </div>
+              </div>
+              <h3 id="delete-confirm-title" className="mt-4 text-center text-lg font-semibold text-gray-900">
+                ¿Eliminar esta tarea?
+              </h3>
+              <p className="mt-2 text-center text-sm text-secondary">
+                Esta acción no se puede deshacer. La tarea se quitará del tablero.
+              </p>
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmTaskId(null)}
+                  className="flex-1 rounded-2xl border border-primary/10 bg-white py-3 text-sm font-semibold text-secondary transition hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (deleteConfirmTaskId) {
+                      deleteTask(deleteConfirmTaskId);
+                      setDeleteConfirmTaskId(null);
+                      setActiveTaskId(null);
+                    }
+                  }}
+                  className="flex-1 rounded-2xl bg-rose-600 py-3 text-sm font-semibold text-white transition hover:bg-rose-700"
+                >
+                  Sí, eliminar
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -1458,10 +1634,14 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 <input
                   type="file"
                   multiple
+                  accept="image/*,.pdf"
                   className="hidden"
                   onChange={(event) => {
-                    handleFilesUpload(uploadTaskId, event.target.files);
-                    setUploadTaskId(null);
+                    const target = event.target;
+                    handleFilesUpload(uploadTaskId, target.files).finally(() => {
+                      setUploadTaskId(null);
+                      target.value = "";
+                    });
                   }}
                 />
               </label>

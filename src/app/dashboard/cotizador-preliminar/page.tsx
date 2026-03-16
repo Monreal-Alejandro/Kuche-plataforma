@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CheckCircle2 } from "lucide-react";
-import { activeCitaTaskStorageKey, kanbanStorageKey, citaReturnUrlStorageKey, type KanbanTask, type PreliminarData } from "@/lib/kanban";
+import { activeCitaTaskStorageKey, kanbanStorageKey, citaReturnUrlStorageKey, getPreliminarList, seguimientoProjectStoragePrefix, type KanbanTask, type PreliminarData } from "@/lib/kanban";
 import { buildPreliminarPdf, downloadPreliminarPdf } from "@/lib/pdf-preliminar";
 
 const formatCurrency = (value: number) =>
@@ -569,43 +569,94 @@ export default function CotizadorPreliminarPage() {
     };
   };
 
-  const handleFinishCita = () => {
-    setFinishError(null);
-    if (!activeCitaTaskId) return;
-
+  const savePreliminarAndGetNextTasks = (): { codigoProyecto: string | undefined; updatedTasks: KanbanTask[] } | null => {
+    if (!activeCitaTaskId || !activeCitaTask) return null;
     const err = validatePreliminarSections();
     if (err) {
       setFinishError(err);
-      return;
+      return null;
     }
-
-    const preliminarData = buildPreliminarDataFromForm();
+    const newPreliminar = buildPreliminarDataFromForm();
     const stored = window.localStorage.getItem(kanbanStorageKey);
-    if (stored) {
-      try {
-        const tasks = JSON.parse(stored) as KanbanTask[];
-        const updatedTasks = tasks.map((task) => {
-          if (task.id === activeCitaTaskId) {
-            return {
-              ...task,
-              preliminarData,
-              citaFinished: true,
-              stage: "disenos" as const,
-              status: "pendiente" as const,
-            };
-          }
-          return task;
-        });
-        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasks));
-        window.localStorage.removeItem(activeCitaTaskStorageKey);
-        downloadPreliminarPdf(preliminarData, `cotizacion-preliminar-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`);
-        const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey);
-        window.localStorage.removeItem(citaReturnUrlStorageKey);
-        router.push(returnUrl || "/dashboard/empleado");
-      } catch {
-        setFinishError("No se pudo guardar. Intenta de nuevo.");
+    if (!stored) return null;
+    try {
+      const tasks = JSON.parse(stored) as KanbanTask[];
+      const existingList = getPreliminarList(activeCitaTask);
+      const preliminarCotizaciones = [...existingList, newPreliminar];
+      let codigoProyecto: string | undefined;
+      const updatedTasks = tasks.map((task) => {
+        if (task.id !== activeCitaTaskId) return task;
+        codigoProyecto = task.codigoProyecto ?? `K-${Date.now()}`;
+        return {
+          ...task,
+          codigoProyecto,
+          preliminarCotizaciones,
+          preliminarData: newPreliminar,
+          citaFinished: true,
+          stage: task.stage,
+          status: task.status,
+        };
+      });
+      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasks));
+      if (codigoProyecto) {
+        const projectKey = `${seguimientoProjectStoragePrefix}${codigoProyecto}`;
+        const seguimientoProject = {
+          codigo: codigoProyecto,
+          cliente: activeCitaTask.project ?? clientName ?? "Cliente",
+          isProspect: true,
+          preliminarCotizaciones,
+        };
+        window.localStorage.setItem(projectKey, JSON.stringify(seguimientoProject));
       }
+      return { codigoProyecto, updatedTasks };
+    } catch {
+      setFinishError("No se pudo guardar. Intenta de nuevo.");
+      return null;
     }
+  };
+
+  const handleFinishCita = () => {
+    setFinishError(null);
+    if (!activeCitaTaskId) return;
+    const result = savePreliminarAndGetNextTasks();
+    if (!result) return;
+    const newPreliminar = buildPreliminarDataFromForm();
+    const updatedTasksWithStage = result.updatedTasks.map((task) =>
+      task.id === activeCitaTaskId
+        ? { ...task, stage: "disenos" as const, status: "pendiente" as const }
+        : task,
+    );
+    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasksWithStage));
+    window.localStorage.removeItem(activeCitaTaskStorageKey);
+    downloadPreliminarPdf(
+      newPreliminar,
+      `cotizacion-preliminar-${(newPreliminar.projectType || "proyecto").replace(/\s+/g, "-")}-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`,
+    );
+    const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey);
+    window.localStorage.removeItem(citaReturnUrlStorageKey);
+    router.push(returnUrl || "/dashboard/empleado");
+  };
+
+  const handleFinishAndContinue = () => {
+    setFinishError(null);
+    if (!activeCitaTaskId) return;
+    const result = savePreliminarAndGetNextTasks();
+    if (!result) return;
+    const newPreliminar = buildPreliminarDataFromForm();
+    downloadPreliminarPdf(
+      newPreliminar,
+      `cotizacion-preliminar-${(newPreliminar.projectType || "proyecto").replace(/\s+/g, "-")}-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`,
+    );
+    setProjectType("Cocina");
+    setLocation("");
+    setInstallDate("");
+    setLargo("4.2");
+    setAlto("2.4");
+    setFondo("0.6");
+    setSelectedCubierta(materialCatalog.cubiertas[0].id);
+    setSelectedFrente(materialCatalog.frentes[0].id);
+    setSelectedHerraje(materialCatalog.herrajes[0].id);
+    setSelectedScenario("esencial");
   };
 
   const metrics = useMemo(() => {
@@ -840,14 +891,23 @@ export default function CotizadorPreliminarPage() {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleFinishCita}
-                className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-700"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                Terminar cita
-              </button>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handleFinishCita}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-700"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  Terminar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFinishAndContinue}
+                  className="flex items-center justify-center gap-2 rounded-2xl border-2 border-emerald-600 bg-white px-6 py-3 text-sm font-semibold text-emerald-600 shadow-lg transition hover:bg-emerald-50"
+                >
+                  Terminar y continuar
+                </button>
+              </div>
               {finishError ? (
                 <p className="mt-3 text-sm text-rose-600">{finishError}</p>
               ) : null}

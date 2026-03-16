@@ -14,11 +14,14 @@ import {
   activeCitaTaskStorageKey,
   activeCotizacionFormalTaskStorageKey,
   citaReturnUrlStorageKey,
+  getCotizacionesFormalesList,
   kanbanStorageKey,
   initialKanbanTasks,
+  seguimientoProjectStoragePrefix,
   type KanbanTask,
   type CotizacionFormalData,
 } from "@/lib/kanban";
+import { createFormalPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
 import { downloadPreliminarPdf } from "@/lib/pdf-preliminar";
 
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
@@ -193,10 +196,12 @@ function getDefaultThicknessItemId(): string {
 function FormalCotizacionBanner({
   taskId,
   onTerminar,
+  onTerminarYContinuar,
   error,
 }: {
   taskId: string;
   onTerminar: () => void;
+  onTerminarYContinuar: () => void;
   error: string;
 }) {
   const [projectName, setProjectName] = useState("");
@@ -221,16 +226,25 @@ function FormalCotizacionBanner({
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-emerald-700">Cotización formal</p>
           <p className="mt-2 text-sm text-emerald-800">
-            Cotización formal para <strong>{projectName}</strong>. Completa las secciones y termina para guardar en el cliente y pasar a seguimiento.
+            Cotización formal para <strong>{projectName}</strong>. Completa las secciones. Termina para pasar a seguimiento o termina y continúa para agregar otra (cocina, clóset, baño, etc.).
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onTerminar}
-          className="rounded-2xl bg-emerald-600 px-5 py-3 text-xs font-semibold text-white shadow hover:bg-emerald-700"
-        >
-          Terminar cotización
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onTerminar}
+            className="rounded-2xl bg-emerald-600 px-5 py-3 text-xs font-semibold text-white shadow hover:bg-emerald-700"
+          >
+            Terminar
+          </button>
+          <button
+            type="button"
+            onClick={onTerminarYContinuar}
+            className="rounded-2xl border-2 border-emerald-600 bg-white px-5 py-3 text-xs font-semibold text-emerald-600 shadow hover:bg-emerald-50"
+          >
+            Terminar y continuar
+          </button>
+        </div>
       </div>
       {error ? (
         <p className="rounded-xl bg-rose-100 px-4 py-2 text-sm text-rose-700">{error}</p>
@@ -825,9 +839,17 @@ export default function CotizadorPage() {
         // ignore malformed storage
       }
     }
-    const next = baseTasks.map((task) =>
-      task.id === taskId ? { ...task, status: "completada" } : task,
-    );
+    const next = baseTasks.map((task) => {
+      if (task.id !== taskId) return task;
+      // Al terminar cita la tarea pasa a Diseños (misma lógica que cotizador preliminar)
+      return {
+        ...task,
+        stage: "disenos" as const,
+        status: "pendiente" as const,
+        citaStarted: true,
+        citaFinished: true,
+      };
+    });
     window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
     window.localStorage.removeItem(activeCitaTaskStorageKey);
     setActiveCitaTaskId(null);
@@ -855,19 +877,14 @@ export default function CotizadorPage() {
     herraje: "—",
   });
 
-  const handleTerminarCotizacion = () => {
-    setFinishFormalError("");
-    if (typeof window === "undefined") return;
+  const saveFormalAndGetNextTasks = (data: CotizacionFormalData): { codigoProyecto: string; updatedTasks: KanbanTask[] } | null => {
+    if (typeof window === "undefined") return null;
     const taskId = window.localStorage.getItem(activeCotizacionFormalTaskStorageKey);
-    if (!taskId) {
-      router.push("/dashboard/empleado");
-      return;
-    }
+    if (!taskId) return null;
     if (!validateFormalSections()) {
       setFinishFormalError("Completa al menos un dato en cada sección: datos del proyecto, medidas y al menos un ítem en el catálogo.");
-      return;
+      return null;
     }
-    const data = buildCotizacionFormalDataFromForm();
     let baseTasks: KanbanTask[] = initialKanbanTasks as KanbanTask[];
     const stored = window.localStorage.getItem(kanbanStorageKey);
     if (stored) {
@@ -878,29 +895,166 @@ export default function CotizadorPage() {
         // ignore
       }
     }
+    const taskToUpdate = baseTasks.find((t) => t.id === taskId);
+    const codigoProyecto = taskToUpdate?.codigoProyecto ?? `K-${Date.now()}`;
+    const existingList = taskToUpdate ? getCotizacionesFormalesList(taskToUpdate) : [];
+    const cotizacionesFormales = [...existingList, data];
     const next = baseTasks.map((task) => {
       if (task.id !== taskId) return task;
       return {
         ...task,
+        codigoProyecto: task.codigoProyecto ?? codigoProyecto,
+        cotizacionesFormales,
         cotizacionFormalData: data,
         citaFinished: true,
-        stage: "contrato" as const,
-        status: "pendiente" as const,
-        followUpEnteredAt: Date.now(),
-        followUpStatus: "pendiente" as const,
+        stage: task.stage,
+        status: task.status,
+        followUpEnteredAt: task.followUpEnteredAt,
+        followUpStatus: task.followUpStatus,
       };
     });
     window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+    const projectKey = `${seguimientoProjectStoragePrefix}${codigoProyecto}`;
+    try {
+      const existing = window.localStorage.getItem(projectKey);
+      const base =
+        existing != null
+          ? (JSON.parse(existing) as Record<string, unknown>)
+          : { codigo: codigoProyecto, cliente: taskToUpdate?.project ?? "Cliente", isProspect: false };
+      const seguimientoProject = {
+        ...base,
+        codigo: codigoProyecto,
+        cliente: ((base.cliente as string) || taskToUpdate?.project) ?? "Cliente",
+        isProspect: false,
+        cotizacionesFormales,
+      };
+      window.localStorage.setItem(projectKey, JSON.stringify(seguimientoProject));
+    } catch {
+      // optional
+    }
+    return { codigoProyecto, updatedTasks: next };
+  };
+
+  const handleTerminarCotizacion = async () => {
+    setFinishFormalError("");
+    const taskId = window.localStorage.getItem(activeCotizacionFormalTaskStorageKey);
+    if (!taskId) {
+      router.push("/dashboard/empleado");
+      return;
+    }
+    if (!validateFormalSections()) {
+      setFinishFormalError("Completa al menos un dato en cada sección: datos del proyecto, medidas y al menos un ítem en el catálogo.");
+      return;
+    }
+    let dataUrl: string;
+    try {
+      dataUrl = await buildFormalPdfDataUrl();
+    } catch {
+      setFinishFormalError("No se pudo generar el PDF. Intenta de nuevo.");
+      return;
+    }
+    const data = buildCotizacionFormalDataFromForm();
+    const existingCount = (() => {
+      try {
+        const stored = window.localStorage.getItem(kanbanStorageKey);
+        const tasks = stored ? (JSON.parse(stored) as KanbanTask[]) : [];
+        const task = tasks.find((t) => t.id === taskId);
+        return task ? getCotizacionesFormalesList(task).length : 0;
+      } catch {
+        return 0;
+      }
+    })();
+    const formalPdfKey = createFormalPdfKey(taskId, existingCount);
+    try {
+      await saveFormalPdf(formalPdfKey, dataUrl);
+    } catch {
+      setFinishFormalError("No se pudo guardar el PDF. Intenta de nuevo.");
+      return;
+    }
+    data.formalPdfKey = formalPdfKey;
+    const result = saveFormalAndGetNextTasks(data);
+    if (!result) return;
+    const updatedTasksWithStage = result.updatedTasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            stage: "contrato" as const,
+            status: "pendiente" as const,
+            followUpEnteredAt: Date.now(),
+            followUpStatus: "pendiente" as const,
+          }
+        : task,
+    );
+    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasksWithStage));
     window.localStorage.removeItem(activeCotizacionFormalTaskStorageKey);
     setActiveCotizacionFormalTaskId(null);
     try {
-      downloadPreliminarPdf(data, `Cotizacion-formal-${taskId}.pdf`);
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `cotizacion-formal-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
+      link.click();
     } catch {
-      // optional PDF
+      // optional
     }
     const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey) || "/dashboard/empleado";
     window.localStorage.removeItem(citaReturnUrlStorageKey);
     router.push(returnUrl);
+  };
+
+  const handleTerminarYContinuar = async () => {
+    setFinishFormalError("");
+    if (!validateFormalSections()) {
+      setFinishFormalError("Completa al menos un dato en cada sección: datos del proyecto, medidas y al menos un ítem en el catálogo.");
+      return;
+    }
+    const taskId = window.localStorage.getItem(activeCotizacionFormalTaskStorageKey);
+    if (!taskId) return;
+    let dataUrl: string;
+    try {
+      dataUrl = await buildFormalPdfDataUrl();
+    } catch {
+      setFinishFormalError("No se pudo generar el PDF. Intenta de nuevo.");
+      return;
+    }
+    const data = buildCotizacionFormalDataFromForm();
+    const existingCount = (() => {
+      try {
+        const stored = window.localStorage.getItem(kanbanStorageKey);
+        const tasks = stored ? (JSON.parse(stored) as KanbanTask[]) : [];
+        const task = tasks.find((t) => t.id === taskId);
+        return task ? getCotizacionesFormalesList(task).length : 0;
+      } catch {
+        return 0;
+      }
+    })();
+    const formalPdfKey = createFormalPdfKey(taskId, existingCount);
+    try {
+      await saveFormalPdf(formalPdfKey, dataUrl);
+    } catch {
+      setFinishFormalError("No se pudo guardar el PDF. Intenta de nuevo.");
+      return;
+    }
+    data.formalPdfKey = formalPdfKey;
+    const result = saveFormalAndGetNextTasks(data);
+    if (!result) return;
+    try {
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `cotizacion-formal-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
+      link.click();
+    } catch {
+      // optional
+    }
+    setProjectType(projectTypes[0]);
+    setLocation("");
+    setInstallDate("");
+    setLargo("4.2");
+    setAlto("2.4");
+    setFondo("0.6");
+    setQuantities({});
+    setMaterialBaseItemId(getDefaultMaterialBaseItemId);
+    setColorItemId(getDefaultColorItemId);
+    setThicknessItemId(getDefaultThicknessItemId);
   };
 
   const buildPrintWindow = (title: string, bodyHtml: string) => {
@@ -983,7 +1137,7 @@ export default function CotizadorPage() {
     });
   };
 
-  const handleGenerateClientPdf = async () => {
+  const handleGenerateClientPdf = async (returnDataUrl?: boolean): Promise<string | void> => {
     if (typeof window === "undefined") {
       return;
     }
@@ -1315,8 +1469,22 @@ export default function CotizadorPage() {
     doc.text("Copal No. 303 Fracc. Vista Hermosa · Tel. 618 101 7363", marginX, footerY - 2);
     doc.text("cocinasinteligentesdgo@gmail.com", marginX, footerY + 10);
 
-    doc.save(`cotizacion-formal-${(client || "cliente").replace(/\s+/g, "-").toLowerCase()}.pdf`);
+    const filename = `cotizacion-formal-${(client || "cliente").replace(/\s+/g, "-").toLowerCase()}.pdf`;
+    if (returnDataUrl) {
+      const blob = doc.output("blob");
+      return new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = reject;
+        r.readAsDataURL(blob);
+      });
+    }
+    doc.save(filename);
   };
+
+  /** Genera el PDF formal actual y lo devuelve como data URL (para guardar en la tarjeta). */
+  const buildFormalPdfDataUrl = (): Promise<string> =>
+    handleGenerateClientPdf(true) as Promise<string>;
 
   const handleGenerateWorkshopPdf = () => {
     const logoUrl = new URL("/images/kuche-logo.png", window.location.origin).toString();
@@ -1434,6 +1602,7 @@ export default function CotizadorPage() {
         <FormalCotizacionBanner
           taskId={activeCotizacionFormalTaskId}
           onTerminar={handleTerminarCotizacion}
+          onTerminarYContinuar={handleTerminarYContinuar}
           error={finishFormalError}
         />
       ) : null}
@@ -2214,7 +2383,7 @@ export default function CotizadorPage() {
           </button>
           <button
             type="button"
-            onClick={handleGenerateClientPdf}
+            onClick={() => handleGenerateClientPdf()}
             className="rounded-2xl bg-[#8B1C1C] px-5 py-3 text-xs font-semibold text-white"
           >
             Generar PDF Cliente

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import { UserPlus, Calculator, FileText } from "lucide-react";
 
 import { KanbanTablero } from "@/components/KanbanTablero";
@@ -54,6 +55,8 @@ export default function OperacionesPage() {
   const [newTaskAssignedTo, setNewTaskAssignedTo] = useState("");
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("media");
   const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [newTaskLocation, setNewTaskLocation] = useState("");
+  const [newTaskMapsUrl, setNewTaskMapsUrl] = useState("");
   const [assignError, setAssignError] = useState("");
   const [newMemberName, setNewMemberName] = useState("");
   const [teamError, setTeamError] = useState("");
@@ -91,8 +94,9 @@ export default function OperacionesPage() {
       newTaskAssignedTo && newTaskAssignedTo !== "Sin asignar"
         ? [newTaskAssignedTo]
         : [];
+    const now = Date.now();
     const newTask: KanbanTask = {
-      id: `task-${Date.now()}`,
+      id: `task-${now}`,
       title: project,
       stage: newTaskStage,
       status: "pendiente",
@@ -102,7 +106,10 @@ export default function OperacionesPage() {
       files: [],
       priority: newTaskPriority,
       dueDate: newTaskDueDate.trim() || undefined,
-      createdAt: Date.now(),
+      createdAt: now,
+      location: newTaskLocation.trim() || undefined,
+      mapsUrl: newTaskMapsUrl.trim() || undefined,
+      codigoProyecto: `K-${now}`,
     };
     try {
       const stored = window.localStorage.getItem(kanbanStorageKey);
@@ -116,6 +123,8 @@ export default function OperacionesPage() {
       setNewTaskAssignedTo(teamMembers[0]?.name ?? "Sin asignar");
       setNewTaskPriority("media");
       setNewTaskDueDate("");
+      setNewTaskLocation("");
+      setNewTaskMapsUrl("");
       setAssignError("");
     } catch {
       setAssignError("No se pudo guardar la tarea.");
@@ -178,6 +187,7 @@ export default function OperacionesPage() {
     setNewTaskAssignedTo(teamMembers[0]?.name ?? "Sin asignar");
     setNewTaskPriority("media");
     setNewTaskDueDate("");
+    setNewTaskLocation("");
     setAssignError("");
     setIsAssignModalOpen(true);
   };
@@ -234,11 +244,22 @@ export default function OperacionesPage() {
         </div>
       </div>
 
-      <KanbanTablero
-        filterByEmployee={selectedEmployeeFilter === "Todos" ? null : selectedEmployeeFilter}
-        refreshTrigger={refreshTrigger}
-        teamMembers={teamMembers}
-      />
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md"
+      >
+        <KanbanTablero
+          filterByEmployee={selectedEmployeeFilter === "Todos" ? null : selectedEmployeeFilter}
+          refreshTrigger={refreshTrigger}
+          teamMembers={teamMembers}
+          allowDeleteTask={true}
+          onAfterDiscard={() => {
+            setTimeout(() => router.push("/admin/clientes-descartados"), 100);
+          }}
+        />
+      </motion.section>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
@@ -291,9 +312,9 @@ export default function OperacionesPage() {
           <div
             ref={assignModalRef}
             tabIndex={-1}
-            className="w-full max-w-lg rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
+            className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-3xl border border-white/70 bg-white shadow-2xl"
           >
-            <div className="flex items-center justify-between">
+            <div className="flex shrink-0 items-center justify-between border-b border-primary/5 px-6 py-4">
               <h3 className="text-lg font-semibold text-gray-900">Asignar pendiente</h3>
               <button
                 type="button"
@@ -303,7 +324,8 @@ export default function OperacionesPage() {
                 Cerrar
               </button>
             </div>
-            <div className="mt-4 space-y-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+            <div className="space-y-4">
               <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                 Proyecto / Cliente
                 <input
@@ -312,6 +334,27 @@ export default function OperacionesPage() {
                   placeholder="Ej. Residencial Vega"
                   className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                 />
+              </label>
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                Dirección / Localidad
+                <input
+                  value={newTaskLocation}
+                  onChange={(e) => setNewTaskLocation(e.target.value)}
+                  placeholder="Ej. Av. Principal 123, Col. Centro, Monterrey"
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+                <p className="mt-1 text-[10px] text-secondary">Opcional. Se muestra debajo del nombre del cliente en la tarjeta.</p>
+              </label>
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                Enlace de Google Maps (opcional)
+                <input
+                  type="url"
+                  value={newTaskMapsUrl}
+                  onChange={(e) => setNewTaskMapsUrl(e.target.value)}
+                  placeholder="https://maps.google.com/..."
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+                <p className="mt-1 text-[10px] text-secondary">Pega el enlace de Maps; en la tarjeta el empleado podrá abrirlo con un clic.</p>
               </label>
               <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                 Etapa inicial
@@ -384,6 +427,7 @@ export default function OperacionesPage() {
               >
                 Guardar pendiente
               </button>
+            </div>
             </div>
           </div>
         </div>

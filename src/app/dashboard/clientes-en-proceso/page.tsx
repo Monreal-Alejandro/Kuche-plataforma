@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, User, FileText, Eye, Download } from "lucide-react";
-import { kanbanStorageKey, kanbanColumns, type KanbanTask } from "@/lib/kanban";
-import { openPreliminarPdfInNewTab, downloadPreliminarPdf } from "@/lib/pdf-preliminar";
+import { kanbanStorageKey, kanbanColumns, getPreliminarList, getCotizacionesFormalesList, type KanbanTask } from "@/lib/kanban";
+import { openPreliminarPdfInNewTab, downloadPreliminarPdf, openFormalPdfInNewTab, downloadFormalPdf } from "@/lib/pdf-preliminar";
 
 const CURRENT_USER = "Valeria";
 
@@ -125,67 +125,77 @@ export default function ClientesEnProcesoPage() {
                   </div>
 
                   <div className="mt-6 space-y-3 border-t border-primary/10 pt-4">
-                    {task.preliminarData ? (
+                    {getPreliminarList(task).length > 0 ? (
                       <div className="rounded-2xl bg-emerald-50 p-3">
                         <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">
-                          Cotizacion preliminar
+                          Cotización preliminar {getPreliminarList(task).length > 1 ? `(${getPreliminarList(task).length})` : ""}
                         </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openPreliminarPdfInNewTab(task.preliminarData!)}
-                            className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            Ver PDF
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              downloadPreliminarPdf(
-                                task.preliminarData!,
-                                `cotizacion-preliminar-${task.project.replace(/\s+/g, "-")}.pdf`,
-                              )
-                            }
-                            className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                            Descargar PDF
-                          </button>
+                        <div className="mt-2 space-y-2">
+                          {getPreliminarList(task).map((data, idx) => (
+                            <div key={idx} className="flex flex-wrap items-center gap-2 rounded-xl bg-white/80 px-3 py-2">
+                              <span className="text-xs font-medium text-emerald-800">{data.projectType}</span>
+                              <button
+                                type="button"
+                                onClick={() => openPreliminarPdfInNewTab(data)}
+                                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                              >
+                                <Eye className="h-3 w-3" />
+                                Ver PDF
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadPreliminarPdf(
+                                    data,
+                                    `cotizacion-preliminar-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${task.project.replace(/\s+/g, "-")}.pdf`,
+                                  )
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                              >
+                                <Download className="h-3 w-3" />
+                                Descargar PDF
+                              </button>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     ) : null}
-                    {task.cotizacionFormalData ? (
+                    {getCotizacionesFormalesList(task).length > 0 ? (
                       <div className="rounded-2xl bg-violet-50 p-3">
                         <p className="text-xs font-semibold uppercase tracking-wider text-violet-800">
-                          Cotizacion formal
+                          Cotización formal {getCotizacionesFormalesList(task).length > 1 ? `(${getCotizacionesFormalesList(task).length})` : ""}
                         </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openPreliminarPdfInNewTab(task.cotizacionFormalData!)}
-                            className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-violet-700 shadow-sm transition hover:bg-violet-100"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            Ver PDF
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              downloadPreliminarPdf(
-                                task.cotizacionFormalData!,
-                                `cotizacion-formal-${task.project.replace(/\s+/g, "-")}.pdf`,
-                              )
-                            }
-                            className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-violet-700 shadow-sm transition hover:bg-violet-100"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                            Descargar PDF
-                          </button>
+                        <div className="mt-2 space-y-2">
+                          {getCotizacionesFormalesList(task).map((data, idx) => (
+                            <div key={idx} className="flex flex-wrap items-center gap-2 rounded-xl bg-white/80 px-3 py-2">
+                              <span className="text-xs font-medium text-violet-800">{data.projectType}</span>
+                              <button
+                                type="button"
+                                onClick={() => openFormalPdfInNewTab(data)}
+                                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                              >
+                                <Eye className="h-3 w-3" />
+                                Ver PDF
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadFormalPdf(
+                                    data,
+                                    `cotizacion-formal-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${task.project.replace(/\s+/g, "-")}.pdf`,
+                                  )
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                              >
+                                <Download className="h-3 w-3" />
+                                Descargar PDF
+                              </button>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     ) : null}
-                    {!task.preliminarData && !task.cotizacionFormalData ? (
+                    {getPreliminarList(task).length === 0 && getCotizacionesFormalesList(task).length === 0 ? (
                       <p className="text-xs text-secondary">Sin PDFs generados aun.</p>
                     ) : null}
                   </div>

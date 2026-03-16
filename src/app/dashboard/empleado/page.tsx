@@ -80,6 +80,8 @@ export default function EmpleadoDashboard() {
   const [newTaskStage, setNewTaskStage] = useState<TaskStage>("citas");
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("media");
   const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [newTaskLocation, setNewTaskLocation] = useState("");
+  const [newTaskMapsUrl, setNewTaskMapsUrl] = useState("");
   const [taskError, setTaskError] = useState("");
 
   const publicEditorRef = useRef<HTMLDivElement | null>(null);
@@ -103,8 +105,9 @@ export default function EmpleadoDashboard() {
       setTaskError("Escribe el proyecto o cliente.");
       return;
     }
+    const now = Date.now();
     const newTask: KanbanTask = {
-      id: `task-${Date.now()}`,
+      id: `task-${now}`,
       title: project,
       stage: newTaskStage,
       status: "pendiente",
@@ -114,7 +117,10 @@ export default function EmpleadoDashboard() {
       files: [],
       priority: newTaskPriority,
       dueDate: newTaskDueDate.trim() || undefined,
-      createdAt: Date.now(),
+      location: newTaskLocation.trim() || undefined,
+      mapsUrl: newTaskMapsUrl.trim() || undefined,
+      createdAt: now,
+      codigoProyecto: `K-${now}`,
     };
     try {
       const stored = window.localStorage.getItem(kanbanStorageKey);
@@ -127,6 +133,8 @@ export default function EmpleadoDashboard() {
       setNewTaskStage("citas");
       setNewTaskPriority("media");
       setNewTaskDueDate("");
+      setNewTaskLocation("");
+      setNewTaskMapsUrl("");
       setTaskError("");
     } catch {
       setTaskError("No se pudo guardar la tarea.");
@@ -138,6 +146,8 @@ export default function EmpleadoDashboard() {
     setNewTaskStage("citas");
     setNewTaskPriority("media");
     setNewTaskDueDate("");
+    setNewTaskLocation("");
+    setNewTaskMapsUrl("");
     setTaskError("");
     setIsNewTaskModalOpen(true);
   };
@@ -198,6 +208,7 @@ export default function EmpleadoDashboard() {
           filterByEmployee={viewMode === "mine" ? CURRENT_USER : null}
           refreshTrigger={refreshTrigger}
           teamMembers={teamMembers}
+          allowDeleteTask={false}
         />
       </motion.section>
 
@@ -508,6 +519,25 @@ export default function EmpleadoDashboard() {
                   type="date"
                   value={newTaskDueDate}
                   onChange={(e) => setNewTaskDueDate(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+              </label>
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                Ubicación (opcional)
+                <input
+                  value={newTaskLocation}
+                  onChange={(e) => setNewTaskLocation(e.target.value)}
+                  placeholder="Ej. Col. Centro"
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+              </label>
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                URL de Maps (opcional)
+                <input
+                  type="url"
+                  value={newTaskMapsUrl}
+                  onChange={(e) => setNewTaskMapsUrl(e.target.value)}
+                  placeholder="https://maps.google.com/..."
                   className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                 />
               </label>
