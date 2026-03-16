@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CheckCircle2 } from "lucide-react";
 import { activeCitaTaskStorageKey, kanbanStorageKey, citaReturnUrlStorageKey, getPreliminarList, seguimientoProjectStoragePrefix, type KanbanTask, type PreliminarData } from "@/lib/kanban";
@@ -521,6 +521,63 @@ export default function CotizadorPreliminarPage() {
   const [pages, setPages] = useState({ cubiertas: 1, frentes: 1, herrajes: 1 });
   const [finishError, setFinishError] = useState<string | null>(null);
 
+  type EditableFieldId =
+    | "clientName"
+    | "location"
+    | "installDate"
+    | "largo"
+    | "alto"
+    | "fondo";
+
+  const clientNameInputRef = useRef<HTMLInputElement | null>(null);
+  const locationInputRef = useRef<HTMLInputElement | null>(null);
+  const installDateInputRef = useRef<HTMLInputElement | null>(null);
+  const largoInputRef = useRef<HTMLInputElement | null>(null);
+  const altoInputRef = useRef<HTMLInputElement | null>(null);
+  const fondoInputRef = useRef<HTMLInputElement | null>(null);
+
+  const lastEditedFieldRef = useRef<EditableFieldId | null>(null);
+  const caretPositionsRef = useRef<Record<EditableFieldId, number | null>>({
+    clientName: null,
+    location: null,
+    installDate: null,
+    largo: null,
+    alto: null,
+    fondo: null,
+  });
+
+  useLayoutEffect(() => {
+    const lastEdited = lastEditedFieldRef.current;
+    if (!lastEdited) return;
+
+    const caretPos = caretPositionsRef.current[lastEdited];
+    let inputEl: HTMLInputElement | null = null;
+
+    if (lastEdited === "clientName") inputEl = clientNameInputRef.current;
+    if (lastEdited === "location") inputEl = locationInputRef.current;
+    if (lastEdited === "installDate") inputEl = installDateInputRef.current;
+    if (lastEdited === "largo") inputEl = largoInputRef.current;
+    if (lastEdited === "alto") inputEl = altoInputRef.current;
+    if (lastEdited === "fondo") inputEl = fondoInputRef.current;
+
+    if (!inputEl) return;
+
+    // Para la mayoría de campos (medidas y datos) reforzamos el foco,
+    // pero en el buscador dejamos el foco natural del navegador para
+    // que borrar con Backspace sea totalmente fluido.
+    if (lastEdited !== "materialSearch") {
+      inputEl.focus();
+    }
+
+    if (caretPos !== null) {
+      try {
+        inputEl.setSelectionRange(caretPos, caretPos);
+      } catch {
+        // Ignorar navegadores/contextos donde no se pueda ajustar la selección
+      }
+    }
+  }, [clientName, location, installDate, largo, alto, fondo]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const taskId = window.localStorage.getItem(activeCitaTaskStorageKey);
@@ -578,41 +635,62 @@ export default function CotizadorPreliminarPage() {
     }
     const newPreliminar = buildPreliminarDataFromForm();
     const stored = window.localStorage.getItem(kanbanStorageKey);
-    if (!stored) return null;
+
+    let tasks: KanbanTask[];
     try {
-      const tasks = JSON.parse(stored) as KanbanTask[];
-      const existingList = getPreliminarList(activeCitaTask);
-      const preliminarCotizaciones = [...existingList, newPreliminar];
-      let codigoProyecto: string | undefined;
-      const updatedTasks = tasks.map((task) => {
-        if (task.id !== activeCitaTaskId) return task;
-        codigoProyecto = task.codigoProyecto ?? `K-${Date.now()}`;
-        return {
-          ...task,
-          codigoProyecto,
-          preliminarCotizaciones,
-          preliminarData: newPreliminar,
-          citaFinished: true,
-          stage: task.stage,
-          status: task.status,
-        };
-      });
-      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasks));
-      if (codigoProyecto) {
-        const projectKey = `${seguimientoProjectStoragePrefix}${codigoProyecto}`;
-        const seguimientoProject = {
-          codigo: codigoProyecto,
-          cliente: activeCitaTask.project ?? clientName ?? "Cliente",
-          isProspect: true,
-          preliminarCotizaciones,
-        };
-        window.localStorage.setItem(projectKey, JSON.stringify(seguimientoProject));
-      }
-      return { codigoProyecto, updatedTasks };
+      tasks = stored ? (JSON.parse(stored) as KanbanTask[]) : [];
     } catch {
-      setFinishError("No se pudo guardar. Intenta de nuevo.");
-      return null;
+      // Si el JSON está corrupto, al menos conservamos la tarea activa en un arreglo nuevo.
+      tasks = [];
     }
+
+    // Aseguramos que la tarea activa exista en la lista a actualizar.
+    const hasActiveTask = tasks.some((t) => t.id === activeCitaTaskId);
+    const baseTasks = hasActiveTask ? tasks : [...tasks, activeCitaTask];
+
+    let codigoProyecto: string | undefined;
+    const updatedTasks = baseTasks.map((task) => {
+      if (task.id !== activeCitaTaskId) return task;
+      const existingList = getPreliminarList(task);
+      const preliminarCotizaciones = [...existingList, newPreliminar];
+      codigoProyecto = task.codigoProyecto ?? `K-${Date.now()}`;
+      return {
+        ...task,
+        codigoProyecto,
+        preliminarCotizaciones,
+        preliminarData: newPreliminar,
+        citaFinished: true,
+        stage: task.stage,
+        status: task.status,
+      };
+    });
+
+    try {
+      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasks));
+    } catch {
+      // Si por alguna razón no podemos escribir en localStorage (cuota, modo incógnito, etc.),
+      // evitamos bloquear el flujo de la cita. Los datos de esta sesión podrían no persistir,
+      // pero el usuario puede continuar trabajando.
+    }
+
+    if (codigoProyecto) {
+      const projectKey = `${seguimientoProjectStoragePrefix}${codigoProyecto}`;
+      const seguimientoProject = {
+        codigo: codigoProyecto,
+        cliente: activeCitaTask.project ?? clientName ?? "Cliente",
+        isProspect: true,
+        preliminarCotizaciones: getPreliminarList(
+          updatedTasks.find((t) => t.id === activeCitaTaskId) ?? activeCitaTask,
+        ),
+      };
+      try {
+        window.localStorage.setItem(projectKey, JSON.stringify(seguimientoProject));
+      } catch {
+        // Mismo criterio: no bloqueamos el flujo si esta escritura falla.
+      }
+    }
+
+    return { codigoProyecto, updatedTasks };
   };
 
   const handleFinishCita = () => {
@@ -925,8 +1003,14 @@ export default function CotizadorPreliminarPage() {
                 <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                   Cliente
                   <input
+                    ref={clientNameInputRef}
                     value={clientName}
-                    onChange={(event) => setClientName(event.target.value)}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      lastEditedFieldRef.current = "clientName";
+                      caretPositionsRef.current.clientName = event.target.selectionStart ?? null;
+                      setClientName(nextValue);
+                    }}
                     placeholder="Nombre del cliente"
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
                   />
@@ -946,8 +1030,14 @@ export default function CotizadorPreliminarPage() {
                 <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                   Ubicaci?n
                   <input
+                    ref={locationInputRef}
                     value={location}
-                    onChange={(event) => setLocation(event.target.value)}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      lastEditedFieldRef.current = "location";
+                      caretPositionsRef.current.location = event.target.selectionStart ?? null;
+                      setLocation(nextValue);
+                    }}
                     placeholder="CDMX, GDL, MTY..."
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
                   />
@@ -955,8 +1045,14 @@ export default function CotizadorPreliminarPage() {
                 <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                   Fecha tentativa
                   <input
+                    ref={installDateInputRef}
                     value={installDate}
-                    onChange={(event) => setInstallDate(event.target.value)}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      lastEditedFieldRef.current = "installDate";
+                      caretPositionsRef.current.installDate = event.target.selectionStart ?? null;
+                      setInstallDate(nextValue);
+                    }}
                     type="date"
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
                   />
@@ -972,8 +1068,14 @@ export default function CotizadorPreliminarPage() {
                 <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                   Largo
                   <input
+                    ref={largoInputRef}
                     value={largo}
-                    onChange={(event) => setLargo(event.target.value)}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      lastEditedFieldRef.current = "largo";
+                      caretPositionsRef.current.largo = event.target.selectionStart ?? null;
+                      setLargo(nextValue);
+                    }}
                     inputMode="decimal"
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
                   />
@@ -981,8 +1083,14 @@ export default function CotizadorPreliminarPage() {
                 <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                   Alto
                   <input
+                    ref={altoInputRef}
                     value={alto}
-                    onChange={(event) => setAlto(event.target.value)}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      lastEditedFieldRef.current = "alto";
+                      caretPositionsRef.current.alto = event.target.selectionStart ?? null;
+                      setAlto(nextValue);
+                    }}
                     inputMode="decimal"
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
                   />
@@ -990,8 +1098,14 @@ export default function CotizadorPreliminarPage() {
                 <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                   Fondo
                   <input
+                    ref={fondoInputRef}
                     value={fondo}
-                    onChange={(event) => setFondo(event.target.value)}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      lastEditedFieldRef.current = "fondo";
+                      caretPositionsRef.current.fondo = event.target.selectionStart ?? null;
+                      setFondo(nextValue);
+                    }}
                     inputMode="decimal"
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
                   />

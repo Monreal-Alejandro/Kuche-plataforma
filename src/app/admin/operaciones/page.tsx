@@ -255,9 +255,6 @@ export default function OperacionesPage() {
           refreshTrigger={refreshTrigger}
           teamMembers={teamMembers}
           allowDeleteTask={true}
-          onAfterDiscard={() => {
-            setTimeout(() => router.push("/admin/clientes-descartados"), 100);
-          }}
         />
       </motion.section>
 
@@ -343,7 +340,7 @@ export default function OperacionesPage() {
                   placeholder="Ej. Av. Principal 123, Col. Centro, Monterrey"
                   className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                 />
-                <p className="mt-1 text-[10px] text-secondary">Opcional. Se muestra debajo del nombre del cliente en la tarjeta.</p>
+                <p className="mt-1 text-[10px] text-secondary">Opcional.</p>
               </label>
               <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                 Enlace de Google Maps (opcional)
@@ -354,7 +351,7 @@ export default function OperacionesPage() {
                   placeholder="https://maps.google.com/..."
                   className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                 />
-                <p className="mt-1 text-[10px] text-secondary">Pega el enlace de Maps; en la tarjeta el empleado podrá abrirlo con un clic.</p>
+                <p className="mt-1 text-[10px] text-secondary">Pega el enlace de Maps.</p>
               </label>
               <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                 Etapa inicial

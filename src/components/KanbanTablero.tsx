@@ -286,6 +286,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   useFocusTrap(Boolean(uploadTaskId), uploadTaskRef);
   useFocusTrap(Boolean(confirmClientTaskId), confirmClientRef);
   useFocusTrap(Boolean(deleteConfirmTaskId), deleteConfirmRef);
+  // Al abrir el panel de detalle, aseguramos que se muestre desde el inicio.
+  useEffect(() => {
+    if (!activeTaskId) return;
+    if (!activeTaskRef.current) return;
+    activeTaskRef.current.scrollTop = 0;
+  }, [activeTaskId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -451,6 +457,11 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     );
   };
 
+  const removeTask = (taskId: string) => {
+    setKanbanTasks((prev) => prev.filter((task) => task.id !== taskId));
+    setActiveTaskId((current) => (current === taskId ? null : current));
+  };
+
   const setTaskStatus = (taskId: string, status: TaskStatus) => {
     updateTask(taskId, (task) => ({ ...task, status }));
   };
@@ -531,11 +542,24 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   };
 
   const confirmFollowUp = (taskId: string) => {
-    updateTask(taskId, (task) => ({ ...task, followUpStatus: "confirmado" as FollowUpStatus, status: "completada" as TaskStatus }));
+    // Marcamos el cliente como confirmado y completado.
+    // La tarjeta se ocultará del tablero de seguimiento pero seguirá en localStorage
+    // para que las vistas de clientes confirmados la utilicen.
+    updateTask(taskId, (task) => ({
+      ...task,
+      followUpStatus: "confirmado" as FollowUpStatus,
+      status: "completada" as TaskStatus,
+    }));
   };
 
   const discardFollowUp = (taskId: string) => {
-    updateTask(taskId, (task) => ({ ...task, followUpStatus: "descartado" as FollowUpStatus, status: "completada" as TaskStatus }));
+    // Marcamos el cliente como descartado y completado.
+    // Se mantiene en localStorage para que la página de clientes descartados lo lea.
+    updateTask(taskId, (task) => ({
+      ...task,
+      followUpStatus: "descartado" as FollowUpStatus,
+      status: "completada" as TaskStatus,
+    }));
     onAfterDiscard?.();
   };
 
@@ -592,8 +616,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   };
 
   const deleteTask = (taskId: string) => {
-    setKanbanTasks((prev) => prev.filter((t) => t.id !== taskId));
-    setActiveTaskId(null);
+    removeTask(taskId);
   };
 
   const priorityOrder: Record<TaskPriority, number> = { alta: 0, media: 1, baja: 2 };
@@ -719,7 +742,14 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
 
         <div className="mt-6 grid gap-4 lg:grid-cols-4">
           {kanbanColumns.map((column) => {
-            const columnTasksRaw = filteredTasks.filter((task) => task.stage === column.id);
+            const columnTasksRaw = filteredTasks.filter((task) => {
+              if (task.stage !== column.id) return false;
+              // En la columna de Seguimiento solo mostramos seguimientos pendientes.
+              if (column.id === "contrato" && task.followUpStatus && task.followUpStatus !== "pendiente") {
+                return false;
+              }
+              return true;
+            });
             const columnTasks = sortTasks(columnTasksRaw);
             const isDragOver = dragOverColumnId === column.id;
             return (
