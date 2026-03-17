@@ -17,19 +17,55 @@ export interface ArchivoTarea {
   nombre: string;
   tipo: "pdf" | "render" | "otro";
   url?: string;
-  createdAt?: Date;
+  createdAt?: Date | string;
+}
+
+export type EtapaTarea = "citas" | "disenos" | "cotizacion" | "contrato";
+export type EstadoTarea = "pendiente" | "completada";
+export type PrioridadTarea = "alta" | "media" | "baja";
+export type SeguimientoTarea = "pendiente" | "confirmado" | "descartado";
+
+export interface PreliminarCotizacionTarea {
+  client: string;
+  projectType: string;
+  location: string;
+  date: string;
+  rangeLabel: string;
+  cubierta: string;
+  frente: string;
+  herraje: string;
+}
+
+export interface CotizacionFormalTarea extends PreliminarCotizacionTarea {
+  formalPdfKey?: string;
+  pdfDataUrl?: string;
 }
 
 export interface Tarea {
   _id: string;
   titulo: string;
-  etapa: "citas" | "disenos" | "cotizacion" | "contrato";
-  estado: "pendiente" | "completada";
-  asignadoA: string;              // ID del usuario
-  asignadoANombre: string;        // Nombre del usuario (populado por backend)
+  etapa: EtapaTarea;
+  estado: EstadoTarea;
+  asignadoA: string | string[];   // ID del usuario o IDs cuando hay múltiples responsables
+  asignadoANombre: string | string[]; // Nombre(s) del usuario (populado por backend)
   proyecto: string;               // ID del proyecto
   nombreProyecto: string;         // Nombre del proyecto (populado por backend)
   notas?: string;
+  prioridad?: PrioridadTarea;
+  fechaLimite?: string;
+  ubicacion?: string;
+  mapsUrl?: string;
+  followUpEnteredAt?: number;
+  followUpStatus?: SeguimientoTarea;
+  citaStarted?: boolean;
+  citaFinished?: boolean;
+  designApprovedByAdmin?: boolean;
+  designApprovedByClient?: boolean;
+  preliminarData?: PreliminarCotizacionTarea;
+  cotizacionFormalData?: CotizacionFormalTarea;
+  preliminarCotizaciones?: PreliminarCotizacionTarea[];
+  cotizacionesFormales?: CotizacionFormalTarea[];
+  codigoProyecto?: string;
   archivos?: ArchivoTarea[];
   createdAt: Date;
   updatedAt: Date;
@@ -37,19 +73,51 @@ export interface Tarea {
 
 export interface CrearTareaData {
   titulo: string;
-  etapa: "citas" | "disenos" | "cotizacion" | "contrato";
-  estado?: "pendiente" | "completada";
-  asignadoA: string;  // ID del usuario
+  etapa: EtapaTarea;
+  estado?: EstadoTarea;
+  asignadoA: string | string[];  // ID del usuario o usuarios
   proyecto: string;   // ID del proyecto
+  nombreProyecto?: string;
   notas?: string;
+  prioridad?: PrioridadTarea;
+  fechaLimite?: string;
+  ubicacion?: string;
+  mapsUrl?: string;
+  followUpEnteredAt?: number;
+  followUpStatus?: SeguimientoTarea;
+  citaStarted?: boolean;
+  citaFinished?: boolean;
+  designApprovedByAdmin?: boolean;
+  designApprovedByClient?: boolean;
+  preliminarData?: PreliminarCotizacionTarea;
+  cotizacionFormalData?: CotizacionFormalTarea;
+  preliminarCotizaciones?: PreliminarCotizacionTarea[];
+  cotizacionesFormales?: CotizacionFormalTarea[];
+  codigoProyecto?: string;
 }
 
 export interface ActualizarTareaData {
   titulo?: string;
-  etapa?: "citas" | "disenos" | "cotizacion" | "contrato";
-  estado?: "pendiente" | "completada";
-  asignadoA?: string;
+  etapa?: EtapaTarea;
+  estado?: EstadoTarea;
+  asignadoA?: string | string[];
+  nombreProyecto?: string;
   notas?: string;
+  prioridad?: PrioridadTarea;
+  fechaLimite?: string;
+  ubicacion?: string;
+  mapsUrl?: string;
+  followUpEnteredAt?: number;
+  followUpStatus?: SeguimientoTarea;
+  citaStarted?: boolean;
+  citaFinished?: boolean;
+  designApprovedByAdmin?: boolean;
+  designApprovedByClient?: boolean;
+  preliminarData?: PreliminarCotizacionTarea;
+  cotizacionFormalData?: CotizacionFormalTarea;
+  preliminarCotizaciones?: PreliminarCotizacionTarea[];
+  cotizacionesFormales?: CotizacionFormalTarea[];
+  codigoProyecto?: string;
 }
 
 export interface FiltrosTareas {
@@ -58,6 +126,9 @@ export interface FiltrosTareas {
   estado?: string;
   asignadoA?: string;
   proyecto?: string;
+  followUpStatus?: SeguimientoTarea;
+  designApprovedByAdmin?: boolean;
+  designApprovedByClient?: boolean;
 }
 
 /* ========================================================================
@@ -110,7 +181,7 @@ export const actualizarTarea = async (
   id: string,
   data: ActualizarTareaData
 ): Promise<ApiResponse<Tarea>> => {
-  const response = await axiosInstance.put<ApiResponse<Tarea>>(`/api/tareas/${id}`, data);
+  const response = await axiosInstance.patch<ApiResponse<Tarea>>(`/api/tareas/${id}`, data);
   return response.data;
 };
 
@@ -122,7 +193,7 @@ export const actualizarTarea = async (
  */
 export const cambiarEtapa = async (
   id: string,
-  etapa: "citas" | "disenos" | "cotizacion" | "contrato"
+  etapa: EtapaTarea
 ): Promise<ApiResponse<Tarea>> => {
   const response = await axiosInstance.patch<ApiResponse<Tarea>>(
     `/api/tareas/${id}/etapa`,
@@ -139,7 +210,7 @@ export const cambiarEtapa = async (
  */
 export const cambiarEstado = async (
   id: string,
-  estado: "pendiente" | "completada"
+  estado: EstadoTarea
 ): Promise<ApiResponse<Tarea>> => {
   const response = await axiosInstance.patch<ApiResponse<Tarea>>(
     `/api/tareas/${id}/estado`,

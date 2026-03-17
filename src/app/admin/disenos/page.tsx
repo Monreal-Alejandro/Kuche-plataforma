@@ -1,12 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronLeft, ChevronRight, FileText, Image as ImageIcon, MessageSquare } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  MessageSquare,
+} from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
-import { kanbanStorageKey, type KanbanTask, type TaskFile } from "@/lib/kanban";
+import { useAdminWorkflow } from "@/contexts/AdminWorkflowContext";
+import { type AdminWorkflowTask } from "@/lib/admin-workflow";
 
 type ProjectStatus = "Pendiente" | "Aprobado" | "Revisión";
 
@@ -16,9 +25,11 @@ type DesignProject = {
   clientName: string;
   designerName: string;
   image: string | null;
-  files: TaskFile[];
+  fileUrl: string | null;
+  files: NonNullable<AdminWorkflowTask["files"]>;
   date: string;
   status: ProjectStatus;
+  notes?: string;
 };
 
 const statusStyles: Record<ProjectStatus, string> = {
@@ -27,7 +38,7 @@ const statusStyles: Record<ProjectStatus, string> = {
   Revisión: "bg-rose-100 text-rose-700",
 };
 
-const filters = ["Todos", "Pendientes", "Aprobados"] as const;
+const filters = ["Todos", "Pendientes", "Aprobados", "En revisión"] as const;
 type FilterOption = (typeof filters)[number];
 
 function formatDesignDate(ts?: number): string {
@@ -36,74 +47,64 @@ function formatDesignDate(ts?: number): string {
   return d.toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" });
 }
 
-function designProjectsFromTasks(tasks: KanbanTask[]): DesignProject[] {
-  return tasks
-    .filter((t) => t.stage === "disenos" && t.files && t.files.length > 0)
-    .map((task) => {
-      const firstImage = task.files!.find((f) => f.type === "render" && f.src);
-      const image = firstImage?.src ?? null;
-      return {
-        id: task.id,
-        taskId: task.id,
-        clientName: task.project || "Sin nombre",
-        designerName: task.assignedTo?.[0] ?? "—",
-        image,
-        files: task.files ?? [],
-        date: formatDesignDate(task.createdAt),
-        status: (task.designApprovedByAdmin ? "Aprobado" : "Pendiente") as ProjectStatus,
-      };
-    });
+function taskToProject(task: AdminWorkflowTask): DesignProject {
+  const firstImage = task.files?.find((file) => file.type === "render" && file.src);
+  const firstPdf = task.files?.find((file) => file.type === "pdf" && file.src);
+  const hasFeedback = Boolean(task.notes?.trim());
+
+  return {
+    id: task.id,
+    taskId: task.id,
+    clientName: task.project || task.title || "Sin nombre",
+    designerName: task.assignedTo[0] ?? "Sin asignar",
+    image: firstImage?.src ?? null,
+    fileUrl: firstImage?.src ?? firstPdf?.src ?? null,
+    files: task.files ?? [],
+    date: formatDesignDate(task.createdAt),
+    status: task.designApprovedByAdmin ? "Aprobado" : hasFeedback ? "Revisión" : "Pendiente",
+    notes: task.notes,
+  };
 }
 
 export default function DisenosPage() {
+  const { refresh, updateTask } = useAdminWorkflow();
   const [projects, setProjects] = useState<DesignProject[]>([]);
+  const [tasksById, setTasksById] = useState<Record<string, AdminWorkflowTask>>({});
   const [activeFeedbackId, setActiveFeedbackId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterOption>("Todos");
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, string>>({});
   const [activePreview, setActivePreview] = useState<DesignProject | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
-  const loadProjects = useCallback(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(kanbanStorageKey);
-      const tasks: KanbanTask[] = stored ? JSON.parse(stored) : [];
-      if (!Array.isArray(tasks)) {
-        setProjects([]);
-        return;
-      }
-      setProjects(designProjectsFromTasks(tasks));
-    } catch {
-      setProjects([]);
-    }
-  }, []);
+  const loadProjects = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    const loadedTasks = await refresh();
+    const designTasks = loadedTasks.filter((task) => task.stage === "disenos");
+    setTasksById(Object.fromEntries(designTasks.map((task) => [task.id, task])));
+    setProjects(designTasks.map(taskToProject));
+    setIsLoading(false);
+  }, [refresh]);
 
   useEffect(() => {
-    loadProjects();
-    setIsHydrated(true);
+    void loadProjects();
   }, [loadProjects]);
-
-  useEffect(() => {
-    if (!isHydrated) return;
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === kanbanStorageKey) loadProjects();
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, [isHydrated, loadProjects]);
 
   useEscapeClose(Boolean(activePreview), () => setActivePreview(null));
   useFocusTrap(Boolean(activePreview), previewRef);
 
   const filteredProjects = useMemo(() => {
     if (filter === "Todos") return projects;
-    if (filter === "Pendientes") return projects.filter((p) => p.status === "Pendiente");
-    return projects.filter((p) => p.status === "Aprobado");
+    if (filter === "Pendientes") return projects.filter((project) => project.status === "Pendiente");
+    if (filter === "Aprobados") return projects.filter((project) => project.status === "Aprobado");
+    return projects.filter((project) => project.status === "Revisión");
   }, [filter, projects]);
 
   const previewIndex = useMemo(
-    () => filteredProjects.findIndex((p) => p.id === activePreview?.id),
+    () => filteredProjects.findIndex((project) => project.id === activePreview?.id),
     [activePreview?.id, filteredProjects],
   );
 
@@ -133,26 +134,32 @@ export default function DisenosPage() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [activePreview, goToNext, goToPrev]);
 
-  const handleApprove = (taskId: string) => {
-    if (typeof window === "undefined") return;
+  const persistTask = async (taskId: string, updates: Partial<AdminWorkflowTask>) => {
+    const task = tasksById[taskId];
+    if (!task) return;
+    setSavingTaskId(taskId);
     try {
-      const stored = window.localStorage.getItem(kanbanStorageKey);
-      const tasks: KanbanTask[] = stored ? JSON.parse(stored) : [];
-      if (!Array.isArray(tasks)) return;
-      const next = tasks.map((t) =>
-        t.id === taskId ? { ...t, designApprovedByAdmin: true } : t,
-      );
-      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
-      setProjects(designProjectsFromTasks(next));
+      await updateTask(task, {
+        notes: updates.notes ?? task.notes ?? "",
+        designApprovedByAdmin: updates.designApprovedByAdmin ?? task.designApprovedByAdmin ?? false,
+      });
+      await loadProjects();
       setActiveFeedbackId(null);
-    } catch {
-      // ignore
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "No se pudo actualizar el diseño");
+    } finally {
+      setSavingTaskId(null);
     }
   };
 
-  const handleSendFeedback = (projectId: string) => {
-    setFeedbackDrafts((prev) => ({ ...prev, [projectId]: "" }));
-    setActiveFeedbackId(projectId);
+  const handleApprove = async (taskId: string) => {
+    await persistTask(taskId, { designApprovedByAdmin: true, notes: "" });
+  };
+
+  const handleSendFeedback = async (taskId: string) => {
+    const feedback = feedbackDrafts[taskId]?.trim();
+    if (!feedback) return;
+    await persistTask(taskId, { designApprovedByAdmin: false, notes: feedback });
   };
 
   return (
@@ -160,7 +167,7 @@ export default function DisenosPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Aprobación de Diseños</h1>
         <p className="mt-2 text-sm text-gray-500">
-          Revisa y autoriza los renders o planos subidos desde el tablero antes de la presentación al cliente.
+          Revisa y autoriza los renders o planos recibidos desde el backend antes de la presentación al cliente.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {filters.map((item) => {
@@ -181,13 +188,20 @@ export default function DisenosPage() {
         </div>
       </div>
 
-      {!isHydrated ? (
-        <p className="text-sm text-gray-500">Cargando…</p>
+      {isLoading ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Cargando diseños...
+        </div>
+      ) : error ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {error}
+        </div>
       ) : filteredProjects.length === 0 ? (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 p-12 text-center">
           <p className="text-gray-500">
             {projects.length === 0
-              ? "No hay diseños con archivos aún. Los archivos subidos en la columna Diseños del tablero aparecerán aquí."
+              ? "No hay diseños cargados en backend para revisar todavía."
               : "No hay diseños que coincidan con el filtro."}
           </p>
         </div>
@@ -211,21 +225,22 @@ export default function DisenosPage() {
                       className="h-full w-full cursor-zoom-in object-cover transition-transform duration-500 hover:scale-105"
                       onClick={() => setActivePreview(project)}
                     />
-                  ) : (
+                  ) : project.fileUrl ? (
                     <button
                       type="button"
                       onClick={() => setActivePreview(project)}
                       className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-400"
                     >
-                      {project.files.some((f) => f.type === "pdf") ? (
-                        <FileText className="h-12 w-12" />
-                      ) : (
-                        <ImageIcon className="h-12 w-12" />
-                      )}
+                      <FileText className="h-12 w-12" />
                       <span className="text-xs font-medium">
                         {project.files.length} archivo{project.files.length !== 1 ? "s" : ""}
                       </span>
                     </button>
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-400">
+                      <ImageIcon className="h-12 w-12" />
+                      <span className="text-xs font-medium">Sin vista previa</span>
+                    </div>
                   )}
                   <span
                     className={`absolute left-4 top-4 rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[project.status]}`}
@@ -239,6 +254,11 @@ export default function DisenosPage() {
                     <p className="text-sm text-gray-500">Responsable: {project.designerName}</p>
                   </div>
                   <p className="text-xs text-gray-400">Actualizado: {project.date}</p>
+                  {project.notes ? (
+                    <p className="rounded-2xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Feedback: {project.notes}
+                    </p>
+                  ) : null}
                   <div className="mt-auto">
                     {activeFeedbackId === project.id ? (
                       <motion.div
@@ -261,8 +281,9 @@ export default function DisenosPage() {
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            onClick={() => handleSendFeedback(project.id)}
-                            className="rounded-2xl bg-[#8B1C1C] px-4 py-2 text-xs font-semibold text-white"
+                            onClick={() => void handleSendFeedback(project.taskId)}
+                            disabled={savingTaskId === project.taskId}
+                            className="rounded-2xl bg-[#8B1C1C] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
                           >
                             Enviar feedback
                           </button>
@@ -279,8 +300,9 @@ export default function DisenosPage() {
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => handleApprove(project.taskId)}
-                          className="flex items-center gap-2 rounded-2xl bg-[#8B1C1C] px-4 py-2 text-xs font-semibold text-white"
+                          onClick={() => void handleApprove(project.taskId)}
+                          disabled={savingTaskId === project.taskId}
+                          className="flex items-center gap-2 rounded-2xl bg-[#8B1C1C] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
                         >
                           <Check className="h-4 w-4" />
                           Aprobar
@@ -295,7 +317,7 @@ export default function DisenosPage() {
                         </button>
                       </div>
                     ) : (
-                      <p className="text-xs text-gray-400">Diseño aprobado. Pendiente de aceptación del cliente.</p>
+                      <p className="text-xs text-gray-400">Diseño aprobado por administración.</p>
                     )}
                   </div>
                 </div>
@@ -321,7 +343,7 @@ export default function DisenosPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
               className="w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl"
             >
               <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
@@ -344,19 +366,25 @@ export default function DisenosPage() {
                     alt={`Diseño ${activePreview.clientName}`}
                     className="mx-auto max-h-[70vh] w-full object-contain"
                   />
+                ) : activePreview.fileUrl ? (
+                  <iframe
+                    title={`Archivo ${activePreview.clientName}`}
+                    src={activePreview.fileUrl}
+                    className="h-[70vh] w-full rounded-2xl border border-gray-200 bg-white"
+                  />
                 ) : (
                   <div className="flex flex-col items-center justify-center gap-4 py-12">
-                    {activePreview.files.map((f) => (
+                    {activePreview.files.map((file) => (
                       <div
-                        key={f.id}
+                        key={file.id}
                         className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3"
                       >
-                        {f.type === "pdf" ? (
+                        {file.type === "pdf" ? (
                           <FileText className="h-8 w-8 text-gray-400" />
                         ) : (
                           <ImageIcon className="h-8 w-8 text-gray-400" />
                         )}
-                        <span className="text-sm font-medium text-gray-700">{f.name}</span>
+                        <span className="text-sm font-medium text-gray-700">{file.name}</span>
                       </div>
                     ))}
                   </div>

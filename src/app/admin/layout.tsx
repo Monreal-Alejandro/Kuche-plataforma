@@ -15,6 +15,7 @@ import {
   XCircle,
   Users,
 } from "lucide-react";
+import { AdminWorkflowProvider } from "@/contexts/AdminWorkflowContext";
 
 const navigation = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
@@ -47,7 +48,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [isCollapsed]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <AdminWorkflowProvider>
+      <div className="min-h-screen bg-slate-50">
       <aside
         className={`fixed inset-y-0 left-0 flex flex-col border-r border-gray-200 bg-white py-8 transition-all ${
           isCollapsed ? "w-20 px-3" : "w-64 px-6"
@@ -107,7 +109,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <main className={`min-h-screen px-10 py-10 ${isCollapsed ? "ml-20" : "ml-64"}`}>
         {children}
       </main>
-    </div>
+      </div>
+    </AdminWorkflowProvider>
   );
 }
 

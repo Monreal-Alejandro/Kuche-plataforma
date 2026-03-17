@@ -1,17 +1,21 @@
- "use client";
+"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, CalendarX, LayoutDashboard, Palette, Tags, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Calendar,
+  CalendarX,
+  CheckCircle2,
+  LayoutDashboard,
+  Palette,
+  Tags,
+  XCircle,
+} from "lucide-react";
 
-type TaskLike = {
-  status?: string;
-  column?: string;
-  type?: string;
-  title?: string;
-  client?: string;
-  followUpStatus?: string;
-};
+import { useAdminWorkflow } from "@/contexts/AdminWorkflowContext";
+import { isTaskConfirmed, isTaskDiscarded } from "@/lib/admin-workflow";
+import { obtenerTodasLasCitas, type Cita } from "@/lib/axios/citasApi";
+import { obtenerMateriales } from "@/lib/axios/catalogosApi";
 
 type AppointmentLike = {
   status?: string;
@@ -22,16 +26,11 @@ type AppointmentLike = {
   client?: string;
 };
 
-const safeParseArray = <T,>(value: string | null): T[] => {
-  if (!value) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+type TaskLike = {
+  status?: string;
+  column?: string;
+  type?: string;
+  title?: string;
 };
 
 const formatDateLabel = (date: Date) => {
@@ -55,31 +54,88 @@ const getGreeting = (date: Date) => {
   return "Buenas noches";
 };
 
+const formatTime = (isoString: string) => {
+  try {
+    return new Intl.DateTimeFormat("es-MX", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(isoString));
+  } catch {
+    return "--:--";
+  }
+};
+
+const estadoToType: Record<string, string> = {
+  programada: "Levantamiento / Medidas",
+  en_proceso: "Cotización en sitio",
+  completada: "Presentación de diseño",
+  cancelada: "Cancelada",
+};
+
+function citaToAppointment(cita: Cita): AppointmentLike {
+  const assigned =
+    typeof cita.ingenieroAsignado === "object" && cita.ingenieroAsignado !== null
+      ? cita.ingenieroAsignado.nombre
+      : typeof cita.ingenieroAsignado === "string"
+        ? cita.ingenieroAsignado
+        : null;
+
+  return {
+    client: cita.nombreCliente,
+    date: cita.fechaAgendada ? cita.fechaAgendada.slice(0, 10) : undefined,
+    time: cita.fechaAgendada ? formatTime(cita.fechaAgendada) : "--:--",
+    type: estadoToType[cita.estado] ?? "Visita",
+    status: cita.estado === "programada" || cita.estado === "en_proceso" ? "Pendiente" : cita.estado,
+    assignedTo: assigned,
+  };
+}
+
 export default function AdminPage() {
+  const { refresh, markFollowUpAlerts } = useAdminWorkflow();
   const [tasks, setTasks] = useState<TaskLike[]>([]);
-  const [kanbanTasks, setKanbanTasks] = useState<TaskLike[]>([]);
   const [appointments, setAppointments] = useState<AppointmentLike[]>([]);
-  const [catalogItems, setCatalogItems] = useState<unknown[]>([]);
+  const [totalMaterials, setTotalMaterials] = useState(0);
+  const [confirmedClients, setConfirmedClients] = useState(0);
+  const [discardedClients, setDiscardedClients] = useState(0);
+  const [staleFollowUpCount, setStaleFollowUpCount] = useState(0);
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    const storedTasks = window.localStorage.getItem("kuche_kanban_tasks");
-    const storedKanbanTasks = window.localStorage.getItem("kuche-kanban-tasks");
-    const storedAppointments = window.localStorage.getItem("kuche_agenda_events");
-    const storedCatalog = window.localStorage.getItem("kuche_catalogo_precios");
+    const load = async () => {
+      const citasRes = await obtenerTodasLasCitas().catch(() => null);
+      if (citasRes?.success && citasRes.data) {
+        setAppointments(citasRes.data.map(citaToAppointment));
+      }
 
-    setTasks(safeParseArray<TaskLike>(storedTasks));
-    setKanbanTasks(safeParseArray<TaskLike>(storedKanbanTasks));
-    setAppointments(safeParseArray<AppointmentLike>(storedAppointments));
-    setCatalogItems(safeParseArray<unknown>(storedCatalog));
-    setIsHydrated(true);
-  }, []);
+      const materialesRes = await obtenerMateriales().catch(() => null);
+      if (materialesRes?.success && materialesRes.data) {
+        setTotalMaterials(materialesRes.data.length);
+      }
+
+      const workflowTasks = await refresh();
+      setTasks(
+        workflowTasks.map((task) => ({
+          status: task.status,
+          column: task.stage,
+          type: task.stage === "disenos" ? "diseño" : task.stage,
+          title: task.title,
+        })),
+      );
+      setConfirmedClients(workflowTasks.filter(isTaskConfirmed).length);
+      setDiscardedClients(workflowTasks.filter(isTaskDiscarded).length);
+      setStaleFollowUpCount(await markFollowUpAlerts(3));
+      setIsHydrated(true);
+    };
+
+    void load();
+  }, [markFollowUpAlerts, refresh]);
 
   const activeTasks = useMemo(
     () =>
       tasks.filter((task) => {
         const status = task.status ?? task.column ?? "";
-        return status !== "Completado";
+        return status !== "completada";
       }).length,
     [tasks],
   );
@@ -88,7 +144,7 @@ export default function AdminPage() {
     () =>
       tasks.filter((task) => {
         const status = task.status ?? task.column ?? "";
-        return status === "Revisión" || status === "En Diseño";
+        return task.type?.toLowerCase() === "diseño" && status === "pendiente";
       }).length,
     [tasks],
   );
@@ -100,18 +156,6 @@ export default function AdminPage() {
         return appointment.status === "Pendiente" || !assigned;
       }).length,
     [appointments],
-  );
-
-  const totalMaterials = useMemo(() => catalogItems.length, [catalogItems]);
-
-  const confirmedClients = useMemo(
-    () => kanbanTasks.filter((task) => task.followUpStatus === "confirmado").length,
-    [kanbanTasks],
-  );
-
-  const discardedClients = useMemo(
-    () => kanbanTasks.filter((task) => task.followUpStatus === "descartado").length,
-    [kanbanTasks],
   );
 
   const today = useMemo(() => new Date(), []);
@@ -142,7 +186,7 @@ export default function AdminPage() {
     const reviewDesigns = tasks
       .filter((task) => {
         const status = task.status ?? task.column ?? "";
-        return task.type?.toLowerCase() === "diseño" && status === "Revisión";
+        return task.type?.toLowerCase() === "diseño" && status === "pendiente";
       })
       .map((task) => ({
         id: `design-${task.title ?? "sin-titulo"}`,
@@ -150,8 +194,18 @@ export default function AdminPage() {
         href: "/admin/disenos",
       }));
 
-    return [...pendingAgenda, ...reviewDesigns];
-  }, [appointments, tasks]);
+    const staleFollowUp = staleFollowUpCount > 0
+      ? [
+          {
+            id: "seguimiento-stale",
+            label: `⏱️ ${staleFollowUpCount} proyecto(s) sin cambios por más de 3 días`,
+            href: "/admin/clientes-en-proceso",
+          },
+        ]
+      : [];
+
+    return [...pendingAgenda, ...reviewDesigns, ...staleFollowUp].slice(0, 8);
+  }, [appointments, staleFollowUpCount, tasks]);
 
   const cards = [
     {

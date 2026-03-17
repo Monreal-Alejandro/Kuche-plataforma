@@ -28,7 +28,8 @@ import {
   type TaskStatus,
 } from "@/lib/kanban";
 
-type DashboardFlowItem = KanbanTask & {
+type DashboardFlowItem = Omit<KanbanTask, "assignedTo"> & {
+  assignedTo: string;
   assignedToId?: string;
   raw?: Record<string, unknown>;
 };
@@ -95,8 +96,18 @@ const mapTaskFromApi = (task: KanbanItem): DashboardFlowItem => ({
   title: task.titulo,
   stage: normalizeStage(task.etapa),
   status: normalizeStatus(task.estado),
-  assignedTo: task.asignadoANombre || "Sin asignar",
-  assignedToId: task.asignadoA,
+  assignedTo:
+    Array.isArray(task.asignadoANombre) && task.asignadoANombre.length > 0
+      ? task.asignadoANombre.join(", ")
+      : typeof task.asignadoANombre === "string" && task.asignadoANombre.trim().length > 0
+        ? task.asignadoANombre
+        : "Sin asignar",
+  assignedToId:
+    Array.isArray(task.asignadoA) && task.asignadoA.length > 0
+      ? task.asignadoA[0]
+      : typeof task.asignadoA === "string"
+        ? task.asignadoA
+        : undefined,
   project: task.nombreProyecto || "General",
   notes: task.notas || "",
   raw: task.raw,
@@ -208,7 +219,7 @@ export default function EmpleadoDashboard() {
     paymentInputs.anticipo + paymentInputs.segundoPago + paymentInputs.liquidacion;
   const restante = Math.max(0, projectBudget - totalPagado);
 
-  const updateTask = (taskId: string, updater: (task: KanbanTask) => KanbanTask) => {
+  const updateTask = (taskId: string, updater: (task: DashboardFlowItem) => DashboardFlowItem) => {
     setKanbanTasks((prev) =>
       prev.map((task) => (task.id === taskId ? updater(task) : task)),
     );
@@ -488,7 +499,7 @@ export default function EmpleadoDashboard() {
                         </div>
                         <div className="mt-auto flex items-center gap-2 pb-3 pt-3 text-sm text-gray-600">
                           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[9px] font-semibold text-primary">
-                            {getInitials(task.assignedTo)}
+                            {getInitials(task.assignedTo ?? "")}
                           </span>
                           <span>{task.assignedTo}</span>
                         </div>
@@ -620,7 +631,7 @@ export default function EmpleadoDashboard() {
                   </p>
                   <div className="mt-3 flex items-center gap-3 text-sm text-gray-700">
                     <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                      {getInitials(activeTask.assignedTo)}
+                      {getInitials(activeTask.assignedTo ?? "")}
                     </span>
                     <div>
                       <p className="font-semibold text-gray-900">{activeTask.assignedTo}</p>

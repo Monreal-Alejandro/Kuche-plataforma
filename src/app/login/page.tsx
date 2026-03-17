@@ -67,7 +67,7 @@ export default function LoginPage() {
       if (result.success && result.user) {
         // Redirigir según el rol del usuario
         if (result.user.rol === 'admin') {
-          router.push("/dashboard/admin");
+          router.push("/admin");
         } else if (result.user.rol === 'arquitecto' || result.user.rol === 'empleado') {
           router.push("/dashboard/empleado");
         } else {

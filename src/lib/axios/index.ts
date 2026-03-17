@@ -83,3 +83,6 @@ export * as kanbanApi from './kanbanApi';
 export type {
   KanbanItem,
 } from './kanbanApi';
+
+// Exportar API de workflow admin
+export * as adminWorkflowApi from './adminWorkflowApi';
