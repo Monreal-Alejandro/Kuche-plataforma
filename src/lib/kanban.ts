@@ -1,10 +1,34 @@
 export type TaskStage = "citas" | "disenos" | "cotizacion" | "contrato";
 export type TaskStatus = "pendiente" | "completada";
+export type TaskPriority = "alta" | "media" | "baja";
+export type FollowUpStatus = "pendiente" | "confirmado" | "descartado";
 
 export type TaskFile = {
   id: string;
   name: string;
   type: "pdf" | "render" | "otro";
+  /** Data URL para vista previa (imágenes); opcional en PDF/otro */
+  src?: string;
+};
+
+/** Datos del cotizador preliminar guardados en la tarjeta del cliente (para regenerar PDF). */
+export type PreliminarData = {
+  client: string;
+  projectType: string;
+  location: string;
+  date: string;
+  rangeLabel: string;
+  cubierta: string;
+  frente: string;
+  herraje: string;
+};
+
+/** Datos del cotizador formal guardados en la tarjeta del cliente. */
+export type CotizacionFormalData = PreliminarData & {
+  /** Clave en IndexedDB donde está guardado el PDF formal (evita exceder cuota de localStorage). */
+  formalPdfKey?: string;
+  /** @deprecated PDF en data URL; ya no se persiste en la tarea (usa formalPdfKey + IndexedDB). */
+  pdfDataUrl?: string;
 };
 
 export type KanbanTask = {
@@ -12,223 +36,72 @@ export type KanbanTask = {
   title: string;
   stage: TaskStage;
   status: TaskStatus;
-  assignedTo: string;
+  /** Uno o más responsables (permite que 2+ empleados tengan la misma actividad). */
+  assignedTo: string[];
   project: string;
   notes?: string;
   files?: TaskFile[];
+  priority?: TaskPriority;
+  dueDate?: string;
+  /** Dirección / localidad del cliente; se muestra debajo del nombre en la tarjeta. */
+  location?: string;
+  /** Enlace de Google Maps; en la tarjeta se muestra como "Ver en Maps" para abrir la ubicación. */
+  mapsUrl?: string;
+  createdAt?: number;
+  /** Para tareas en seguimiento: fecha en que entró a la columna de seguimiento */
+  followUpEnteredAt?: number;
+  /** Estado del seguimiento: pendiente, confirmado o descartado */
+  followUpStatus?: FollowUpStatus;
+  /** Citas/Cotización: si se inició la cita */
+  citaStarted?: boolean;
+  /** Citas/Cotización: si se terminó la cita */
+  citaFinished?: boolean;
+  /** Diseños: si el admin aprobó el diseño */
+  designApprovedByAdmin?: boolean;
+  /** Diseños: si el cliente aprobó el diseño */
+  designApprovedByClient?: boolean;
+  /** Datos de la cotización preliminar (cita); para ver/descargar PDF en Clientes en proceso */
+  preliminarData?: PreliminarData;
+  /** Datos de la cotización formal; para ver/descargar PDF en Clientes en proceso */
+  cotizacionFormalData?: CotizacionFormalData;
+  /** Varias cotizaciones preliminares (ej. cocina, clóset, baño) en la misma tarjeta. Si existe, tiene prioridad sobre preliminarData. */
+  preliminarCotizaciones?: PreliminarData[];
+  /** Varias cotizaciones formales en la misma tarjeta. Si existe, tiene prioridad sobre cotizacionFormalData. */
+  cotizacionesFormales?: CotizacionFormalData[];
+  /** Código para que el cliente acceda a /seguimiento (ej. K-8821). Se genera al crear la tarea. */
+  codigoProyecto?: string;
 };
+
+/** Lista efectiva de cotizaciones preliminares (array nuevo o migrado desde preliminarData). */
+export function getPreliminarList(task: KanbanTask): PreliminarData[] {
+  if (task.preliminarCotizaciones && task.preliminarCotizaciones.length > 0) {
+    return task.preliminarCotizaciones;
+  }
+  return task.preliminarData ? [task.preliminarData] : [];
+}
+
+/** Lista efectiva de cotizaciones formales (array nuevo o migrado desde cotizacionFormalData). */
+export function getCotizacionesFormalesList(task: KanbanTask): CotizacionFormalData[] {
+  if (task.cotizacionesFormales && task.cotizacionesFormales.length > 0) {
+    return task.cotizacionesFormales;
+  }
+  return task.cotizacionFormalData ? [task.cotizacionFormalData] : [];
+}
 
 export const kanbanColumns = [
   { id: "citas", label: "Citas" },
   { id: "disenos", label: "Diseños" },
   { id: "cotizacion", label: "Cotización Formal" },
-  { id: "contrato", label: "Contrato" },
+  { id: "contrato", label: "Seguimiento" },
 ] as const;
 
-export const initialKanbanTasks: KanbanTask[] = [
-  {
-    id: "t1",
-    title: "Revisar medidas cliente Vega",
-    stage: "citas",
-    status: "pendiente",
-    assignedTo: "Valeria",
-    project: "Residencial Vega",
-    files: [],
-  },
-  {
-    id: "t2",
-    title: "Cita showroom 10:30 AM",
-    stage: "citas",
-    status: "pendiente",
-    assignedTo: "Luis",
-    project: "Showroom",
-    files: [],
-  },
-  {
-    id: "t3",
-    title: "Diseño cocina Solaris",
-    stage: "disenos",
-    status: "pendiente",
-    assignedTo: "Valeria",
-    project: "Solaris",
-    files: [
-      { id: "f1", name: "Render_Solaris_v2.jpg", type: "render" },
-    ],
-  },
-  {
-    id: "t4",
-    title: "Cotizar clóset Estudio A",
-    stage: "cotizacion",
-    status: "pendiente",
-    assignedTo: "Carlos",
-    project: "Estudio A",
-    files: [],
-  },
-  {
-    id: "t5",
-    title: "Cita instalación 4:00 PM",
-    stage: "citas",
-    status: "pendiente",
-    assignedTo: "Luis",
-    project: "Residencial Palma",
-    files: [],
-  },
-  {
-    id: "t6",
-    title: "Entrega renders Torreón",
-    stage: "disenos",
-    status: "completada",
-    assignedTo: "Majo",
-    project: "Torreón",
-    files: [
-      { id: "f2", name: "Plano_Torreon.pdf", type: "pdf" },
-      { id: "f3", name: "Render_Torreon_final.jpg", type: "render" },
-    ],
-  },
-  {
-    id: "t7",
-    title: "Cita inicial cliente Lozano",
-    stage: "citas",
-    status: "pendiente",
-    assignedTo: "Valeria",
-    project: "Residencial Lozano",
-    files: [],
-  },
-  {
-    id: "t8",
-    title: "Levantamiento para proyecto Mistral",
-    stage: "citas",
-    status: "pendiente",
-    assignedTo: "Luis",
-    project: "Mistral",
-    files: [],
-  },
-  {
-    id: "t9",
-    title: "Diseño cocina Lomas",
-    stage: "disenos",
-    status: "pendiente",
-    assignedTo: "Majo",
-    project: "Lomas",
-    files: [],
-  },
-  {
-    id: "t10",
-    title: "Ajustes de layout Colinas",
-    stage: "disenos",
-    status: "completada",
-    assignedTo: "Carlos",
-    project: "Colinas",
-    files: [
-      { id: "f4", name: "Render_Colinas_v3.jpg", type: "render" },
-    ],
-  },
-  {
-    id: "t11",
-    title: "Cotización formal casa Roble",
-    stage: "cotizacion",
-    status: "pendiente",
-    assignedTo: "Valeria",
-    project: "Casa Roble",
-    files: [],
-  },
-  {
-    id: "t12",
-    title: "Cotización formal Torre Sur",
-    stage: "cotizacion",
-    status: "pendiente",
-    assignedTo: "Luis",
-    project: "Torre Sur",
-    files: [],
-  },
-  {
-    id: "t13",
-    title: "Revisión de contrato proyecto Niza",
-    stage: "contrato",
-    status: "pendiente",
-    assignedTo: "Carlos",
-    project: "Niza",
-    files: [],
-  },
-  {
-    id: "t14",
-    title: "Contrato firmado Altavista",
-    stage: "contrato",
-    status: "completada",
-    assignedTo: "Majo",
-    project: "Altavista",
-    files: [
-      { id: "f5", name: "Contrato_Altavista.pdf", type: "pdf" },
-    ],
-  },
-  {
-    id: "t15",
-    title: "Cita seguimiento cliente Pino",
-    stage: "citas",
-    status: "pendiente",
-    assignedTo: "Luis",
-    project: "Residencial Pino",
-    files: [],
-  },
-  {
-    id: "t16",
-    title: "Diseño closet Alameda",
-    stage: "disenos",
-    status: "pendiente",
-    assignedTo: "Valeria",
-    project: "Alameda",
-    files: [],
-  },
-  {
-    id: "t17",
-    title: "Cotización formal Loft 21",
-    stage: "cotizacion",
-    status: "completada",
-    assignedTo: "Carlos",
-    project: "Loft 21",
-    files: [
-      { id: "f6", name: "Cotizacion_Loft21.pdf", type: "pdf" },
-    ],
-  },
-  {
-    id: "t18",
-    title: "Cita técnica proyecto Mirador",
-    stage: "citas",
-    status: "pendiente",
-    assignedTo: "Majo",
-    project: "Mirador",
-    files: [],
-  },
-  {
-    id: "t19",
-    title: "Diseño cocina Encinos",
-    stage: "disenos",
-    status: "completada",
-    assignedTo: "Valeria",
-    project: "Encinos",
-    files: [
-      { id: "f7", name: "Render_Encinos_final.jpg", type: "render" },
-    ],
-  },
-  {
-    id: "t20",
-    title: "Contrato por confirmar San Telmo",
-    stage: "contrato",
-    status: "pendiente",
-    assignedTo: "Luis",
-    project: "San Telmo",
-    files: [],
-  },
-  {
-    id: "t21",
-    title: "Cotización formal Paseo Norte",
-    stage: "cotizacion",
-    status: "pendiente",
-    assignedTo: "Majo",
-    project: "Paseo Norte",
-    files: [],
-  },
-];
+/** Lista inicial de tareas del tablero. Vacía para que el tablero se llene solo con "Asignar pendiente". */
+export const initialKanbanTasks: KanbanTask[] = [];
 
 export const kanbanStorageKey = "kuche-kanban-tasks";
 export const activeCitaTaskStorageKey = "kuche-active-cita-task";
+export const citaReturnUrlStorageKey = "kuche-cita-return-url";
+export const activeCotizacionFormalTaskStorageKey = "kuche-active-cotizacion-formal-task";
+
+/** Prefijo para guardar datos de seguimiento por código: kuche_project_${codigoProyecto} */
+export const seguimientoProjectStoragePrefix = "kuche_project_";

@@ -73,8 +73,15 @@ export default function Captcha({
 
   if (!siteKey) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-        Configura NEXT_PUBLIC_TURNSTILE_SITE_KEY para habilitar el captcha.
+      <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+        <p>Configura NEXT_PUBLIC_TURNSTILE_SITE_KEY para habilitar el captcha real.</p>
+        <button
+          type="button"
+          className="rounded-lg bg-amber-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-amber-700"
+          onClick={() => onVerify("dev-captcha-token")}
+        >
+          Simular captcha (solo desarrollo)
+        </button>
       </div>
     );
   }

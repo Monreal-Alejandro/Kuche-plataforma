@@ -48,6 +48,7 @@ export default function BookingSection() {
     dateLabel: string;
     time: string;
     locationLabel: string;
+    date: Date;
   } | null>(null);
   const [horariosOcupados, setHorariosOcupados] = useState<string[]>([]);
   const [loadingCitas, setLoadingCitas] = useState(false);
@@ -56,6 +57,48 @@ export default function BookingSection() {
   const [errorMessage, setErrorMessage] = useState("");
   const successModalRef = useRef<HTMLDivElement | null>(null);
   const errorModalRef = useRef<HTMLDivElement | null>(null);
+  const [appointmentsByDate, setAppointmentsByDate] = useState<Record<string, number>>({});
+
+  const MAX_APPOINTMENTS_PER_DAY = 3;
+
+  const getDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem("kuche_appointments");
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as Record<string, number>;
+      if (parsed && typeof parsed === "object") {
+        setAppointmentsByDate(parsed);
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, []);
+
+  const registerAppointment = (date: Date) => {
+    if (typeof window === "undefined") return;
+    const key = getDateKey(date);
+    setAppointmentsByDate((prev) => {
+      const currentCount = prev[key] ?? 0;
+      const next = {
+        ...prev,
+        [key]: currentCount + 1,
+      };
+      try {
+        window.localStorage.setItem("kuche_appointments", JSON.stringify(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
 
   useEscapeClose(isModalOpen, () => setIsModalOpen(false));
   useEscapeClose(isSuccessModalOpen, () => setIsSuccessModalOpen(false));
@@ -309,6 +352,7 @@ export default function BookingSection() {
             dateLabel,
             time: selectedTime,
             locationLabel,
+            date: selectedDate,
           });
           setIsModalOpen(true);
         }}
@@ -381,6 +425,9 @@ export default function BookingSection() {
                 const isPast = dateValue < todayStart;
                 const dayOfWeek = dateValue.getDay();
                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                const dateKey = getDateKey(dateValue);
+                const dayAppointments = appointmentsByDate[dateKey] ?? 0;
+                const isFull = dayAppointments >= MAX_APPOINTMENTS_PER_DAY;
                 const isSelected =
                   selectedDate &&
                   selectedDate.getDate() === day &&
@@ -390,9 +437,9 @@ export default function BookingSection() {
                   <button
                     key={`day-${day}`}
                     type="button"
-                    disabled={isPast || isWeekend}
+                    disabled={isPast || isWeekend || isFull}
                     onClick={() => {
-                      if (isPast || isWeekend) return;
+                      if (isPast || isWeekend || isFull) return;
                       setSelectedDate(dateValue);
                       setFormMessage(null);
                       setFormError(null);
@@ -402,7 +449,9 @@ export default function BookingSection() {
                         ? "border-accent bg-accent text-white shadow-sm"
                         : isPast || isWeekend
                           ? "border-transparent text-gray-300"
-                          : "border-transparent text-secondary hover:border-gray-200"
+                          : isFull
+                            ? "border-transparent text-gray-300 line-through"
+                            : "border-transparent text-secondary hover:border-gray-200"
                     }`}
                   >
                     {day}

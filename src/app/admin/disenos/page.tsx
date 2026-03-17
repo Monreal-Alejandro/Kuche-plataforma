@@ -2,56 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronLeft, ChevronRight, MessageSquare } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, FileText, Image as ImageIcon, MessageSquare } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { kanbanStorageKey, type KanbanTask, type TaskFile } from "@/lib/kanban";
 
 type ProjectStatus = "Pendiente" | "Aprobado" | "Revisión";
 
-type Project = {
+type DesignProject = {
   id: string;
+  taskId: string;
   clientName: string;
   designerName: string;
-  image: string;
+  image: string | null;
+  files: TaskFile[];
   date: string;
   status: ProjectStatus;
 };
-
-const initialProjects: Project[] = [
-  {
-    id: "proj-001",
-    clientName: "Mariana Fuentes",
-    designerName: "Andrea López",
-    image: "/images/render1.jpg",
-    date: "2026-02-10",
-    status: "Pendiente",
-  },
-  {
-    id: "proj-002",
-    clientName: "Héctor Salas",
-    designerName: "Luis Ramírez",
-    image: "/images/render2.jpg",
-    date: "2026-02-12",
-    status: "Revisión",
-  },
-  {
-    id: "proj-003",
-    clientName: "Fabiola Martínez",
-    designerName: "Carla Gómez",
-    image: "/images/render3.jpg",
-    date: "2026-02-15",
-    status: "Aprobado",
-  },
-  {
-    id: "proj-004",
-    clientName: "Grupo Aranda",
-    designerName: "Diego Torres",
-    image: "/images/render4.jpg",
-    date: "2026-02-18",
-    status: "Pendiente",
-  },
-];
 
 const statusStyles: Record<ProjectStatus, string> = {
   Pendiente: "bg-amber-100 text-amber-700",
@@ -62,44 +30,91 @@ const statusStyles: Record<ProjectStatus, string> = {
 const filters = ["Todos", "Pendientes", "Aprobados"] as const;
 type FilterOption = (typeof filters)[number];
 
+function formatDesignDate(ts?: number): string {
+  if (ts == null) return "—";
+  const d = new Date(ts);
+  return d.toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function designProjectsFromTasks(tasks: KanbanTask[]): DesignProject[] {
+  return tasks
+    .filter((t) => t.stage === "disenos" && t.files && t.files.length > 0)
+    .map((task) => {
+      const firstImage = task.files!.find((f) => f.type === "render" && f.src);
+      const image = firstImage?.src ?? null;
+      return {
+        id: task.id,
+        taskId: task.id,
+        clientName: task.project || "Sin nombre",
+        designerName: task.assignedTo?.[0] ?? "—",
+        image,
+        files: task.files ?? [],
+        date: formatDesignDate(task.createdAt),
+        status: (task.designApprovedByAdmin ? "Aprobado" : "Pendiente") as ProjectStatus,
+      };
+    });
+}
+
 export default function DisenosPage() {
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [projects, setProjects] = useState<DesignProject[]>([]);
   const [activeFeedbackId, setActiveFeedbackId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterOption>("Todos");
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, string>>({});
-  const [activePreview, setActivePreview] = useState<Project | null>(null);
+  const [activePreview, setActivePreview] = useState<DesignProject | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
+
+  const loadProjects = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(kanbanStorageKey);
+      const tasks: KanbanTask[] = stored ? JSON.parse(stored) : [];
+      if (!Array.isArray(tasks)) {
+        setProjects([]);
+        return;
+      }
+      setProjects(designProjectsFromTasks(tasks));
+    } catch {
+      setProjects([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProjects();
+    setIsHydrated(true);
+  }, [loadProjects]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === kanbanStorageKey) loadProjects();
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [isHydrated, loadProjects]);
 
   useEscapeClose(Boolean(activePreview), () => setActivePreview(null));
   useFocusTrap(Boolean(activePreview), previewRef);
 
   const filteredProjects = useMemo(() => {
-    if (filter === "Todos") {
-      return projects;
-    }
-    if (filter === "Pendientes") {
-      return projects.filter((project) => project.status === "Pendiente");
-    }
-    return projects.filter((project) => project.status === "Aprobado");
+    if (filter === "Todos") return projects;
+    if (filter === "Pendientes") return projects.filter((p) => p.status === "Pendiente");
+    return projects.filter((p) => p.status === "Aprobado");
   }, [filter, projects]);
 
   const previewIndex = useMemo(
-    () => filteredProjects.findIndex((project) => project.id === activePreview?.id),
+    () => filteredProjects.findIndex((p) => p.id === activePreview?.id),
     [activePreview?.id, filteredProjects],
   );
 
   const goToNext = useCallback(() => {
-    if (!filteredProjects.length) {
-      return;
-    }
+    if (!filteredProjects.length) return;
     const nextIndex = previewIndex >= 0 ? (previewIndex + 1) % filteredProjects.length : 0;
     setActivePreview(filteredProjects[nextIndex]);
   }, [filteredProjects, previewIndex]);
 
   const goToPrev = useCallback(() => {
-    if (!filteredProjects.length) {
-      return;
-    }
+    if (!filteredProjects.length) return;
     const nextIndex =
       previewIndex >= 0
         ? (previewIndex - 1 + filteredProjects.length) % filteredProjects.length
@@ -108,39 +123,36 @@ export default function DisenosPage() {
   }, [filteredProjects, previewIndex]);
 
   useEffect(() => {
-    if (!activePreview) {
-      return;
-    }
+    if (!activePreview) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setActivePreview(null);
-      } else if (event.key === "ArrowRight") {
-        goToNext();
-      } else if (event.key === "ArrowLeft") {
-        goToPrev();
-      }
+      if (event.key === "Escape") setActivePreview(null);
+      else if (event.key === "ArrowRight") goToNext();
+      else if (event.key === "ArrowLeft") goToPrev();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [activePreview, goToNext, goToPrev]);
 
-  const handleApprove = (projectId: string) => {
-    setProjects((prev) =>
-      prev.map((project) =>
-        project.id === projectId ? { ...project, status: "Aprobado" } : project,
-      ),
-    );
-    setActiveFeedbackId(null);
+  const handleApprove = (taskId: string) => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(kanbanStorageKey);
+      const tasks: KanbanTask[] = stored ? JSON.parse(stored) : [];
+      if (!Array.isArray(tasks)) return;
+      const next = tasks.map((t) =>
+        t.id === taskId ? { ...t, designApprovedByAdmin: true } : t,
+      );
+      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+      setProjects(designProjectsFromTasks(next));
+      setActiveFeedbackId(null);
+    } catch {
+      // ignore
+    }
   };
 
   const handleSendFeedback = (projectId: string) => {
-    setProjects((prev) =>
-      prev.map((project) =>
-        project.id === projectId ? { ...project, status: "Revisión" } : project,
-      ),
-    );
     setFeedbackDrafts((prev) => ({ ...prev, [projectId]: "" }));
-    setActiveFeedbackId(null);
+    setActiveFeedbackId(projectId);
   };
 
   return (
@@ -148,7 +160,7 @@ export default function DisenosPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Aprobación de Diseños</h1>
         <p className="mt-2 text-sm text-gray-500">
-          Revisa y autoriza los renders 3D antes de la presentación al cliente.
+          Revisa y autoriza los renders o planos subidos desde el tablero antes de la presentación al cliente.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {filters.map((item) => {
@@ -169,100 +181,129 @@ export default function DisenosPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <AnimatePresence>
-          {filteredProjects.map((project, index) => (
-            <motion.article
-              key={project.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.35, delay: index * 0.05 }}
-              className="flex flex-col overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm"
-            >
-              <div className="relative h-60 overflow-hidden">
-                <img
-                  src={project.image}
-                  alt={`Render ${project.clientName}`}
-                  className="h-full w-full cursor-zoom-in object-cover transition-transform duration-500 hover:scale-105"
-                  onClick={() => setActivePreview(project)}
-                />
-                <span
-                  className={`absolute left-4 top-4 rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[project.status]}`}
-                >
-                  {project.status}
-                </span>
-              </div>
-              <div className="flex flex-1 flex-col gap-4 p-5">
-                <div>
-                  <p className="text-lg font-semibold text-gray-900">{project.clientName}</p>
-                  <p className="text-sm text-gray-500">Diseñador: {project.designerName}</p>
-                </div>
-                <p className="text-xs text-gray-400">Actualizado: {project.date}</p>
-                <div className="mt-auto">
-                  {activeFeedbackId === project.id ? (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="space-y-3"
+      {!isHydrated ? (
+        <p className="text-sm text-gray-500">Cargando…</p>
+      ) : filteredProjects.length === 0 ? (
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-12 text-center">
+          <p className="text-gray-500">
+            {projects.length === 0
+              ? "No hay diseños con archivos aún. Los archivos subidos en la columna Diseños del tablero aparecerán aquí."
+              : "No hay diseños que coincidan con el filtro."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <AnimatePresence>
+            {filteredProjects.map((project, index) => (
+              <motion.article
+                key={project.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                transition={{ duration: 0.35, delay: index * 0.05 }}
+                className="flex flex-col overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm"
+              >
+                <div className="relative h-60 overflow-hidden bg-gray-100">
+                  {project.image ? (
+                    <img
+                      src={project.image}
+                      alt={`Diseño ${project.clientName}`}
+                      className="h-full w-full cursor-zoom-in object-cover transition-transform duration-500 hover:scale-105"
+                      onClick={() => setActivePreview(project)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setActivePreview(project)}
+                      className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-400"
                     >
-                      <textarea
-                        placeholder="Escribe los cambios necesarios..."
-                        value={feedbackDrafts[project.id] ?? ""}
-                        onChange={(event) =>
-                          setFeedbackDrafts((prev) => ({
-                            ...prev,
-                            [project.id]: event.target.value,
-                          }))
-                        }
-                        className="min-h-[90px] w-full resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 outline-none focus:border-[#8B1C1C]"
-                      />
+                      {project.files.some((f) => f.type === "pdf") ? (
+                        <FileText className="h-12 w-12" />
+                      ) : (
+                        <ImageIcon className="h-12 w-12" />
+                      )}
+                      <span className="text-xs font-medium">
+                        {project.files.length} archivo{project.files.length !== 1 ? "s" : ""}
+                      </span>
+                    </button>
+                  )}
+                  <span
+                    className={`absolute left-4 top-4 rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[project.status]}`}
+                  >
+                    {project.status}
+                  </span>
+                </div>
+                <div className="flex flex-1 flex-col gap-4 p-5">
+                  <div>
+                    <p className="text-lg font-semibold text-gray-900">{project.clientName}</p>
+                    <p className="text-sm text-gray-500">Responsable: {project.designerName}</p>
+                  </div>
+                  <p className="text-xs text-gray-400">Actualizado: {project.date}</p>
+                  <div className="mt-auto">
+                    {activeFeedbackId === project.id ? (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-3"
+                      >
+                        <textarea
+                          placeholder="Escribe los cambios necesarios..."
+                          value={feedbackDrafts[project.id] ?? ""}
+                          onChange={(event) =>
+                            setFeedbackDrafts((prev) => ({
+                              ...prev,
+                              [project.id]: event.target.value,
+                            }))
+                          }
+                          className="min-h-[90px] w-full resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 outline-none focus:border-[#8B1C1C]"
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSendFeedback(project.id)}
+                            className="rounded-2xl bg-[#8B1C1C] px-4 py-2 text-xs font-semibold text-white"
+                          >
+                            Enviar feedback
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveFeedbackId(null)}
+                            className="rounded-2xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </motion.div>
+                    ) : project.status === "Pendiente" || project.status === "Revisión" ? (
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => handleSendFeedback(project.id)}
-                          className="rounded-2xl bg-[#8B1C1C] px-4 py-2 text-xs font-semibold text-white"
+                          onClick={() => handleApprove(project.taskId)}
+                          className="flex items-center gap-2 rounded-2xl bg-[#8B1C1C] px-4 py-2 text-xs font-semibold text-white"
                         >
-                          Enviar feedback
+                          <Check className="h-4 w-4" />
+                          Aprobar
                         </button>
                         <button
                           type="button"
-                          onClick={() => setActiveFeedbackId(null)}
-                          className="rounded-2xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
+                          onClick={() => setActiveFeedbackId(project.id)}
+                          className="flex items-center gap-2 rounded-2xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
                         >
-                          Cancelar
+                          <MessageSquare className="h-4 w-4" />
+                          Solicitar cambios
                         </button>
                       </div>
-                    </motion.div>
-                  ) : project.status === "Pendiente" || project.status === "Revisión" ? (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleApprove(project.id)}
-                        className="flex items-center gap-2 rounded-2xl bg-[#8B1C1C] px-4 py-2 text-xs font-semibold text-white"
-                      >
-                        <Check className="h-4 w-4" />
-                        Aprobar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveFeedbackId(project.id)}
-                        className="flex items-center gap-2 rounded-2xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
-                      >
-                        <MessageSquare className="h-4 w-4" />
-                        Solicitar cambios
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-gray-400">Diseño aprobado.</p>
-                  )}
+                    ) : (
+                      <p className="text-xs text-gray-400">Diseño aprobado. Pendiente de aceptación del cliente.</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </motion.article>
-          ))}
-        </AnimatePresence>
-      </div>
+              </motion.article>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
 
       <AnimatePresence>
         {activePreview ? (
@@ -280,13 +321,13 @@ export default function DisenosPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              onClick={(event) => event.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
               className="w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl"
             >
               <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{activePreview.clientName}</p>
-                  <p className="text-xs text-gray-500">Diseñador: {activePreview.designerName}</p>
+                  <p className="text-xs text-gray-500">Responsable: {activePreview.designerName}</p>
                 </div>
                 <button
                   type="button"
@@ -296,12 +337,30 @@ export default function DisenosPage() {
                   Cerrar
                 </button>
               </div>
-              <div className="max-h-[75vh] overflow-hidden bg-gray-100">
-                <img
-                  src={activePreview.image}
-                  alt={`Render ${activePreview.clientName}`}
-                  className="h-full w-full object-cover"
-                />
+              <div className="max-h-[75vh] overflow-auto bg-gray-100 p-4">
+                {activePreview.image ? (
+                  <img
+                    src={activePreview.image}
+                    alt={`Diseño ${activePreview.clientName}`}
+                    className="mx-auto max-h-[70vh] w-full object-contain"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-4 py-12">
+                    {activePreview.files.map((f) => (
+                      <div
+                        key={f.id}
+                        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3"
+                      >
+                        {f.type === "pdf" ? (
+                          <FileText className="h-8 w-8 text-gray-400" />
+                        ) : (
+                          <ImageIcon className="h-8 w-8 text-gray-400" />
+                        )}
+                        <span className="text-sm font-medium text-gray-700">{f.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
                 <button
@@ -312,9 +371,7 @@ export default function DisenosPage() {
                   <ChevronLeft className="h-4 w-4" />
                   Anterior
                 </button>
-                <p className="text-xs text-gray-400">
-                  Usa ← → para navegar · ESC para cerrar
-                </p>
+                <p className="text-xs text-gray-400">Usa ← → para navegar · ESC para cerrar</p>
                 <button
                   type="button"
                   onClick={goToNext}
