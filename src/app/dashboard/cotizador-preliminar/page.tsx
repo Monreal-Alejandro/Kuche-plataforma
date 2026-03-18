@@ -22,6 +22,7 @@ type MaterialOption = {
 };
 
 type MaterialCategory = "cubiertas" | "frentes" | "herrajes";
+type MaterialTierFilter = "Todos" | MaterialOption["tier"];
 
 const materialImageMap: Record<MaterialCategory, { match: RegExp; src: string }[]> = {
   cubiertas: [
@@ -56,6 +57,125 @@ const defaultCategoryImage: Record<MaterialCategory, string> = {
 const resolveMaterialImage = (name: string, category: MaterialCategory, fallback?: string) => {
   const match = materialImageMap[category].find((entry) => entry.match.test(name));
   return match?.src ?? fallback ?? defaultCategoryImage[category];
+};
+
+const SectionCard = ({ children }: { children: React.ReactNode }) => (
+  <div className="rounded-3xl border border-white/60 bg-white/80 p-6 shadow-lg backdrop-blur-md">
+    {children}
+  </div>
+);
+
+const MaterialGrid = ({
+  title,
+  options,
+  selectedId,
+  onSelect,
+  page,
+  onPageChange,
+  category,
+  basePrice,
+  contextMultiplier,
+  materialSearch,
+  tierFilter,
+}: {
+  title: string;
+  options: MaterialOption[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  page: number;
+  onPageChange: (page: number) => void;
+  category: MaterialCategory;
+  basePrice: number;
+  contextMultiplier: number;
+  materialSearch: string;
+  tierFilter: MaterialTierFilter;
+}) => {
+  const pageSize = 6;
+  const normalizedSearch = materialSearch.trim().toLowerCase();
+  const filtered = options.filter((option) => {
+    const matchesSearch = !normalizedSearch || option.name.toLowerCase().includes(normalizedSearch);
+    const matchesTier = tierFilter === "Todos" || option.tier === tierFilter;
+    return matchesSearch && matchesTier;
+  });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * pageSize;
+  const paginated = filtered.slice(start, start + pageSize);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
+        {title}
+      </p>
+      <div className="grid gap-4 md:grid-cols-3">
+        {paginated.map((option) => {
+          const isActive = option.id === selectedId;
+          const imageSrc = resolveMaterialImage(option.name, category, option.image);
+          const optionPrice = Math.max(0, basePrice * option.multiplier * contextMultiplier);
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => onSelect(option.id)}
+              className={`relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:-translate-y-1 hover:shadow-lg ${
+                isActive ? "ring-4 ring-[#8B1C1C]" : ""
+              }`}
+            >
+              <div className="h-24 w-full overflow-hidden">
+                <img
+                  src={imageSrc}
+                  alt={option.name}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={(event) => {
+                    event.currentTarget.src = "/images/hero-placeholder.svg";
+                  }}
+                />
+              </div>
+              {isActive ? (
+                <span className="absolute right-3 top-3 rounded-full bg-[#8B1C1C] p-1 text-white shadow">
+                  <Check className="h-3 w-3" />
+                </span>
+              ) : null}
+              <div className="relative space-y-2 px-4 py-3 pb-10">
+                <p className="text-sm font-semibold text-primary">{option.name}</p>
+                <span className="w-fit rounded-full bg-primary/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                  {option.tier}
+                </span>
+                <p className="absolute bottom-3 right-4 text-xs font-semibold text-[#8B1C1C]">
+                  Estimado con tus medidas {formatCurrency(optionPrice)}
+                </p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {filtered.length === 0 ? (
+        <div className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-xs text-secondary">
+          No encontramos materiales con ese criterio.
+        </div>
+      ) : null}
+      {totalPages > 1 ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-secondary">
+          {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+            <button
+              key={`${title}-${pageNumber}`}
+              type="button"
+              onClick={() => onPageChange(pageNumber)}
+              className={`h-8 w-8 rounded-full transition ${
+                safePage === pageNumber
+                  ? "bg-[#8B1C1C] text-white"
+                  : "border border-primary/10 bg-white hover:border-primary/30"
+              }`}
+            >
+              {pageNumber}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 };
 
 const materialCatalog = {
@@ -563,11 +683,8 @@ export default function CotizadorPreliminarPage() {
     if (!inputEl) return;
 
     // Para la mayoría de campos (medidas y datos) reforzamos el foco,
-    // pero en el buscador dejamos el foco natural del navegador para
-    // que borrar con Backspace sea totalmente fluido.
-    if (lastEdited !== "materialSearch") {
-      inputEl.focus();
-    }
+    // restauramos el foco para que la edición sea consistente.
+    inputEl.focus();
 
     if (caretPos !== null) {
       try {
@@ -605,7 +722,8 @@ export default function CotizadorPreliminarPage() {
       (Number.parseFloat(largo) || 0) > 0 ||
       (Number.parseFloat(alto) || 0) > 0 ||
       (Number.parseFloat(fondo) || 0) > 0;
-    if (!hasDatos) return "Completa al menos un campo de Datos del proyecto (cliente, ubicacion o fecha).";
+    if (!hasDatos)
+      return "Completa al menos un campo de Datos del proyecto (cliente, ubicación o fecha).";
     if (!hasMedidas) return "Completa al menos una medida (largo, alto o fondo mayor a 0).";
     return null;
   };
@@ -708,7 +826,7 @@ export default function CotizadorPreliminarPage() {
     window.localStorage.removeItem(activeCitaTaskStorageKey);
     downloadPreliminarPdf(
       newPreliminar,
-      `cotizacion-preliminar-${(newPreliminar.projectType || "proyecto").replace(/\s+/g, "-")}-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`,
+      `levantamiento-detallado-${(newPreliminar.projectType || "proyecto").replace(/\s+/g, "-")}-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`,
     );
     const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey);
     window.localStorage.removeItem(citaReturnUrlStorageKey);
@@ -723,7 +841,7 @@ export default function CotizadorPreliminarPage() {
     const newPreliminar = buildPreliminarDataFromForm();
     downloadPreliminarPdf(
       newPreliminar,
-      `cotizacion-preliminar-${(newPreliminar.projectType || "proyecto").replace(/\s+/g, "-")}-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`,
+      `levantamiento-detallado-${(newPreliminar.projectType || "proyecto").replace(/\s+/g, "-")}-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`,
     );
     setProjectType("Cocina");
     setLocation("");
@@ -776,7 +894,7 @@ export default function CotizadorPreliminarPage() {
     const largoValue = Number.parseFloat(largo) || 0;
     return {
       meters: largoValue,
-      label: [cubierta?.name, frente?.name, herraje?.name].filter(Boolean).join(" ? "),
+      label: [cubierta?.name, frente?.name, herraje?.name].filter(Boolean).join(" / "),
     };
   }, [largo, selectedCubierta, selectedFrente, selectedHerraje]);
 
@@ -824,132 +942,17 @@ export default function CotizadorPreliminarPage() {
 
   const handleGeneratePdf = () => {
     const data = buildPreliminarDataFromForm();
-    downloadPreliminarPdf(data, "cotizacion-preliminar.pdf");
-  };
-
-  const SectionCard = ({ children }: { children: React.ReactNode }) => (
-    <div className="rounded-3xl border border-white/60 bg-white/80 p-6 shadow-lg backdrop-blur-md">
-      {children}
-    </div>
-  );
-
-  const MaterialGrid = ({
-    title,
-    options,
-    selectedId,
-    onSelect,
-    page,
-    onPageChange,
-    category,
-    basePrice,
-    contextMultiplier,
-  }: {
-    title: string;
-    options: MaterialOption[];
-    selectedId: string;
-    onSelect: (id: string) => void;
-    page: number;
-    onPageChange: (page: number) => void;
-    category: MaterialCategory;
-    basePrice: number;
-    contextMultiplier: number;
-  }) => {
-    const pageSize = 6;
-    const normalizedSearch = materialSearch.trim().toLowerCase();
-    const filtered = options.filter((option) => {
-      const matchesSearch = !normalizedSearch || option.name.toLowerCase().includes(normalizedSearch);
-      const matchesTier = tierFilter === "Todos" || option.tier === tierFilter;
-      return matchesSearch && matchesTier;
-    });
-    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-    const safePage = Math.min(page, totalPages);
-    const start = (safePage - 1) * pageSize;
-    const paginated = filtered.slice(start, start + pageSize);
-
-    return (
-      <div className="space-y-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-          {title}
-        </p>
-        <div className="grid gap-4 md:grid-cols-3">
-          {paginated.map((option) => {
-            const isActive = option.id === selectedId;
-            const imageSrc = resolveMaterialImage(option.name, category, option.image);
-            const optionPrice = Math.max(0, basePrice * option.multiplier * contextMultiplier);
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => onSelect(option.id)}
-                className={`relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:-translate-y-1 hover:shadow-lg ${
-                  isActive ? "ring-4 ring-[#8B1C1C]" : ""
-                }`}
-              >
-                <div className="h-24 w-full overflow-hidden">
-                  <img
-                    src={imageSrc}
-                    alt={option.name}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    onError={(event) => {
-                      event.currentTarget.src = "/images/hero-placeholder.svg";
-                    }}
-                  />
-                </div>
-                {isActive ? (
-                  <span className="absolute right-3 top-3 rounded-full bg-[#8B1C1C] p-1 text-white shadow">
-                    <Check className="h-3 w-3" />
-                  </span>
-                ) : null}
-                <div className="relative space-y-2 px-4 py-3 pb-10">
-                  <p className="text-sm font-semibold text-primary">{option.name}</p>
-                  <span className="w-fit rounded-full bg-primary/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                    {option.tier}
-                  </span>
-                  <p className="absolute bottom-3 right-4 text-xs font-semibold text-[#8B1C1C]">
-                    Estimado con tus medidas {formatCurrency(optionPrice)}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        {filtered.length === 0 ? (
-          <div className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-xs text-secondary">
-            No encontramos materiales con ese criterio.
-          </div>
-        ) : null}
-        {totalPages > 1 ? (
-          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-secondary">
-            {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
-              <button
-                key={`${title}-${pageNumber}`}
-                type="button"
-                onClick={() => onPageChange(pageNumber)}
-                className={`h-8 w-8 rounded-full transition ${
-                  safePage === pageNumber
-                    ? "bg-[#8B1C1C] text-white"
-                    : "border border-primary/10 bg-white hover:border-primary/30"
-                }`}
-              >
-                {pageNumber}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    );
+    downloadPreliminarPdf(data, "levantamiento-detallado.pdf");
   };
 
   return (
     <main className="min-h-screen bg-background px-4 py-10 text-primary">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
         <header>
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotizacion</p>
-          <h1 className="mt-2 text-3xl font-semibold">Cotizador Preliminar</h1>
+          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Levantamiento</p>
+          <h1 className="mt-2 text-3xl font-semibold">Levantamiento Detallado</h1>
           <p className="mt-3 text-sm text-secondary">
-            Estimacion rapida para prospectos. No sustituye una cotizacion formal.
+            Estimación rápida para prospectos. No sustituye una cotización formal.
           </p>
         </header>
 
@@ -965,7 +968,7 @@ export default function CotizadorPreliminarPage() {
                     Cita activa: {activeCitaTask.project}
                   </p>
                   <p className="text-xs text-emerald-600">
-                    Completa la cotizacion y termina la cita cuando estes listo.
+                    Completa la cotización y termina la cita cuando estés listo.
                   </p>
                 </div>
               </div>
@@ -1023,12 +1026,12 @@ export default function CotizadorPreliminarPage() {
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
                   >
                     <option value="Cocina">Cocina</option>
-                    <option value="Cl?set">Cl?set</option>
+                    <option value="Closet">Closet</option>
                     <option value="TV Unit">TV Unit</option>
                   </select>
                 </label>
                 <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Ubicaci?n
+                  Ubicación
                   <input
                     ref={locationInputRef}
                     value={location}
@@ -1159,6 +1162,8 @@ export default function CotizadorPreliminarPage() {
               category="cubiertas"
               basePrice={metrics.base}
               contextMultiplier={metrics.frenteMultiplier * metrics.herrajeMultiplier}
+              materialSearch={materialSearch}
+              tierFilter={tierFilter}
             />
             <MaterialGrid
               title="Frentes / Material base"
@@ -1170,6 +1175,8 @@ export default function CotizadorPreliminarPage() {
               category="frentes"
               basePrice={metrics.base}
               contextMultiplier={metrics.cubiertaMultiplier * metrics.herrajeMultiplier}
+              materialSearch={materialSearch}
+              tierFilter={tierFilter}
             />
             <MaterialGrid
               title="Herrajes"
@@ -1181,6 +1188,8 @@ export default function CotizadorPreliminarPage() {
               category="herrajes"
               basePrice={metrics.base}
               contextMultiplier={metrics.cubiertaMultiplier * metrics.frenteMultiplier}
+              materialSearch={materialSearch}
+              tierFilter={tierFilter}
             />
           </div>
         </SectionCard>
@@ -1189,11 +1198,11 @@ export default function CotizadorPreliminarPage() {
           <div className="space-y-6">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-                Estimaci?n visual
+                Estimación visual
               </p>
               <h2 className="mt-2 text-2xl font-semibold">Selecciona el nivel de acabados</h2>
               <p className="mt-2 text-sm text-secondary">
-                Presentaci?n r?pida para ayudar al cliente a imaginar el resultado.
+                Presentación rápida para ayudar al cliente a imaginar el resultado.
               </p>
             </div>
             <div className="grid gap-6 lg:grid-cols-3">
@@ -1228,7 +1237,7 @@ export default function CotizadorPreliminarPage() {
                         {formatCurrency(min)} - {formatCurrency(max)}
                       </div>
                       <p className="text-xs text-secondary">
-                        Basado en medidas generales y selecci?n del showroom.
+                        Basado en medidas generales y selección del showroom.
                       </p>
                     </div>
                   </button>
@@ -1242,7 +1251,7 @@ export default function CotizadorPreliminarPage() {
           <div className="grid gap-6 md:grid-cols-[1.2fr_1fr]">
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-                Cierre y estimaci?n
+                Cierre y estimación
               </p>
               <p className="text-sm text-secondary">
                 Presenta el rango estimado y genera un PDF preliminar para el cliente.
@@ -1251,15 +1260,15 @@ export default function CotizadorPreliminarPage() {
                 onClick={handleGeneratePdf}
                 className="mt-4 inline-flex items-center justify-center rounded-2xl bg-[#8B1C1C] px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
               >
-                Generar Estimaci?n en PDF
+                Generar Estimación en PDF
               </button>
               <p className="mt-3 text-xs text-secondary">
-                El PDF incluye datos generales y el rango estimado, sin desglose t?cnico.
+                El PDF incluye datos generales y el rango estimado, sin desglose técnico.
               </p>
             </div>
             <div className="rounded-2xl border border-primary/10 bg-primary/5 p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-                Estimaci?n preliminar
+                Estimación preliminar
               </p>
               <div className="mt-4 space-y-4">
                 <div>
@@ -1294,7 +1303,7 @@ export default function CotizadorPreliminarPage() {
           {scenarioRangeLabel}
         </p>
         <p className="mt-2 text-[11px] text-secondary">
-          {selectedSummary.meters} m lineales ? {selectedSummary.label || "Selecci?n en curso"}
+          {selectedSummary.meters} m lineales / {selectedSummary.label || "Selección en curso"}
         </p>
       </div>
     </main>

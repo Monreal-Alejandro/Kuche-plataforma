@@ -128,7 +128,8 @@ export default function ClientesEnProcesoPage() {
                     {getPreliminarList(task).length > 0 ? (
                       <div className="rounded-2xl bg-emerald-50 p-3">
                         <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">
-                          Cotización preliminar {getPreliminarList(task).length > 1 ? `(${getPreliminarList(task).length})` : ""}
+                        Levantamiento Detallado{" "}
+                        {getPreliminarList(task).length > 1 ? `(${getPreliminarList(task).length})` : ""}
                         </p>
                         <div className="mt-2 space-y-2">
                           {getPreliminarList(task).map((data, idx) => (
@@ -147,7 +148,7 @@ export default function ClientesEnProcesoPage() {
                                 onClick={() =>
                                   downloadPreliminarPdf(
                                     data,
-                                    `cotizacion-preliminar-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${task.project.replace(/\s+/g, "-")}.pdf`,
+                                  `levantamiento-detallado-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${task.project.replace(/\s+/g, "-")}.pdf`,
                                   )
                                 }
                                 className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"

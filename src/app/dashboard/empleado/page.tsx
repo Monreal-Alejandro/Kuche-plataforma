@@ -244,7 +244,7 @@ export default function EmpleadoDashboard() {
         </div>
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
           <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotización</p>
-          <h3 className="mt-2 text-xl font-semibold">Cotizador Preliminar</h3>
+          <h3 className="mt-2 text-xl font-semibold">Levantamiento Detallado</h3>
           <p className="mt-3 text-sm text-secondary">
             Crea una estimación rápida para prospectos antes de formalizar.
           </p>
@@ -252,7 +252,7 @@ export default function EmpleadoDashboard() {
             onClick={() => router.push("/dashboard/cotizador-preliminar")}
             className="mt-4 rounded-2xl border border-primary/20 bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition hover:border-primary/40"
           >
-            Abrir preliminar
+            Abrir levantamiento
           </button>
         </div>
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">

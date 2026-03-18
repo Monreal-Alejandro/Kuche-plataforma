@@ -273,7 +273,8 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   const [confirmClientTaskId, setConfirmClientTaskId] = useState<string | null>(null);
   const [deleteConfirmTaskId, setDeleteConfirmTaskId] = useState<string | null>(null);
   const skipNextWriteRef = useRef(false);
-  const activeTaskRef = useRef<HTMLDivElement | null>(null);
+  const activeTaskRef = useRef<HTMLElement | null>(null);
+  const panelScrollRef = useRef<HTMLElement | null>(null);
   const uploadTaskRef = useRef<HTMLDivElement | null>(null);
   const confirmClientRef = useRef<HTMLDivElement | null>(null);
   const deleteConfirmRef = useRef<HTMLDivElement | null>(null);
@@ -289,8 +290,17 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   // Al abrir el panel de detalle, aseguramos que se muestre desde el inicio.
   useEffect(() => {
     if (!activeTaskId) return;
-    if (!activeTaskRef.current) return;
-    activeTaskRef.current.scrollTop = 0;
+    const el = panelScrollRef.current;
+    if (!el) return;
+
+    // Doble rAF: por si el focus trap o la animación realizan cambios
+    // que también ajusten el scroll.
+    requestAnimationFrame(() => {
+      el.scrollTop = 0;
+      requestAnimationFrame(() => {
+        el.scrollTop = 0;
+      });
+    });
   }, [activeTaskId]);
 
   useEffect(() => {
@@ -694,9 +704,11 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   return (
     <>
       <motion.section
-        initial={{ opacity: 0, y: 16 }}
+        // Evita que el tablero "re-entre" cada vez que se abre/cierra el panel lateral.
+        // (Framer solo debería animar al montar, no al cambiar estado interno.)
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
+        transition={{ duration: 0 }}
         className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md"
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1088,12 +1100,19 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
             onClick={() => setActiveTaskId(null)}
           >
             <motion.aside
-              ref={activeTaskRef}
+              ref={(node) => {
+                activeTaskRef.current = node;
+                panelScrollRef.current = node;
+              }}
               tabIndex={-1}
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
-              transition={{ type: "spring", stiffness: 260, damping: 30 }}
+              transition={{
+                type: "tween",
+                duration: 0.35,
+                ease: [0.22, 1, 0.36, 1],
+              }}
               className="absolute right-0 top-0 h-full w-full max-w-lg overflow-y-auto rounded-l-3xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur-md"
               onClick={(event) => event.stopPropagation()}
             >

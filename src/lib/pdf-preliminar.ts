@@ -17,7 +17,7 @@ export function buildPreliminarPdf(data: PreliminarData): string {
 
   const content = [
     drawRect(0, 732, 612, 60, "0.55 0.11 0.11"),
-    drawText(48, 755, 18, "1 1 1", "Cotizacion Preliminar"),
+    drawText(48, 755, 18, "1 1 1", "Levantamiento Detallado"),
     drawText(48, 738, 10, "1 1 1", "Kuche | Estimacion no vinculante"),
     drawText(48, 700, 11, "0.15 0.15 0.15", "Resumen ejecutivo"),
     drawRect(40, 610, 532, 90, "0.96 0.96 0.96"),
@@ -92,7 +92,7 @@ export function downloadPreliminarPdf(data: PreliminarData, filename?: string): 
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename ?? `cotizacion-preliminar-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
+  link.download = filename ?? `levantamiento-detallado-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
   link.click();
   URL.revokeObjectURL(url);
 }

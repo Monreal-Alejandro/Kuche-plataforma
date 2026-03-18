@@ -288,16 +288,16 @@ export default function OperacionesPage() {
             </div>
             <div className="flex-1">
               <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotizacion</p>
-              <h3 className="mt-1 text-xl font-semibold">Cotizador Preliminar</h3>
+              <h3 className="mt-1 text-xl font-semibold">Levantamiento Detallado</h3>
               <p className="mt-2 text-sm text-secondary">
-                Crea una estimacion rapida para prospectos antes de formalizar el proyecto.
+                Crea una estimación rápida para prospectos antes de formalizar el proyecto.
               </p>
               <button
                 type="button"
                 onClick={() => router.push("/dashboard/cotizador-preliminar")}
                 className="mt-4 rounded-2xl border border-primary/20 bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/40"
               >
-                Abrir Preliminar
+                Abrir Levantamiento
               </button>
             </div>
           </div>

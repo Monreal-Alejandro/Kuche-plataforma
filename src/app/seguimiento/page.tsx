@@ -42,7 +42,7 @@ const baseMockProject = {
     },
   },
   archivos: [
-    { id: "f1", name: "Cotizacion_Preliminar.pdf", type: "pdf", src: "" },
+    { id: "f1", name: "Levantamiento_Detallado.pdf", type: "pdf", src: "" },
     { id: "f2", name: "Plano_Instalaciones.pdf", type: "pdf", src: "" },
     {
       id: "f3",
@@ -183,7 +183,9 @@ export default function SeguimientoPage() {
   const filesInSections = isProspect
     ? currentProject.archivos.slice(0, 1)
     : currentProject.archivos;
-  const quoteButtonLabel = isProspect ? "Ver cotización preliminar" : "Ver cotización formal";
+  const quoteButtonLabel = isProspect
+    ? "Ver Levantamiento Detallado"
+    : "Ver cotización formal";
   const quoteImageSrc = isProspect
     ? currentProject.cotizacionPreliminarImage
     : currentProject.cotizacionFormalImage;
@@ -335,7 +337,7 @@ export default function SeguimientoPage() {
                           const formalesList = getFormalesListFromProject(proj);
                           const hasPdfData = isProspect ? preliminarList.length > 0 : formalesList.length > 0;
                           const list = isProspect ? preliminarList : formalesList;
-                          const prefix = isProspect ? "cotizacion-preliminar" : "cotizacion-formal";
+                          const prefix = isProspect ? "levantamiento-detallado" : "cotizacion-formal";
                           if (hasPdfData && list.length > 0) {
                             return (
                               <div
