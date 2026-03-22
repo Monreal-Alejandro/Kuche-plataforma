@@ -294,7 +294,7 @@ export default function OperacionesPage() {
               </p>
               <button
                 type="button"
-                onClick={() => router.push("/dashboard/cotizador-preliminar")}
+                onClick={() => router.push("/dashboard/Levantamiento-detallado")}
                 className="mt-4 rounded-2xl border border-primary/20 bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/40"
               >
                 Abrir Levantamiento

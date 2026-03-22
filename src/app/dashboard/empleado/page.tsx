@@ -249,7 +249,7 @@ export default function EmpleadoDashboard() {
             Crea una estimación rápida para prospectos antes de formalizar.
           </p>
           <button
-            onClick={() => router.push("/dashboard/cotizador-preliminar")}
+            onClick={() => router.push("/dashboard/Levantamiento-detallado")}
             className="mt-4 rounded-2xl border border-primary/20 bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition hover:border-primary/40"
           >
             Abrir levantamiento

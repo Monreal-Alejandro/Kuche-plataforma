@@ -1,3 +1,5 @@
+import type { LevantamientoDetalle } from "@/lib/levantamiento-catalog";
+
 export type TaskStage = "citas" | "disenos" | "cotizacion" | "contrato";
 export type TaskStatus = "pendiente" | "completada";
 export type TaskPriority = "alta" | "media" | "baja";
@@ -21,6 +23,8 @@ export type PreliminarData = {
   cubierta: string;
   frente: string;
   herraje: string;
+  /** Medidas y comentarios por sección del levantamiento detallado (opcional). */
+  levantamiento?: LevantamientoDetalle;
 };
 
 /** Datos del cotizador formal guardados en la tarjeta del cliente. */

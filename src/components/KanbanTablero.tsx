@@ -579,7 +579,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       window.localStorage.setItem(activeCitaTaskStorageKey, taskId);
       window.localStorage.setItem(citaReturnUrlStorageKey, window.location.pathname);
     }
-    router.push("/dashboard/cotizador-preliminar");
+    router.push("/dashboard/Levantamiento-detallado");
   };
 
   const finishCita = (taskId: string) => {
