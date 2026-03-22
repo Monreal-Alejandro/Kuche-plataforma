@@ -2,8 +2,11 @@ import type { CotizacionFormalData, PreliminarData } from "@/lib/kanban";
 import type { LevantamientoDetalle, MedidasCampos } from "@/lib/levantamiento-catalog";
 import {
   APPLIANCE_ITEMS,
+  formatWallMeasuresForPdf,
   LIGHTING_ITEMS,
+  normalizeLevantamientoDetalle,
   WALL_ITEMS,
+  wallMeasuresTieneValor,
 } from "@/lib/levantamiento-catalog";
 import { getFormalPdf } from "@/lib/formal-pdf-storage";
 
@@ -50,7 +53,7 @@ function levantamientoTieneContenido(lev: LevantamientoDetalle): boolean {
   if (lev.applianceOtro.descripcion.trim() || medidasTieneValor(lev.applianceOtro)) return true;
   if (lev.lightingOtro.descripcion.trim() || medidasTieneValor(lev.lightingOtro)) return true;
   for (const m of Object.values(lev.wallMeasures)) {
-    if (medidasTieneValor(m)) return true;
+    if (wallMeasuresTieneValor(m)) return true;
   }
   for (const m of Object.values(lev.applianceMeasures)) {
     if (medidasTieneValor(m)) return true;
@@ -101,8 +104,9 @@ function buildLevantamientoPdfStream(lev: LevantamientoDetalle): string {
   pushTitulo("Paredes (tipos)");
   for (const item of WALL_ITEMS) {
     const m = lev.wallMeasures[item.id];
-    if (!m || !medidasTieneValor(m)) continue;
-    pushParrafo(`${item.label}: ${formatoMedidas(m)}`, 9);
+    if (!m || !wallMeasuresTieneValor(m)) continue;
+    const line = formatWallMeasuresForPdf(item.id, m);
+    if (line) pushParrafo(`${item.label}: ${line}`, 9);
     if (y < 100) break;
   }
   if (lev.wallOtro.descripcion.trim() || medidasTieneValor(lev.wallOtro)) {
@@ -235,7 +239,7 @@ export function buildPreliminarPdf(data: PreliminarData): string {
     ),
   ].join("\n");
 
-  const lev = data.levantamiento;
+  const lev = data.levantamiento ? normalizeLevantamientoDetalle(data.levantamiento) : undefined;
   if (lev && levantamientoTieneContenido(lev)) {
     const page2 = buildLevantamientoPdfStream(lev);
     return buildPdfDocument([content, page2]);

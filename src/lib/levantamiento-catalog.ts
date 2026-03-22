@@ -79,13 +79,28 @@ export const WALL_ITEMS: ItemCatalogo[] = [
 ];
 
 /**
- * Ruta recomendada para la imagen o diagrama de cada tipo de muro.
- * Coloca en `public/images/levantamiento/paredes/` un archivo con el mismo `id` que en el catálogo, por ejemplo:
- * `pared-recta.jpg`, `pared-ventana.jpg` (formato JPG o cambia la extensión en el código si usas PNG/WebP).
- * Si el archivo no existe, la UI usa la imagen de respaldo definida en cada ítem (`image`).
+ * Nombre de archivo (sin extensión) en `public/images/levantamiento/paredes/` cuando no coincide con el `id` del catálogo.
+ */
+const WALL_IMAGE_BASENAME_BY_ID: Record<string, string> = {
+  "pared-recta": "pared_recta",
+  "pared-ventana": "pared-con-ventana",
+  "pared-puerta": "pared-con-puerta",
+  "esquina-90": "esquina-90grados",
+  "pared-nicho": "pared-con-nicho",
+  "pared-media-altura": "pared-media-altura-barra",
+  "pared-divisoria": "pared-divisora",
+  "pared-salientes": "pared-con-salientes",
+  "pared-l": "pared-en-L",
+};
+
+/**
+ * Ruta de la imagen o diagrama de cada tipo de muro.
+ * Por defecto se usa `{id}.jpg`; si el archivo tiene otro nombre, añádelo en `WALL_IMAGE_BASENAME_BY_ID`.
+ * Si el archivo no existe, `WallTypeImage` usa la textura de respaldo del ítem (`image`).
  */
 export function wallTypeImageSrc(id: string, ext: "jpg" | "png" | "webp" = "jpg"): string {
-  return `/images/levantamiento/paredes/${id}.${ext}`;
+  const basename = WALL_IMAGE_BASENAME_BY_ID[id] ?? id;
+  return `/images/levantamiento/paredes/${basename}.${ext}`;
 }
 
 /** Lista de ids de pared (útil para la página de referencia y comprobar qué archivos faltan). */
@@ -98,6 +113,160 @@ export const WALL_PAGE_INDICES: number[][] = [
   [6, 7, 8, 9],
 ];
 
+/** Definición de cada medida (clave estable + etiqueta en UI y PDF). */
+export type WallMeasureFieldDef = {
+  key: string;
+  label: string;
+};
+
+/**
+ * Medidas sugeridas por tipo de muro (metros salvo nota). Orden = orden en formulario y PDF.
+ */
+export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
+  "pared-recta": [
+    { key: "largo-corrido", label: "Largo corrido" },
+    { key: "altura-techo", label: "Altura hasta techo" },
+    { key: "espesor-muro", label: "Espesor del muro" },
+  ],
+  "pared-ventana": [
+    { key: "largo-muro", label: "Largo total del muro" },
+    { key: "ancho-vano", label: "Ancho del vano" },
+    { key: "alto-vano", label: "Alto del vano" },
+    { key: "antepecho", label: "Antepecho (suelo → inferior ventana)" },
+    { key: "dist-inicio-vano", label: "Dist. inicio corrido → vano" },
+  ],
+  "pared-puerta": [
+    { key: "largo-muro", label: "Largo total del muro" },
+    { key: "ancho-vano", label: "Ancho del vano / hoja" },
+    { key: "alto-vano", label: "Alto del vano" },
+    { key: "dist-marco-referencia", label: "Dist. marco a esquina o referencia" },
+  ],
+  "esquina-90": [
+    { key: "pata-1", label: "Longitud pata 1" },
+    { key: "pata-2", label: "Longitud pata 2" },
+    { key: "altura-techo", label: "Altura hasta techo" },
+    { key: "espesor-muro", label: "Espesor del muro" },
+  ],
+  "pared-nicho": [
+    { key: "largo-muro", label: "Largo del muro" },
+    { key: "ancho-nicho", label: "Ancho del nicho" },
+    { key: "profundidad-nicho", label: "Profundidad del nicho" },
+    { key: "alto-nicho", label: "Alto del nicho" },
+    { key: "altura-suelo-nicho", label: "Suelo → piso del nicho" },
+  ],
+  "pared-media-altura": [
+    { key: "largo-tramo", label: "Largo del tramo" },
+    { key: "altura-muro-bajo", label: "Altura muro bajo / antepecho" },
+    { key: "fondo-barra", label: "Fondo / voladizo barra" },
+    { key: "altura-techo", label: "Altura libre hasta techo" },
+  ],
+  "pared-divisoria": [
+    { key: "largo", label: "Largo" },
+    { key: "altura", label: "Altura" },
+    { key: "espesor", label: "Espesor" },
+  ],
+  "falso-muro": [
+    { key: "largo", label: "Largo" },
+    { key: "altura", label: "Altura" },
+    { key: "espesor", label: "Espesor" },
+  ],
+  "pared-salientes": [
+    { key: "largo-tramo", label: "Largo del tramo afectado" },
+    { key: "profundidad-saliente", label: "Profundidad del saliente" },
+    { key: "ancho-saliente", label: "Ancho del saliente" },
+    { key: "altura-saliente", label: "Altura del saliente" },
+    { key: "dist-desde-inicio", label: "Dist. saliente desde inicio corrido" },
+  ],
+  "pared-l": [
+    { key: "tramo-a", label: "Longitud tramo A" },
+    { key: "tramo-b", label: "Longitud tramo B" },
+    { key: "altura-techo", label: "Altura hasta techo" },
+    { key: "espesor-muro", label: "Espesor del muro" },
+  ],
+};
+
+export type WallMeasuresMap = Record<string, Record<string, string>>;
+
+export function getWallMeasureFieldDefs(wallId: string): WallMeasureFieldDef[] {
+  return WALL_MEASURE_SCHEMA[wallId] ?? [];
+}
+
+export function emptyWallMeasuresForId(wallId: string): Record<string, string> {
+  const defs = getWallMeasureFieldDefs(wallId);
+  return Object.fromEntries(defs.map((d) => [d.key, ""]));
+}
+
+function isLegacyMedidasCampos(v: unknown): v is MedidasCampos {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  if (!Object.keys(o).every((k) => k === "ancho" || k === "alto" || k === "fondo")) return false;
+  return typeof o.ancho === "string" && typeof o.alto === "string" && typeof o.fondo === "string";
+}
+
+/** Convierte filas antiguas (ancho/alto/fondo) o parciales al esquema actual del tipo. */
+export function migrateWallMeasuresEntry(wallId: string, raw: unknown): Record<string, string> {
+  const base = emptyWallMeasuresForId(wallId);
+  const keys = Object.keys(base);
+  if (isLegacyMedidasCampos(raw)) {
+    if (keys[0]) base[keys[0]] = raw.ancho;
+    if (keys[1]) base[keys[1]] = raw.alto;
+    if (keys[2]) base[keys[2]] = raw.fondo;
+    return base;
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const o = raw as Record<string, unknown>;
+    for (const k of keys) {
+      const v = o[k];
+      if (typeof v === "string") base[k] = v;
+    }
+  }
+  return base;
+}
+
+export function initWallMeasuresMap(): WallMeasuresMap {
+  const map: WallMeasuresMap = {};
+  for (const w of WALL_ITEMS) {
+    map[w.id] = emptyWallMeasuresForId(w.id);
+  }
+  return map;
+}
+
+export function normalizeWallMeasuresPayload(raw: unknown): WallMeasuresMap {
+  const out = initWallMeasuresMap();
+  if (typeof raw !== "object" || raw === null) return out;
+  const obj = raw as Record<string, unknown>;
+  for (const w of WALL_ITEMS) {
+    if (w.id in obj) {
+      out[w.id] = migrateWallMeasuresEntry(w.id, obj[w.id]);
+    }
+  }
+  return out;
+}
+
+export function wallMeasuresTieneValor(m: Record<string, string>): boolean {
+  return Object.values(m).some((v) => (v ?? "").trim() !== "");
+}
+
+/** Texto para PDF: solo pares etiqueta–valor rellenados. */
+export function formatWallMeasuresForPdf(wallId: string, values: Record<string, string>): string {
+  const defs = getWallMeasureFieldDefs(wallId);
+  if (!defs.length) {
+    return Object.entries(values)
+      .filter(([, v]) => (v ?? "").trim() !== "")
+      .map(([k, v]) => `${k}: ${v.trim()}`)
+      .join("; ");
+  }
+  const parts: string[] = [];
+  for (const { key, label } of defs) {
+    const v = (values[key] ?? "").trim();
+    if (v) parts.push(`${label}: ${v} m`);
+  }
+  return parts.join("; ");
+}
+
+/** Respaldo del ítem en catálogo (rutas antiguas render/cocina no existen en `public`). */
+export const APPLIANCE_CATALOGO_IMAGE_FALLBACK = "/images/hero-placeholder.svg";
+
 /** Tipos de electrodomésticos (catálogo Excel: microondas, estufas, refrigeradores, parrillas). */
 export const APPLIANCE_ITEMS: ItemCatalogo[] = [
   {
@@ -105,121 +274,176 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
     categoria: "Microondas",
     label: "De libre instalación (sobremesa)",
     hint: "Se colocan sobre la encimera; fáciles de instalar y transportar.",
-    image: "/images/render1.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "micro-empotrable",
     categoria: "Microondas",
     label: "Empotrables o de integración",
     hint: "Dentro de muebles de cocina; estética limpia y más espacio en encimera.",
-    image: "/images/cocina2.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "micro-campana",
     categoria: "Microondas",
     label: "Con campana extractora",
     hint: "Sobre la estufa; también extraen humo y olores.",
-    image: "/images/render3.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "estufa-gas",
     categoria: "Estufas",
     label: "Estufas de gas (LP o natural)",
     hint: "Tradicionales; buena potencia y horno integrado. Parrillas hierro fundido, encendido electrónico.",
-    image: "/images/cocina5.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "estufa-electrica",
     categoria: "Estufas",
     label: "Estufas eléctricas",
     hint: "Resistencia, vitrocerámica o inducción; sin instalación de gas.",
-    image: "/images/cocina6.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "estufa-piso-material",
     categoria: "Estufas",
     label: "Estufas de piso (diseño y material)",
     hint: "Inox durables; porcelanizadas blanco/negro, resistentes a corrosión.",
-    image: "/images/render4.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "estufa-compacta",
     categoria: "Estufas",
     label: "Estufas compactas o de puesto",
     hint: "Más pequeñas; de uno a cuatro quemadores.",
-    image: "/images/render5.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "refri-top-mount",
     categoria: "Refrigeradores",
     label: "Top mount (congelador superior)",
     hint: "Clásicos; congelador arriba. Suele ser económico y eficiente en espacio.",
-    image: "/images/cocina1.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "refri-bottom-mount",
     categoria: "Refrigeradores",
     label: "Bottom mount (congelador inferior)",
     hint: "Refrigerador a altura de ojos; congelador abajo.",
-    image: "/images/cocina2.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "refri-side-side",
     categoria: "Refrigeradores",
     label: "Side by side (dúplex)",
     hint: "Refrigerador y congelador uno al lado del otro en vertical.",
-    image: "/images/render3.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "refri-french-door",
     categoria: "Refrigeradores",
     label: "French door (puerta francesa)",
     hint: "Dos puertas arriba para refrigerador y cajón abajo para congelador.",
-    image: "/images/cocina5.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "refri-frigobar",
     categoria: "Refrigeradores",
     label: "Frigobar / compactos",
     hint: "Pequeños; oficinas o espacios reducidos.",
-    image: "/images/cocina6.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "parrilla-gas",
     categoria: "Parrillas",
     label: "Parrillas de gas",
     hint: "Muy comunes en México; control fino de flama. Pueden ser empotrables.",
-    image: "/images/render4.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "parrilla-induccion",
     categoria: "Parrillas",
     label: "Parrillas de inducción",
     hint: "Calientan el sartén por campo magnético; rápidas y eficientes. Batería ferromagnética.",
-    image: "/images/render5.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "parrilla-electrica-vitro",
     categoria: "Parrillas",
     label: "Parrillas eléctricas / vitrocerámica",
     hint: "Superficie lisa; resistencias. Ideales sin gas.",
-    image: "/images/cocina1.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "parrilla-mixta",
     categoria: "Parrillas",
     label: "Parrillas mixtas",
     hint: "Combinan gas e inducción u otras zonas.",
-    image: "/images/cocina2.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
     id: "parrilla-domino",
     categoria: "Parrillas",
     label: "Parrillas dominó",
     hint: "Módulos pequeños combinables para personalizar la cocción.",
-    image: "/images/render3.jpg",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
 ];
+
+/**
+ * Imagen en `public/images/electrodomesticos/` por id de catálogo (nombre de archivo real del proyecto).
+ */
+const APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
+  "micro-sobremesa": "/images/electrodomesticos/microondas-libre-instalacion.jpg",
+  "micro-empotrable": "/images/electrodomesticos/microondas-empotrables.png",
+  "micro-campana": "/images/electrodomesticos/microondas-con-campana.jpg",
+  "estufa-gas": "/images/electrodomesticos/estufa-gas.jpg",
+  "estufa-electrica": "/images/electrodomesticos/estufa-electrica.jpg",
+  "estufa-piso-material": "/images/electrodomesticos/estufa-de-piso-diseno.jpg",
+  "estufa-compacta": "/images/electrodomesticos/estufa-piso-compactas.JPG",
+  "refri-top-mount": "/images/electrodomesticos/top-mount2.jpg",
+  "refri-bottom-mount": "/images/electrodomesticos/bottom-mount.jpg",
+  "refri-side-side": "/images/electrodomesticos/side-by-side.png",
+  "refri-french-door": "/images/electrodomesticos/french-door.jpg",
+  "refri-frigobar": "/images/electrodomesticos/frigobar1.jpg",
+  "parrilla-gas": "/images/electrodomesticos/parrilla-gas1.jpg",
+  "parrilla-induccion": "/images/electrodomesticos/parrillas-induccion1.jpg",
+  "parrilla-electrica-vitro": "/images/electrodomesticos/parrillas-electricas.jpeg",
+  "parrilla-mixta": "/images/electrodomesticos/parrilla-mixta.jpeg",
+  "parrilla-domino": "/images/electrodomesticos/parrillas-domino.jpeg",
+};
+
+/** Rutas extra a probar si la principal falla (typos en nombres de archivo, variantes). */
+const APPLIANCE_LEVANTAMIENTO_IMAGE_EXTRAS: Record<string, readonly string[]> = {
+  "estufa-piso-material": ["/images/electrodomesticos/estufa-de-piso-por-diseno.jpg"],
+  "estufa-electrica": ["/images/electrodomesticos/estufa-electrica2.jpg"],
+  "refri-top-mount": ["/images/electrodomesticos/top-moount.jpg"],
+  "parrilla-gas": [
+    "/images/electrodomesticos/parrila-gas2.jpg",
+    "/images/electrodomesticos/parrilla-gas3.jpg",
+  ],
+  "parrilla-induccion": ["/images/electrodomesticos/parrilla-induccion2.png"],
+  "parrilla-electrica-vitro": [
+    "/images/electrodomesticos/parrilla-electrica2.jpg",
+    "/images/electrodomesticos/parrilla-electrica2.png",
+    "/images/electrodomesticos/parrilla-electrica3.jpeg",
+  ],
+};
+
+/** Orden: principal dedicada, alternativas en carpeta, imagen del catálogo, placeholder (sin duplicados). */
+export function applianceLevantamientoImageCandidates(item: ItemCatalogo): string[] {
+  const primary = APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID[item.id];
+  const extras = APPLIANCE_LEVANTAMIENTO_IMAGE_EXTRAS[item.id] ?? [];
+  const raw = [primary, ...extras, item.image, APPLIANCE_CATALOGO_IMAGE_FALLBACK].filter(
+    (u): u is string => Boolean(u?.trim()),
+  );
+  return [...new Set(raw)];
+}
+
+/** Primera ruta dedicada en `electrodomesticos/`, si existe en el mapa. */
+export function applianceLevantamientoImageSrc(id: string): string | undefined {
+  return APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID[id];
+}
 
 /** Pasos 0..length−1 = un electrodoméstico por vista (orden por categoría); último paso = «Otro». */
 export const APPLIANCE_STEPS_TOTAL = APPLIANCE_ITEMS.length + 1;
@@ -316,7 +540,7 @@ export type OtroMedidas = MedidasCampos & { descripcion: string };
 /** Payload opcional guardado con la cotización preliminar / PDF. */
 export type LevantamientoDetalle = {
   sectionComments: Partial<Record<"a" | "b" | "c" | "d" | "e", string>>;
-  wallMeasures: Record<string, MedidasCampos>;
+  wallMeasures: WallMeasuresMap;
   wallOtro: OtroMedidas;
   applianceMeasures: Record<string, MedidasCampos>;
   applianceOtro: OtroMedidas;
@@ -343,11 +567,77 @@ export function initMeasuresMap(ids: string[]): Record<string, MedidasCampos> {
 export function defaultLevantamientoDetalle(): LevantamientoDetalle {
   return {
     sectionComments: {},
-    wallMeasures: initMeasuresMap(WALL_ITEMS.map((w) => w.id)),
+    wallMeasures: initWallMeasuresMap(),
     wallOtro: emptyOtro(),
     applianceMeasures: initMeasuresMap(APPLIANCE_ITEMS.map((a) => a.id)),
     applianceOtro: emptyOtro(),
     lightingMeasures: initMeasuresMap(LIGHTING_ITEMS.map((l) => l.id)),
     lightingOtro: emptyOtro(),
+  };
+}
+
+function mergeMeasuresMapFromRaw(
+  raw: unknown,
+  ids: string[],
+): Record<string, MedidasCampos> {
+  const base = initMeasuresMap(ids);
+  if (typeof raw !== "object" || raw === null) return base;
+  const o = raw as Record<string, unknown>;
+  for (const id of ids) {
+    const v = o[id];
+    if (isLegacyMedidasCampos(v)) {
+      base[id] = { ancho: v.ancho, alto: v.alto, fondo: v.fondo };
+    }
+  }
+  return base;
+}
+
+/**
+ * Unifica datos guardados (paredes en formato antiguo ancho/alto/fondo o parcial) con el estado por defecto.
+ */
+export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetalle {
+  const d = defaultLevantamientoDetalle();
+  if (typeof raw !== "object" || raw === null) return d;
+  const r = raw as Partial<LevantamientoDetalle>;
+  const sectionComments =
+    typeof r.sectionComments === "object" && r.sectionComments !== null
+      ? { ...d.sectionComments, ...r.sectionComments }
+      : d.sectionComments;
+  const wallOtro =
+    typeof r.wallOtro === "object" && r.wallOtro !== null
+      ? {
+          descripcion: String(r.wallOtro.descripcion ?? ""),
+          ancho: String(r.wallOtro.ancho ?? ""),
+          alto: String(r.wallOtro.alto ?? ""),
+          fondo: String(r.wallOtro.fondo ?? ""),
+        }
+      : d.wallOtro;
+  const applianceOtro =
+    typeof r.applianceOtro === "object" && r.applianceOtro !== null
+      ? {
+          descripcion: String(r.applianceOtro.descripcion ?? ""),
+          ancho: String(r.applianceOtro.ancho ?? ""),
+          alto: String(r.applianceOtro.alto ?? ""),
+          fondo: String(r.applianceOtro.fondo ?? ""),
+        }
+      : d.applianceOtro;
+  const lightingOtro =
+    typeof r.lightingOtro === "object" && r.lightingOtro !== null
+      ? {
+          descripcion: String(r.lightingOtro.descripcion ?? ""),
+          ancho: String(r.lightingOtro.ancho ?? ""),
+          alto: String(r.lightingOtro.alto ?? ""),
+          fondo: String(r.lightingOtro.fondo ?? ""),
+        }
+      : d.lightingOtro;
+
+  return {
+    sectionComments,
+    wallMeasures: normalizeWallMeasuresPayload(r.wallMeasures),
+    wallOtro,
+    applianceMeasures: mergeMeasuresMapFromRaw(r.applianceMeasures, APPLIANCE_ITEMS.map((a) => a.id)),
+    applianceOtro,
+    lightingMeasures: mergeMeasuresMapFromRaw(r.lightingMeasures, LIGHTING_ITEMS.map((l) => l.id)),
+    lightingOtro,
   };
 }

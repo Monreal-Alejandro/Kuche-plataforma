@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { WALL_ITEMS, wallTypeImageSrc } from "@/lib/levantamiento-catalog";
+import { getWallMeasureFieldDefs, WALL_ITEMS, wallTypeImageSrc } from "@/lib/levantamiento-catalog";
 import WallTypeImage from "@/components/levantamiento/WallTypeImage";
 
 export default function ReferenciaTiposParedPage() {
@@ -12,9 +12,10 @@ export default function ReferenciaTiposParedPage() {
           <p className="mt-3 max-w-2xl text-sm text-secondary">
             Catálogo interno para alinear fotos o diagramas con cada tipo. Coloca en{" "}
             <code className="rounded bg-primary/5 px-1.5 py-0.5 text-xs">public/images/levantamiento/paredes/</code> un
-            archivo por <span className="font-medium text-primary">id</span>, por ejemplo{" "}
-            <code className="rounded bg-primary/5 px-1.5 py-0.5 text-xs">pared-recta.jpg</code>. Si el archivo no
-            existe, el formulario usa la textura de respaldo hasta que subas la imagen definitiva.
+            archivo por <span className="font-medium text-primary">id</span> (o el nombre mapeado en catálogo), por
+            ejemplo <code className="rounded bg-primary/5 px-1.5 py-0.5 text-xs">pared-recta.jpg</code>. Si el archivo
+            no existe, el formulario usa la textura de respaldo hasta que subas la imagen definitiva. En el
+            levantamiento detallado, cada tipo pide un juego distinto de medidas en metros (ver listado por tarjeta).
           </p>
           <Link
             href="/dashboard/Levantamiento-detallado"
@@ -25,7 +26,9 @@ export default function ReferenciaTiposParedPage() {
         </header>
 
         <div className="grid gap-6 sm:grid-cols-2">
-          {WALL_ITEMS.map((item) => (
+          {WALL_ITEMS.map((item) => {
+            const medidas = getWallMeasureFieldDefs(item.id);
+            return (
             <article
               key={item.id}
               className="overflow-hidden rounded-3xl border border-white/60 bg-white/80 shadow-lg backdrop-blur-md"
@@ -43,13 +46,24 @@ export default function ReferenciaTiposParedPage() {
                   <span className="font-medium text-primary">id:</span> {item.id}
                 </p>
                 {item.hint ? <p className="text-xs text-secondary">{item.hint}</p> : null}
+                <div className="rounded-xl border border-primary/10 bg-primary/[0.04] px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Medidas en formulario (m)
+                  </p>
+                  <ul className="mt-1.5 list-inside list-disc text-xs text-secondary">
+                    {medidas.map((f) => (
+                      <li key={f.key}>{f.label}</li>
+                    ))}
+                  </ul>
+                </div>
                 <p className="text-[11px] text-secondary">
                   URL servida:{" "}
                   <span className="break-all font-mono text-primary/80">{wallTypeImageSrc(item.id)}</span>
                 </p>
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
       </div>
     </main>

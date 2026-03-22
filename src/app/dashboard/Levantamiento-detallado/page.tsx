@@ -11,7 +11,9 @@ import {
   APPLIANCE_OTRO_STEP_INDEX,
   APPLIANCE_STEPS_TOTAL,
   defaultLevantamientoDetalle,
+  emptyWallMeasuresForId,
   getApplianceCategoryProgress,
+  getWallMeasureFieldDefs,
   LIGHTING_ITEMS,
   LIGHTING_PAGE_INDICES,
   type MedidasCampos,
@@ -20,6 +22,7 @@ import {
   type LevantamientoDetalle,
 } from "@/lib/levantamiento-catalog";
 import { buildPreliminarPdf, downloadPreliminarPdf } from "@/lib/pdf-preliminar";
+import ApplianceTypeImage from "@/components/levantamiento/ApplianceTypeImage";
 import WallTypeImage from "@/components/levantamiento/WallTypeImage";
 import Link from "next/link";
 
@@ -673,7 +676,7 @@ export default function CotizadorPreliminarPage() {
   };
 
   const patchMedidasMap = (
-    mapKey: "wallMeasures" | "applianceMeasures" | "lightingMeasures",
+    mapKey: "applianceMeasures" | "lightingMeasures",
     id: string,
     field: keyof MedidasCampos,
     value: string,
@@ -683,6 +686,16 @@ export default function CotizadorPreliminarPage() {
       return {
         ...prev,
         [mapKey]: { ...prev[mapKey], [id]: { ...current, [field]: value } },
+      };
+    });
+  };
+
+  const patchWallMeasure = (wallId: string, fieldKey: string, value: string) => {
+    setLevantamiento((prev) => {
+      const current = prev.wallMeasures[wallId] ?? emptyWallMeasuresForId(wallId);
+      return {
+        ...prev,
+        wallMeasures: { ...prev.wallMeasures, [wallId]: { ...current, [fieldKey]: value } },
       };
     });
   };
@@ -1231,8 +1244,8 @@ export default function CotizadorPreliminarPage() {
                 Sección B · Medidas de paredes
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Referencia visual por tipo de muro. Anota medidas en metros. La página «Otro» cubre casos que no
-                encajan en los catálogos.
+                Referencia visual por tipo de muro. Cada tipo muestra las medidas en metros que aplican a ese caso
+                (no solo tres campos genéricos). La página «Otro» cubre situaciones que no encajan en el catálogo.
               </p>
               <Link
                 href="/dashboard/referencia-tipos-pared"
@@ -1265,7 +1278,8 @@ export default function CotizadorPreliminarPage() {
                       {filteredWallItems.length} resultado{filteredWallItems.length === 1 ? "" : "s"}
                     </p>
                     {filteredWallItems.map((item) => {
-                      const m = levantamiento.wallMeasures[item.id] ?? { ancho: "", alto: "", fondo: "" };
+                      const m = levantamiento.wallMeasures[item.id] ?? emptyWallMeasuresForId(item.id);
+                      const wallFields = getWallMeasureFieldDefs(item.id);
                       return (
                         <div
                           key={item.id}
@@ -1280,16 +1294,16 @@ export default function CotizadorPreliminarPage() {
                           <div className="space-y-3">
                             <p className="text-sm font-semibold text-primary">{item.label}</p>
                             {item.hint ? <p className="text-xs text-secondary">{item.hint}</p> : null}
-                            <div className="grid gap-3 sm:grid-cols-3">
-                              {(["ancho", "alto", "fondo"] as const).map((field) => (
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                              {wallFields.map((field) => (
                                 <label
-                                  key={field}
-                                  className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                                  key={field.key}
+                                  className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary"
                                 >
-                                  {field} (m)
+                                  {field.label} (m)
                                   <input
-                                    value={m[field]}
-                                    onChange={(e) => patchMedidasMap("wallMeasures", item.id, field, e.target.value)}
+                                    value={m[field.key] ?? ""}
+                                    onChange={(e) => patchWallMeasure(item.id, field.key, e.target.value)}
                                     inputMode="decimal"
                                     className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
                                   />
@@ -1344,7 +1358,8 @@ export default function CotizadorPreliminarPage() {
               <div className="space-y-10">
                 {WALL_PAGE_INDICES[wallPage - 1].map((idx) => {
                   const item = WALL_ITEMS[idx];
-                  const m = levantamiento.wallMeasures[item.id] ?? { ancho: "", alto: "", fondo: "" };
+                  const m = levantamiento.wallMeasures[item.id] ?? emptyWallMeasuresForId(item.id);
+                  const wallFields = getWallMeasureFieldDefs(item.id);
                   return (
                     <div
                       key={item.id}
@@ -1359,16 +1374,16 @@ export default function CotizadorPreliminarPage() {
                       <div className="space-y-3">
                         <p className="text-sm font-semibold text-primary">{item.label}</p>
                         {item.hint ? <p className="text-xs text-secondary">{item.hint}</p> : null}
-                        <div className="grid gap-3 sm:grid-cols-3">
-                          {(["ancho", "alto", "fondo"] as const).map((field) => (
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                          {wallFields.map((field) => (
                             <label
-                              key={field}
-                              className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                              key={field.key}
+                              className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary"
                             >
-                              {field} (m)
+                              {field.label} (m)
                               <input
-                                value={m[field]}
-                                onChange={(e) => patchMedidasMap("wallMeasures", item.id, field, e.target.value)}
+                                value={m[field.key] ?? ""}
+                                onChange={(e) => patchWallMeasure(item.id, field.key, e.target.value)}
                                 inputMode="decimal"
                                 className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
                               />
@@ -1559,15 +1574,7 @@ export default function CotizadorPreliminarPage() {
             {currentApplianceItem ? (
               <div className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
                 <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-primary/5">
-                  <img
-                    src={currentApplianceItem.image}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                    onError={(e) => {
-                      e.currentTarget.src = "/images/hero-placeholder.svg";
-                    }}
-                  />
+                  <ApplianceTypeImage item={currentApplianceItem} alt="" />
                   <span className="absolute left-2 top-2 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
                     {currentApplianceItem.categoria ?? "Electrodoméstico"}
                   </span>
