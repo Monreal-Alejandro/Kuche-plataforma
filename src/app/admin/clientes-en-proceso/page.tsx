@@ -5,7 +5,14 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, User, FileText, Eye, Download } from "lucide-react";
 import { kanbanStorageKey, getPreliminarList, getCotizacionesFormalesList, type KanbanTask } from "@/lib/kanban";
-import { openPreliminarPdfInNewTab, downloadPreliminarPdf, openFormalPdfInNewTab, downloadFormalPdf } from "@/lib/pdf-preliminar";
+import {
+  openPreliminarPdfInNewTab,
+  downloadPreliminarPdf,
+  openFormalPdfInNewTab,
+  downloadFormalPdf,
+  openWorkshopPdfInNewTab,
+  downloadWorkshopPdf,
+} from "@/lib/pdf-preliminar";
 
 const stageLabel: Record<string, string> = {
   citas: "Citas",
@@ -160,33 +167,67 @@ export default function AdminClientesEnProcesoPage() {
                   {getCotizacionesFormalesList(task).length > 0 ? (
                     <div className="rounded-2xl bg-violet-50 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wider text-violet-800">
-                        Cotización formal {getCotizacionesFormalesList(task).length > 1 ? `(${getCotizacionesFormalesList(task).length})` : ""}
+                        Cotización formal + hoja de taller{" "}
+                        {getCotizacionesFormalesList(task).length > 1 ? `(${getCotizacionesFormalesList(task).length})` : ""}
                       </p>
                       <div className="mt-2 space-y-2">
                         {getCotizacionesFormalesList(task).map((data, idx) => (
-                          <div key={idx} className="flex flex-wrap items-center gap-2 rounded-xl bg-white/80 px-3 py-2">
+                          <div key={idx} className="space-y-2 rounded-xl bg-white/80 px-3 py-2">
                             <span className="text-xs font-medium text-violet-800">{data.projectType}</span>
-                            <button
-                              type="button"
-                              onClick={() => openFormalPdfInNewTab(data)}
-                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
-                            >
-                              <Eye className="h-3 w-3" />
-                              Ver PDF
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                downloadFormalPdf(
-                                  data,
-                                  `cotizacion-formal-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${task.project.replace(/\s+/g, "-")}.pdf`,
-                                )
-                              }
-                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
-                            >
-                              <Download className="h-3 w-3" />
-                              Descargar PDF
-                            </button>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-600/80">
+                                Formal
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => openFormalPdfInNewTab(data)}
+                                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                              >
+                                <Eye className="h-3 w-3" />
+                                Ver
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadFormalPdf(
+                                    data,
+                                    `cotizacion-formal-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${task.project.replace(/\s+/g, "-")}.pdf`,
+                                  )
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                              >
+                                <Download className="h-3 w-3" />
+                                Descargar
+                              </button>
+                              {data.workshopPdfKey ? (
+                                <>
+                                  <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-violet-600/80">
+                                    Taller
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => openWorkshopPdfInNewTab(data)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                                  >
+                                    <Eye className="h-3 w-3" />
+                                    Ver
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      downloadWorkshopPdf(
+                                        data,
+                                        `hoja-taller-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${task.project.replace(/\s+/g, "-")}.pdf`,
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                                  >
+                                    <Download className="h-3 w-3" />
+                                    Descargar
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
                           </div>
                         ))}
                       </div>

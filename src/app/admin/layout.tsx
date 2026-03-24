@@ -24,7 +24,7 @@ const navigation = [
   { label: "Agenda", href: "/admin/agenda", icon: Calendar },
   { label: "Clientes en proceso", href: "/admin/clientes-en-proceso", icon: Users },
   { label: "Clientes Confirmados", href: "/admin/clientes-confirmados", icon: CheckCircle2 },
-  { label: "Clientes Descartados", href: "/admin/clientes-descartados", icon: XCircle },
+  { label: "Proyectos Inactivos", href: "/admin/clientes-descartados", icon: XCircle },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

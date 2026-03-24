@@ -7,7 +7,15 @@ import { Bell, CheckCircle2, Download, FileText, Image as ImageIcon } from "luci
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type { CotizacionFormalData, PreliminarData } from "@/lib/kanban";
-import { openPreliminarPdfInNewTab, downloadPreliminarPdf, openFormalPdfInNewTab, downloadFormalPdf } from "@/lib/pdf-preliminar";
+import {
+  openPreliminarPdfInNewTab,
+  downloadPreliminarPdf,
+  openFormalPdfInNewTab,
+  downloadFormalPdf,
+  openWorkshopPdfInNewTab,
+  downloadWorkshopPdf,
+  openPdfFromIndexedKey,
+} from "@/lib/pdf-preliminar";
 
 const baseMockProject = {
   codigo: "K-8821",
@@ -52,6 +60,15 @@ const baseMockProject = {
     },
   ],
 } as const;
+
+type SeguimientoArchivo = {
+  id: string;
+  name: string;
+  type: string;
+  src?: string;
+  /** PDF guardado en IndexedDB (levantamiento, formal o taller). */
+  indexedPdfKey?: string;
+};
 
 /** Proyecto guardado para seguimiento; puede venir del cotizador (preliminar/formal) o ser mock. */
 type SeguimientoProject = typeof baseMockProject & {
@@ -180,9 +197,8 @@ export default function SeguimientoPage() {
     currentProject.pagos.liquidacion.amount;
   const restante = Math.max(0, currentProject.inversion - totalPagado);
   const infoLockedText = "Esta información se activará una vez apruebes tu proyecto.";
-  const filesInSections = isProspect
-    ? currentProject.archivos.slice(0, 1)
-    : currentProject.archivos;
+  /** Incluye PDFs enlazados al terminar levantamiento (prospecto) o cotización formal + taller. */
+  const filesInSections = currentProject.archivos ?? [];
   const quoteButtonLabel = isProspect
     ? "Ver Levantamiento Detallado"
     : "Ver cotización formal";
@@ -241,7 +257,7 @@ export default function SeguimientoPage() {
                         return;
                       }
                       const parsed = JSON.parse(stored) as Record<string, unknown>;
-                      setProject({ ...baseMockProject, ...parsed } as SeguimientoProject);
+                      setProject({ ...baseMockProject, ...parsed } as unknown as SeguimientoProject);
                       setHasAccess(true);
                       setCodeError(null);
                     } catch {
@@ -340,59 +356,103 @@ export default function SeguimientoPage() {
                           const prefix = isProspect ? "levantamiento-detallado" : "cotizacion-formal";
                           if (hasPdfData && list.length > 0) {
                             return (
-                              <div
-                                className={
-                                  isProspect
-                                    ? "mt-4 space-y-2"
-                                    : "absolute right-6 top-6 space-y-2"
-                                }
-                              >
-                                {list.map((data, idx) => (
-                                  <div key={idx} className="flex flex-wrap items-center gap-2">
-                                    <span className="text-xs font-medium text-secondary">{data.projectType}</span>
+                              <div className="absolute right-6 top-6 space-y-2">
+                                {isProspect ? (
+                                  list.length === 1 ? (
                                     <button
                                       type="button"
-                                      className={
-                                        isProspect
-                                          ? "rounded-2xl bg-accent px-3 py-2 text-xs font-semibold text-white shadow-lg transition hover:brightness-110"
-                                          : "rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                                      }
-                                      onClick={() =>
-                                        isProspect
-                                          ? openPreliminarPdfInNewTab(data)
-                                          : openFormalPdfInNewTab(data)
-                                      }
+                                      className="rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                                      onClick={() => openPreliminarPdfInNewTab(list[0])}
                                     >
-                                      Ver PDF
+                                      {quoteButtonLabel}
                                     </button>
-                                    <button
-                                      type="button"
-                                      className={
-                                        isProspect
-                                          ? "rounded-2xl border border-accent bg-white px-3 py-2 text-xs font-semibold text-accent transition hover:bg-accent/10"
-                                          : "rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                                      }
-                                      onClick={() => {
-                                        const filename = `${prefix}-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
-                                        isProspect
-                                          ? downloadPreliminarPdf(data, filename)
-                                          : downloadFormalPdf(data, filename);
-                                      }}
-                                    >
-                                      Descargar PDF
-                                    </button>
-                                  </div>
-                                ))}
+                                  ) : (
+                                    list.map((data, idx) => (
+                                      <div key={idx} className="flex flex-col items-end gap-1.5">
+                                        <span className="text-xs font-medium text-secondary">{data.projectType}</span>
+                                        <div className="flex max-w-[220px] flex-wrap items-center justify-end gap-1.5">
+                                          <button
+                                            type="button"
+                                            className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                                            onClick={() => openPreliminarPdfInNewTab(data)}
+                                          >
+                                            Ver levantamiento
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                                            onClick={() => {
+                                              const filename = `${prefix}-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
+                                              downloadPreliminarPdf(data, filename);
+                                            }}
+                                          >
+                                            Descargar
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))
+                                  )
+                                ) : null}
+                                {!isProspect
+                                  ? list.map((data, idx) => (
+                                      <div key={idx} className="flex flex-col items-end gap-1.5">
+                                        <span className="text-xs font-medium text-secondary">{data.projectType}</span>
+                                        <div className="flex max-w-[220px] flex-wrap items-center justify-end gap-1.5">
+                                          <span className="text-[9px] font-semibold uppercase tracking-wide text-secondary/70">
+                                            Formal
+                                          </span>
+                                          <button
+                                            type="button"
+                                            className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                                            onClick={() => openFormalPdfInNewTab(data as CotizacionFormalData)}
+                                          >
+                                            Ver
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                                            onClick={() => {
+                                              const filename = `${prefix}-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
+                                              downloadFormalPdf(data as CotizacionFormalData, filename);
+                                            }}
+                                          >
+                                            Descargar
+                                          </button>
+                                          {(data as CotizacionFormalData).workshopPdfKey ? (
+                                            <>
+                                              <span className="text-[9px] font-semibold uppercase tracking-wide text-secondary/70">
+                                                Taller
+                                              </span>
+                                              <button
+                                                type="button"
+                                                className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                                                onClick={() => openWorkshopPdfInNewTab(data as CotizacionFormalData)}
+                                              >
+                                                Ver
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                                                onClick={() => {
+                                                  const filename = `hoja-taller-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
+                                                  downloadWorkshopPdf(data as CotizacionFormalData, filename);
+                                                }}
+                                              >
+                                                Descargar
+                                              </button>
+                                            </>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    ))
+                                  : null}
                               </div>
                             );
                           }
                           return (
                             <button
-                              className={
-                                isProspect
-                                  ? "mt-4 w-full rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
-                                  : "absolute right-6 top-6 rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                              }
+                              type="button"
+                              className="absolute right-6 top-6 rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-primary transition hover:border-accent hover:text-accent"
                               onClick={() => {
                                 setSelectedImage({
                                   name: quoteButtonLabel,
@@ -463,27 +523,35 @@ export default function SeguimientoPage() {
                 <div className="mt-6 rounded-3xl border border-primary/10 bg-white p-6">
                   <p className="text-xs uppercase tracking-[0.3em] text-secondary">Archivos</p>
                   <div className="mt-4 flex flex-wrap gap-3">
-                    {filesInSections.map((file) => (
+                    {filesInSections.map((file) => {
+                      const f = file as SeguimientoArchivo;
+                      return (
                       <button
-                        key={file.id}
+                        key={f.id}
+                        type="button"
                         className="inline-flex items-center gap-2 rounded-full border border-primary/10 px-4 py-2 text-xs font-semibold text-primary transition hover:border-accent hover:text-accent"
                         onClick={() => {
-                          if (file.type === "jpg" && "src" in file) {
+                          if (f.type === "pdf" && f.indexedPdfKey) {
+                            openPdfFromIndexedKey(f.indexedPdfKey);
+                            return;
+                          }
+                          if (f.type === "jpg" && f.src) {
                             setSelectedImage({
-                              name: file.name,
-                              src: file.src,
+                              name: f.name,
+                              src: f.src,
                             });
                           }
                         }}
                       >
-                        {file.type === "pdf" ? (
+                        {f.type === "pdf" ? (
                           <FileText className="h-4 w-4" />
                         ) : (
                           <ImageIcon className="h-4 w-4" />
                         )}
-                        {file.name}
+                        {f.name}
                       </button>
-                    ))}
+                    );
+                    })}
                   </div>
                 </div>
               </section>

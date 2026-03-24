@@ -1,6 +1,6 @@
 /**
- * Almacena los PDFs formales en IndexedDB para no exceder la cuota de localStorage.
- * La tarjeta solo guarda la clave (formalPdfKey); el PDF se lee desde aquí al ver/descargar.
+ * Almacena PDFs en IndexedDB (no saturar localStorage): formal, taller y levantamiento→seguimiento.
+ * Tarjeta / seguimiento guardan claves; el blob se lee aquí al ver/descargar.
  */
 
 const DB_NAME = "kuche-formal-pdfs";
@@ -60,4 +60,14 @@ export function getFormalPdf(key: string): Promise<string | null> {
 /** Genera una clave única para un PDF formal de una tarea (para usar al guardar). */
 export function createFormalPdfKey(taskId: string, index: number): string {
   return `formal-${taskId}-${index}-${Date.now()}`;
+}
+
+/** Misma tienda IndexedDB; clave distinta para la hoja de taller emparejada con la cotización formal. */
+export function createWorkshopPdfKey(taskId: string, index: number): string {
+  return `workshop-${taskId}-${index}-${Date.now()}`;
+}
+
+/** PDF de levantamiento detallado guardado para la vista de seguimiento (prospecto). */
+export function createPreliminarSeguimientoPdfKey(taskId: string, index: number): string {
+  return `preliminar-seg-${taskId}-${index}-${Date.now()}`;
 }

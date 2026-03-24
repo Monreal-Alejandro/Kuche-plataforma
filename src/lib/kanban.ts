@@ -9,7 +9,7 @@ export type TaskFile = {
   id: string;
   name: string;
   type: "pdf" | "render" | "otro";
-  /** Data URL para vista previa (imágenes); opcional en PDF/otro */
+  /** Data URL (base64): vista previa y descarga en admin; opcional si falló la lectura o es dato legado. */
   src?: string;
 };
 
@@ -31,6 +31,8 @@ export type PreliminarData = {
 export type CotizacionFormalData = PreliminarData & {
   /** Clave en IndexedDB donde está guardado el PDF formal (evita exceder cuota de localStorage). */
   formalPdfKey?: string;
+  /** Clave en IndexedDB de la hoja de taller generada junto con esta cotización formal. */
+  workshopPdfKey?: string;
   /** @deprecated PDF en data URL; ya no se persiste en la tarea (usa formalPdfKey + IndexedDB). */
   pdfDataUrl?: string;
 };
@@ -46,6 +48,7 @@ export type KanbanTask = {
   notes?: string;
   files?: TaskFile[];
   priority?: TaskPriority;
+  /** Fecha límite o cita: `YYYY-MM-DD` o `YYYY-MM-DDTHH:mm` (hora local). */
   dueDate?: string;
   /** Dirección / localidad del cliente; se muestra debajo del nombre en la tarjeta. */
   location?: string;

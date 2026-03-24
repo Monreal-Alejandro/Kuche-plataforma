@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { FileUp, AlertTriangle, CheckCircle2, XCircle, Clock, Calendar, Trash2 } from "lucide-react";
 
+import { DueDateInput } from "@/components/DueDateInput";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import {
@@ -23,6 +24,7 @@ import {
   type PreliminarData,
   type CotizacionFormalData,
 } from "@/lib/kanban";
+import { dueDateToSortTimestamp, formatDueDateTimeDisplay } from "@/lib/kanban-due-datetime";
 
 const currentUser = "Valeria";
 
@@ -639,8 +641,8 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     }
     if (sortBy === "date") {
       return [...tasks].sort((a, b) => {
-        const da = a.dueDate ? new Date(a.dueDate).getTime() : a.createdAt ?? 0;
-        const db = b.dueDate ? new Date(b.dueDate).getTime() : b.createdAt ?? 0;
+        const da = dueDateToSortTimestamp(a.dueDate, a.createdAt ?? 0);
+        const db = dueDateToSortTimestamp(b.dueDate, b.createdAt ?? 0);
         return da - db;
       });
     }
@@ -659,7 +661,13 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   const inferFileType = (name: string): TaskFile["type"] => {
     const lower = name.toLowerCase();
     if (lower.endsWith(".pdf")) return "pdf";
-    if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")) {
+    if (
+      lower.endsWith(".jpg") ||
+      lower.endsWith(".jpeg") ||
+      lower.endsWith(".png") ||
+      lower.endsWith(".webp") ||
+      lower.endsWith(".gif")
+    ) {
       return "render";
     }
     return "otro";
@@ -681,12 +689,10 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       const file = files[i];
       const type = inferFileType(file.name);
       let src: string | undefined;
-      if (type === "render") {
-        try {
-          src = await readFileAsDataUrl(file);
-        } catch {
-          // omit src on read error
-        }
+      try {
+        src = await readFileAsDataUrl(file);
+      } catch {
+        // sin src no habrá vista previa ni descarga desde admin
       }
       nextFiles.push({
         id: `file-${Date.now()}-${i}-${file.name}`,
@@ -895,6 +901,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                 {task.mapsUrl ? (
                                   <> · <a href={normalizeMapsUrl(task.mapsUrl)} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline" onClick={(e) => e.stopPropagation()}>Ver en Maps</a></>
                                 ) : null}
+                              </p>
+                            ) : null}
+                            {task.stage === "citas" && task.dueDate ? (
+                              <p className="mt-1 flex items-center gap-1 line-clamp-2 break-words text-xs font-medium leading-4 text-sky-700">
+                                <Calendar className="h-3 w-3 shrink-0" aria-hidden />
+                                <span>{formatDueDateTimeDisplay(task.dueDate)}</span>
                               </p>
                             ) : null}
                             {task.title && task.title !== task.project ? (
@@ -1293,18 +1305,19 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                    Fecha límite (opcional)
+                    {activeTask.stage === "citas"
+                      ? "Fecha de la cita (opcional)"
+                      : "Fecha límite (opcional)"}
                   </p>
-                  <input
-                    type="date"
-                    value={activeTask.dueDate ?? ""}
-                    onChange={(e) =>
+                  <DueDateInput
+                    value={activeTask.dueDate}
+                    onChange={(next) =>
                       updateTask(activeTask.id, (task) => ({
                         ...task,
-                        dueDate: e.target.value || undefined,
+                        dueDate: next,
                       }))
                     }
-                    className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                    className="mt-3"
                   />
                 </div>
 

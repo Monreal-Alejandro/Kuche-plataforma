@@ -7,6 +7,7 @@ import { CheckCircle2, Plus } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { DueDateInput } from "@/components/DueDateInput";
 import { KanbanTablero } from "@/components/KanbanTablero";
 import {
   kanbanColumns,
@@ -513,15 +514,18 @@ export default function EmpleadoDashboard() {
                   <option value="baja">Baja</option>
                 </select>
               </label>
-              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                Fecha límite (opcional)
-                <input
-                  type="date"
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                <span className="block">
+                  {newTaskStage === "citas"
+                    ? "Fecha de la cita (opcional)"
+                    : "Fecha límite (opcional)"}
+                </span>
+                <DueDateInput
                   value={newTaskDueDate}
-                  onChange={(e) => setNewTaskDueDate(e.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  onChange={(next) => setNewTaskDueDate(next ?? "")}
+                  className="mt-2"
                 />
-              </label>
+              </div>
               <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                 Ubicación (opcional)
                 <input

@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "fix:checkerboard-electro": "node scripts/fix-checkerboard-bg.mjs",
+    "normalize:electrodomesticos": "node scripts/normalize-electrodomesticos.mjs",
+    "normalize:electrodomesticos:win": "powershell -ExecutionPolicy Bypass -File scripts/normalize-electrodomesticos.ps1",
+    "dev": "next dev --webpack",
+    "dev:turbo": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -17,6 +21,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-icons": "^5.5.0",
+    "sharp": "^0.34.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -28,7 +33,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "jimp": "^1.6.0",
-    "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

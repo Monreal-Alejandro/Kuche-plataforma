@@ -191,7 +191,7 @@ export default function AdminPage() {
       accent: "bg-emerald-100 text-emerald-700",
     },
     {
-      title: "Clientes descartados",
+      title: "Proyectos inactivos",
       value: isHydrated ? discardedClients.toString() : "—",
       href: "/admin/clientes-descartados",
       icon: XCircle,

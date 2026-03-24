@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ItemCatalogo } from "@/lib/levantamiento-catalog";
 import { applianceLevantamientoImageCandidates } from "@/lib/levantamiento-catalog";
@@ -12,31 +12,45 @@ type Props = {
 };
 
 /**
- * Prueba en cadena: foto en `electrodomesticos/`, alternativas por id, imagen del catálogo y placeholder.
+ * `object-contain`: se ve el aparato entero (sin recorte tipo zoom).
+ * `object-cover` recortaba mucho en fotos verticales o con mucho margen.
  */
 export default function ApplianceTypeImage({
   item,
-  className = "h-full w-full object-cover",
+  className = "absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2 sm:p-3",
   alt,
 }: Props) {
   const candidates = useMemo(() => applianceLevantamientoImageCandidates(item), [item]);
+  const [index, setIndex] = useState(0);
+  const stopRef = useRef(false);
+
+  useEffect(() => {
+    setIndex(0);
+    stopRef.current = false;
+  }, [item.id]);
+
+  const max = Math.max(0, candidates.length - 1);
+  const safeIndex = Math.min(index, max);
+  const src = candidates[safeIndex] ?? candidates[0];
 
   return (
+    // key fuerza recarga al cambiar candidato tras error
     <img
-      src={candidates[0]}
+      key={`${item.id}-${safeIndex}`}
+      src={src}
       alt={alt ?? item.label}
       className={className}
-      loading="lazy"
-      onError={(e) => {
-        const el = e.currentTarget;
-        const idx = Number(el.dataset.appImgIdx ?? "0");
-        const next = idx + 1;
-        if (next >= candidates.length) {
-          el.onerror = null;
-          return;
-        }
-        el.dataset.appImgIdx = String(next);
-        el.src = candidates[next]!;
+      loading="eager"
+      decoding="async"
+      onError={() => {
+        if (stopRef.current) return;
+        setIndex((prev) => {
+          if (prev >= max) {
+            stopRef.current = true;
+            return prev;
+          }
+          return prev + 1;
+        });
       }}
     />
   );

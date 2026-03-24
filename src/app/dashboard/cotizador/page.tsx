@@ -1,6 +1,6 @@
  "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Minus, Plus } from "lucide-react";
@@ -21,8 +21,9 @@ import {
   type KanbanTask,
   type CotizacionFormalData,
 } from "@/lib/kanban";
-import { createFormalPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
-import { downloadPreliminarPdf } from "@/lib/pdf-preliminar";
+import { buildWorkshopPdfDataUrl, type WorkshopPdfBuildInput } from "@/lib/cotizacion-workshop-pdf";
+import { createFormalPdfKey, createWorkshopPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
+import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
 
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
 /** Precio por metro lineal para material base (según ítem de ESTRUCTURA seleccionado). */
@@ -71,107 +72,208 @@ const scenarioCards = [
   },
 ];
 
-const initialCatalogoKuche = [
+/** Ítem del catálogo de materiales (precio por `unitType`, ej. pieza, metro lineal, m²). */
+export type CatalogoItem = {
+  id: string;
+  label: string;
+  unitPrice: number;
+  unitType?: string;
+};
+
+type CatalogoCategoria = {
+  category: string;
+  items: CatalogoItem[];
+};
+
+/** Sugerencias para el campo «tipo de unidad» al dar de alta materiales. */
+const CATALOGO_UNIT_TYPE_SUGGESTIONS = [
+  "pieza",
+  "pie",
+  "metro lineal",
+  "m²",
+  "m2",
+  "placa",
+  "hoja",
+  "juego",
+  "par",
+  "rollo",
+  "bolsa",
+  "bote",
+  "paquete",
+  "semana",
+  "mm",
+];
+
+const initialCatalogoKuche: CatalogoCategoria[] = [
   {
     category: "CUBIERTA",
     items: [
-      { id: "cub_formica", label: "Cubierta Formica (pies)", unitPrice: 173 },
-      { id: "cub_granito", label: "Granito (placas)", unitPrice: 12000 },
-      { id: "cub_cuarzo", label: "Cuarzo (placas)", unitPrice: 16000 },
-      { id: "mo_fabricacion", label: "Mano de obra fabricación (mts2)", unitPrice: 1400 },
+      { id: "cub_formica", label: "Cubierta Formica (pies)", unitPrice: 173, unitType: "pie" },
+      { id: "cub_granito", label: "Granito (placas)", unitPrice: 12000, unitType: "placa" },
+      { id: "cub_cuarzo", label: "Cuarzo (placas)", unitPrice: 16000, unitType: "placa" },
+      { id: "mo_fabricacion", label: "Mano de obra fabricación (mts2)", unitPrice: 1400, unitType: "m²" },
     ],
   },
   {
     category: "ESTRUCTURA",
     items: [
-      { id: "est_mdf_natural", label: "MDF Natural 15mm (hojas)", unitPrice: 335 },
-      { id: "est_mel_blanca", label: "MDF Melamina Blanco (hojas)", unitPrice: 600 },
-      { id: "est_mel_negro", label: "MDF Melamina Negro (hojas)", unitPrice: 1000 },
-      { id: "est_mel_gris", label: "MDF Melamina Gris OX (hojas)", unitPrice: 1000 },
-      { id: "est_madera", label: "Madera (pza)", unitPrice: 250 },
-      { id: "est_cintilla_ng", label: "Cintilla Negro o Gris 19x1 (mts)", unitPrice: 12 },
-      { id: "est_cintilla_bf", label: "Cintilla Blanco Frosty 19x1 (mts)", unitPrice: 9 },
+      { id: "est_mdf_natural", label: "MDF Natural 15mm (hojas)", unitPrice: 335, unitType: "hoja" },
+      { id: "est_mel_blanca", label: "MDF Melamina Blanco (hojas)", unitPrice: 600, unitType: "hoja" },
+      { id: "est_mel_negro", label: "MDF Melamina Negro (hojas)", unitPrice: 1000, unitType: "hoja" },
+      { id: "est_mel_gris", label: "MDF Melamina Gris OX (hojas)", unitPrice: 1000, unitType: "hoja" },
+      { id: "est_madera", label: "Madera (pza)", unitPrice: 250, unitType: "pieza" },
+      {
+        id: "est_cintilla_ng",
+        label: "Cintilla Negro o Gris 19x1 (mts)",
+        unitPrice: 12,
+        unitType: "metro lineal",
+      },
+      {
+        id: "est_cintilla_bf",
+        label: "Cintilla Blanco Frosty 19x1 (mts)",
+        unitPrice: 9,
+        unitType: "metro lineal",
+      },
     ],
   },
   {
     category: "VISTAS",
     items: [
-      { id: "vis_mdf_brillo", label: "MDF Alto Brillo (hojas)", unitPrice: 3200 },
-      { id: "vis_mel_color1", label: "MDF Melamina de Color 1 (hojas)", unitPrice: 1000 },
-      { id: "vis_mel_color2", label: "MDF Melamina de Color 2 (hojas)", unitPrice: 1000 },
-      { id: "vis_cubrecanto_brillo", label: "Cubrecanto Alto Brillo (mts)", unitPrice: 17 },
-      { id: "vis_cubrecanto_c1", label: "Cubrecanto Color 1 (mts)", unitPrice: 12 },
-      { id: "vis_cubrecanto_c2", label: "Cubrecanto Color 2 (mts)", unitPrice: 12 },
+      { id: "vis_mdf_brillo", label: "MDF Alto Brillo (hojas)", unitPrice: 3200, unitType: "hoja" },
+      { id: "vis_mel_color1", label: "MDF Melamina de Color 1 (hojas)", unitPrice: 1000, unitType: "hoja" },
+      { id: "vis_mel_color2", label: "MDF Melamina de Color 2 (hojas)", unitPrice: 1000, unitType: "hoja" },
+      {
+        id: "vis_cubrecanto_brillo",
+        label: "Cubrecanto Alto Brillo (mts)",
+        unitPrice: 17,
+        unitType: "metro lineal",
+      },
+      {
+        id: "vis_cubrecanto_c1",
+        label: "Cubrecanto Color 1 (mts)",
+        unitPrice: 12,
+        unitType: "metro lineal",
+      },
+      {
+        id: "vis_cubrecanto_c2",
+        label: "Cubrecanto Color 2 (mts)",
+        unitPrice: 12,
+        unitType: "metro lineal",
+      },
     ],
   },
   {
     category: "ESPESOR",
     items: [
-      { id: "15", label: "15 mm", unitPrice: 0 },
-      { id: "16", label: "16 mm", unitPrice: 0 },
-      { id: "18", label: "18 mm", unitPrice: 0 },
-      { id: "19", label: "19 mm", unitPrice: 0 },
+      { id: "15", label: "15 mm", unitPrice: 0, unitType: "mm" },
+      { id: "16", label: "16 mm", unitPrice: 0, unitType: "mm" },
+      { id: "18", label: "18 mm", unitPrice: 0, unitType: "mm" },
+      { id: "19", label: "19 mm", unitPrice: 0, unitType: "mm" },
     ],
   },
   {
     category: "CAJONES Y PUERTAS",
     items: [
-      { id: "cajon_sen", label: "Cajón sencillo", unitPrice: 120 },
-      { id: "cajon_cierre_lento", label: "Cajón Cierre lento", unitPrice: 450 },
-      { id: "cajon_push", label: "Cajón Sistema Push", unitPrice: 350 },
-      { id: "cajon_blum_tandem", label: "Cajón BLUM tandem", unitPrice: 700 },
-      { id: "cajon_blum_movento", label: "Cajón Blum Movento", unitPrice: 1300 },
-      { id: "bisagra_blumotion", label: "Bisagra tip on - blumotion", unitPrice: 120 },
-      { id: "puerta_cierre_push", label: "Puerta Cierre lento/Push", unitPrice: 550 },
-      { id: "puerta_bisagra", label: "Puertas Bisagras sencilla", unitPrice: 30 },
+      { id: "cajon_sen", label: "Cajón sencillo", unitPrice: 120, unitType: "pieza" },
+      { id: "cajon_cierre_lento", label: "Cajón Cierre lento", unitPrice: 450, unitType: "pieza" },
+      { id: "cajon_push", label: "Cajón Sistema Push", unitPrice: 350, unitType: "pieza" },
+      { id: "cajon_blum_tandem", label: "Cajón BLUM tandem", unitPrice: 700, unitType: "pieza" },
+      { id: "cajon_blum_movento", label: "Cajón Blum Movento", unitPrice: 1300, unitType: "pieza" },
+      { id: "bisagra_blumotion", label: "Bisagra tip on - blumotion", unitPrice: 120, unitType: "pieza" },
+      { id: "puerta_cierre_push", label: "Puerta Cierre lento/Push", unitPrice: 550, unitType: "pieza" },
+      { id: "puerta_bisagra", label: "Puertas Bisagras sencilla", unitPrice: 30, unitType: "pieza" },
     ],
   },
   {
     category: "ACCESORIOS DE MÓDULO",
     items: [
-      { id: "acc_patas", label: "Patas y clips", unitPrice: 17 },
-      { id: "acc_push_tipon", label: "Push - TIPON", unitPrice: 150 },
-      { id: "acc_jaladeras", label: "Jaladeras", unitPrice: 500 },
-      { id: "acc_zoclo", label: "Zoclo (mts)", unitPrice: 180 },
-      { id: "acc_puerta_esq", label: "Puertas Esquinera", unitPrice: 200 },
+      { id: "acc_patas", label: "Patas y clips", unitPrice: 17, unitType: "pieza" },
+      { id: "acc_push_tipon", label: "Push - TIPON", unitPrice: 150, unitType: "pieza" },
+      { id: "acc_jaladeras", label: "Jaladeras", unitPrice: 500, unitType: "pieza" },
+      { id: "acc_zoclo", label: "Zoclo (mts)", unitPrice: 180, unitType: "metro lineal" },
+      { id: "acc_puerta_esq", label: "Puertas Esquinera", unitPrice: 200, unitType: "pieza" },
     ],
   },
   {
     category: "EXTRAÍBLES Y PUERTAS ABATIBLES",
     items: [
-      { id: "ext_alacena", label: "Alacena doble", unitPrice: 3000 },
-      { id: "ext_especiero", label: "Especiero", unitPrice: 1800 },
-      { id: "ext_magic_corner", label: "Magic Corner", unitPrice: 6200 },
-      { id: "ext_esquinero", label: "Esquinero Cacerolero", unitPrice: 3600 },
-      { id: "ext_avento_hf", label: "Avento HF (Premium)", unitPrice: 3500 },
-      { id: "ext_avento_hk", label: "Avento HK-XS", unitPrice: 400 },
-      { id: "ext_piston_gen", label: "Pistón Genérico", unitPrice: 100 },
-      { id: "ext_luz_led", label: "Luz LED", unitPrice: 1500 },
-      { id: "ext_servo", label: "Servo drive", unitPrice: 18000 },
+      { id: "ext_alacena", label: "Alacena doble", unitPrice: 3000, unitType: "juego" },
+      { id: "ext_especiero", label: "Especiero", unitPrice: 1800, unitType: "juego" },
+      { id: "ext_magic_corner", label: "Magic Corner", unitPrice: 6200, unitType: "juego" },
+      { id: "ext_esquinero", label: "Esquinero Cacerolero", unitPrice: 3600, unitType: "juego" },
+      { id: "ext_avento_hf", label: "Avento HF (Premium)", unitPrice: 3500, unitType: "juego" },
+      { id: "ext_avento_hk", label: "Avento HK-XS", unitPrice: 400, unitType: "juego" },
+      { id: "ext_piston_gen", label: "Pistón Genérico", unitPrice: 100, unitType: "pieza" },
+      { id: "ext_luz_led", label: "Luz LED", unitPrice: 1500, unitType: "pieza" },
+      { id: "ext_servo", label: "Servo drive", unitPrice: 18000, unitType: "pieza" },
     ],
   },
   {
     category: "INSUMOS DE PRODUCCIÓN",
     items: [
-      { id: "insum_pegamento", label: "Pegamento", unitPrice: 250 },
-      { id: "insum_silicon", label: "Silicones", unitPrice: 1500 },
+      { id: "insum_pegamento", label: "Pegamento", unitPrice: 250, unitType: "bote" },
+      { id: "insum_silicon", label: "Silicones", unitPrice: 1500, unitType: "pieza" },
     ],
   },
   {
     category: "EXTRAS",
     items: [
-      { id: "extra_lambrin", label: "Lambrín Interior 2.9 x .16", unitPrice: 472 },
-      { id: "extra_silicon_tornillos", label: "Silicon, tornillos, tapas, resistol", unitPrice: 2000 },
+      { id: "extra_lambrin", label: "Lambrín Interior 2.9 x .16", unitPrice: 472, unitType: "pieza" },
+      {
+        id: "extra_silicon_tornillos",
+        label: "Silicon, tornillos, tapas, resistol",
+        unitPrice: 2000,
+        unitType: "paquete",
+      },
     ],
   },
   {
     category: "GASTOS FIJOS",
     items: [
-      { id: "fijo_mo_semana", label: "Mano obra 1 equipo (semana)", unitPrice: 6000 },
-      { id: "fijo_admin_semana", label: "Gastos admin (semana)", unitPrice: 7000 },
+      {
+        id: "fijo_mo_semana",
+        label: "Mano obra 1 equipo (semana)",
+        unitPrice: 6000,
+        unitType: "semana",
+      },
+      {
+        id: "fijo_admin_semana",
+        label: "Gastos admin (semana)",
+        unitPrice: 7000,
+        unitType: "semana",
+      },
     ],
   },
 ];
+
+function catalogItemUnitLabel(item: { unitType?: string }): string {
+  const u = item.unitType?.trim();
+  return u || "pieza";
+}
+
+function normalizeStoredCatalog(
+  parsed: Array<{ category?: string; items?: unknown[] }>,
+): CatalogoCategoria[] {
+  return parsed
+    .filter(
+      (category) =>
+        category && typeof category.category === "string" && Array.isArray(category.items),
+    )
+    .map((category) => ({
+      category: category.category as string,
+      items: (category.items as Record<string, unknown>[]).map((item) => {
+        const unitTypeRaw = item.unitType;
+        const unitType =
+          typeof unitTypeRaw === "string" && unitTypeRaw.trim() ? unitTypeRaw.trim() : undefined;
+        return {
+          id: String(item.id ?? ""),
+          label: String(item.label ?? ""),
+          unitPrice: Number(item.unitPrice) || 0,
+          ...(unitType ? { unitType } : {}),
+        };
+      }),
+    }));
+}
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
@@ -193,17 +295,7 @@ function getDefaultThicknessItemId(): string {
   return cat?.items?.[0]?.id ?? "16";
 }
 
-function FormalCotizacionBanner({
-  taskId,
-  onTerminar,
-  onTerminarYContinuar,
-  error,
-}: {
-  taskId: string;
-  onTerminar: () => void;
-  onTerminarYContinuar: () => void;
-  error: string;
-}) {
+function FormalCotizacionBanner({ taskId }: { taskId: string }) {
   const [projectName, setProjectName] = useState("");
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -221,34 +313,15 @@ function FormalCotizacionBanner({
     }
   }, [taskId]);
   return (
-    <div className="flex flex-col gap-3 rounded-3xl border border-emerald-200 bg-emerald-50/80 p-5 shadow-md backdrop-blur-md">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-emerald-700">Cotización formal</p>
-          <p className="mt-2 text-sm text-emerald-800">
-            Cotización formal para <strong>{projectName}</strong>. Completa las secciones. Termina para pasar a seguimiento o termina y continúa para agregar otra (cocina, clóset, baño, etc.).
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onTerminar}
-            className="rounded-2xl bg-emerald-600 px-5 py-3 text-xs font-semibold text-white shadow hover:bg-emerald-700"
-          >
-            Terminar
-          </button>
-          <button
-            type="button"
-            onClick={onTerminarYContinuar}
-            className="rounded-2xl border-2 border-emerald-600 bg-white px-5 py-3 text-xs font-semibold text-emerald-600 shadow hover:bg-emerald-50"
-          >
-            Terminar y continuar
-          </button>
-        </div>
-      </div>
-      {error ? (
-        <p className="rounded-xl bg-rose-100 px-4 py-2 text-sm text-rose-700">{error}</p>
-      ) : null}
+    <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-5 shadow-md backdrop-blur-md">
+      <p className="text-xs uppercase tracking-[0.3em] text-emerald-700">Cotización formal</p>
+      <p className="mt-2 text-sm text-emerald-800">
+        Cotización formal para <strong>{projectName}</strong>. Completa las secciones; al pie están{" "}
+        <strong>Terminar</strong> (pasa a seguimiento) y <strong>Terminar y continuar</strong> (otro espacio).
+        Al terminar se guardan en la tarjeta la <strong>cotización formal</strong> y la{" "}
+        <strong>hoja de taller</strong> (mismo par en todas las vistas de cliente). También puedes previsualizar la
+        hoja con <strong>Generar Hoja de Taller</strong> en la sección de cierre.
+      </p>
     </div>
   );
 }
@@ -268,7 +341,8 @@ export default function CotizadorPage() {
   const [newClientEmail, setNewClientEmail] = useState("");
   const [projectType, setProjectType] = useState(projectTypes[0]);
   const [location, setLocation] = useState("");
-  const [installDate, setInstallDate] = useState("");
+  const [deliveryWeeksMin, setDeliveryWeeksMin] = useState("");
+  const [deliveryWeeksMax, setDeliveryWeeksMax] = useState("");
   const [largo, setLargo] = useState("4.2");
   const [alto, setAlto] = useState("2.4");
   const [fondo, setFondo] = useState("0.6");
@@ -289,6 +363,7 @@ export default function CotizadorPage() {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
+  const [newItemUnitType, setNewItemUnitType] = useState("pieza");
   const [newItemCategory, setNewItemCategory] = useState(initialCatalogoKuche[0]?.category ?? "");
   const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
   const [activeCotizacionFormalTaskId, setActiveCotizacionFormalTaskId] = useState<string | null>(null);
@@ -317,7 +392,11 @@ export default function CotizadorPage() {
   const addItemModalRef = useRef<HTMLDivElement | null>(null);
 
   useEscapeClose(isClientModalOpen, () => setIsClientModalOpen(false));
-  useEscapeClose(isAddModalOpen, () => setIsAddModalOpen(false));
+  useEscapeClose(isAddModalOpen, () => {
+    setIsAddModalOpen(false);
+    setEditingItemId(null);
+    setNewItemUnitType("pieza");
+  });
   useFocusTrap(isClientModalOpen, clientModalRef);
   useFocusTrap(isAddModalOpen, addItemModalRef);
 
@@ -402,6 +481,45 @@ export default function CotizadorPage() {
   const montoIva = totales.montoIva;
   const totalNeto = totales.totalNeto;
 
+  const collectWorkshopPdfBuildInput = useCallback((): WorkshopPdfBuildInput => {
+    const lines: WorkshopPdfBuildInput["lines"] = [];
+    for (const category of catalogoKuche) {
+      for (const item of category.items) {
+        const qty = quantities[item.id] ?? 0;
+        if (!qty) continue;
+        lines.push({
+          label: item.label,
+          category: category.category,
+          unit: catalogItemUnitLabel(item),
+          qty,
+          unitPrice: item.unitPrice,
+          lineTotal: item.unitPrice * qty,
+        });
+      }
+    }
+    return {
+      client: client.trim() || "Cliente sin nombre",
+      projectType: projectType || "—",
+      location: location.trim() || "Ubicación sin definir",
+      deliveryWeeksLabel: formatDeliveryWeeksLabel(deliveryWeeksMin, deliveryWeeksMax) || "Por definir",
+      precioTotalSinIva,
+      montoIva,
+      totalNeto,
+      lines,
+    };
+  }, [
+    catalogoKuche,
+    quantities,
+    client,
+    projectType,
+    location,
+    deliveryWeeksMin,
+    deliveryWeeksMax,
+    precioTotalSinIva,
+    montoIva,
+    totalNeto,
+  ]);
+
   const handleQuantityChange = (id: string, value: number) => {
     setQuantities((prev) => ({
       ...prev,
@@ -419,12 +537,7 @@ export default function CotizadorPage() {
       try {
         const parsed = JSON.parse(storedCatalog);
         if (Array.isArray(parsed)) {
-          const normalized = parsed.filter(
-            (category: { category?: string; items?: unknown[] }) =>
-              category &&
-              typeof category.category === "string" &&
-              Array.isArray(category.items),
-          );
+          const normalized = normalizeStoredCatalog(parsed);
           if (normalized.length > 0) {
             setCatalogoKuche(normalized);
           }
@@ -678,7 +791,12 @@ export default function CotizadorPage() {
               ...category,
               items: [
                 ...category.items,
-                { id: nextId, label: trimmedName, unitPrice: parsedPrice },
+                {
+                  id: nextId,
+                  label: trimmedName,
+                  unitPrice: parsedPrice,
+                  unitType: newItemUnitType.trim() || "pieza",
+                },
               ],
             }
           : category,
@@ -687,6 +805,7 @@ export default function CotizadorPage() {
 
     setNewItemName("");
     setNewItemPrice("");
+    setNewItemUnitType("pieza");
     setEditingItemId(null);
     setIsAddModalOpen(false);
   };
@@ -726,6 +845,7 @@ export default function CotizadorPage() {
     setEditingItemId(itemId);
     setNewItemName(itemMatch.label);
     setNewItemPrice(String(itemMatch.unitPrice));
+    setNewItemUnitType(catalogItemUnitLabel(itemMatch));
     setNewItemCategory(categoryMatch.category);
     setIsAddModalOpen(true);
   };
@@ -752,7 +872,12 @@ export default function CotizadorPage() {
           ...category,
           items: [
             ...withoutItem,
-            { id: editingItemId, label: trimmedName, unitPrice: parsedPrice },
+            {
+              id: editingItemId,
+              label: trimmedName,
+              unitPrice: parsedPrice,
+              unitType: newItemUnitType.trim() || "pieza",
+            },
           ],
         };
       }),
@@ -760,6 +885,7 @@ export default function CotizadorPage() {
 
     setNewItemName("");
     setNewItemPrice("");
+    setNewItemUnitType("pieza");
     setEditingItemId(null);
     setIsAddModalOpen(false);
   };
@@ -857,7 +983,12 @@ export default function CotizadorPage() {
   };
 
   const validateFormalSections = (): boolean => {
-    const hasProject = client.trim() !== "" || projectType !== "" || location.trim() !== "" || installDate !== "";
+    const hasProject =
+      client.trim() !== "" ||
+      projectType !== "" ||
+      location.trim() !== "" ||
+      deliveryWeeksMin.trim() !== "" ||
+      deliveryWeeksMax.trim() !== "";
     const largoN = Number.parseFloat(largo) || 0;
     const altoN = Number.parseFloat(alto) || 0;
     const fondoN = Number.parseFloat(fondo) || 0;
@@ -870,7 +1001,7 @@ export default function CotizadorPage() {
     client: client.trim() || "—",
     projectType: projectType || "—",
     location: location.trim() || "—",
-    date: installDate || "—",
+    date: formatDeliveryWeeksLabel(deliveryWeeksMin, deliveryWeeksMax) || "—",
     rangeLabel: "Cotización formal",
     cubierta: baseMaterialLabel || "—",
     frente: colorLabel || "—",
@@ -921,12 +1052,32 @@ export default function CotizadorPage() {
         existing != null
           ? (JSON.parse(existing) as Record<string, unknown>)
           : { codigo: codigoProyecto, cliente: taskToUpdate?.project ?? "Cliente", isProspect: false };
+      const prevArchivos = Array.isArray(base.archivos) ? [...(base.archivos as object[])] : [];
+      const safeId = (k: string) => k.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const pdfArchivos: object[] = [];
+      if (data.formalPdfKey) {
+        pdfArchivos.push({
+          id: `seg-formal-${safeId(data.formalPdfKey)}`,
+          name: `Cotización formal — ${data.projectType}.pdf`,
+          type: "pdf",
+          indexedPdfKey: data.formalPdfKey,
+        });
+      }
+      if (data.workshopPdfKey) {
+        pdfArchivos.push({
+          id: `seg-taller-${safeId(data.workshopPdfKey)}`,
+          name: `Hoja de taller — ${data.projectType}.pdf`,
+          type: "pdf",
+          indexedPdfKey: data.workshopPdfKey,
+        });
+      }
       const seguimientoProject = {
         ...base,
         codigo: codigoProyecto,
         cliente: ((base.cliente as string) || taskToUpdate?.project) ?? "Cliente",
         isProspect: false,
         cotizacionesFormales,
+        archivos: [...prevArchivos, ...pdfArchivos],
       };
       window.localStorage.setItem(projectKey, JSON.stringify(seguimientoProject));
     } catch {
@@ -953,6 +1104,16 @@ export default function CotizadorPage() {
       setFinishFormalError("No se pudo generar el PDF. Intenta de nuevo.");
       return;
     }
+    let workshopUrl: string;
+    try {
+      const logoDataUrl = await getImageDataUrl(
+        new URL("/images/kuche-logo.png", window.location.origin).toString(),
+      );
+      workshopUrl = await buildWorkshopPdfDataUrl(collectWorkshopPdfBuildInput(), logoDataUrl);
+    } catch {
+      setFinishFormalError("No se pudo generar la hoja de taller. Intenta de nuevo.");
+      return;
+    }
     const data = buildCotizacionFormalDataFromForm();
     const existingCount = (() => {
       try {
@@ -965,13 +1126,16 @@ export default function CotizadorPage() {
       }
     })();
     const formalPdfKey = createFormalPdfKey(taskId, existingCount);
+    const workshopPdfKey = createWorkshopPdfKey(taskId, existingCount);
     try {
       await saveFormalPdf(formalPdfKey, dataUrl);
+      await saveFormalPdf(workshopPdfKey, workshopUrl);
     } catch {
-      setFinishFormalError("No se pudo guardar el PDF. Intenta de nuevo.");
+      setFinishFormalError("No se pudo guardar los PDFs. Intenta de nuevo.");
       return;
     }
     data.formalPdfKey = formalPdfKey;
+    data.workshopPdfKey = workshopPdfKey;
     const result = saveFormalAndGetNextTasks(data);
     if (!result) return;
     const updatedTasksWithStage = result.updatedTasks.map((task) =>
@@ -988,14 +1152,6 @@ export default function CotizadorPage() {
     window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasksWithStage));
     window.localStorage.removeItem(activeCotizacionFormalTaskStorageKey);
     setActiveCotizacionFormalTaskId(null);
-    try {
-      const link = document.createElement("a");
-      link.href = dataUrl;
-      link.download = `cotizacion-formal-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
-      link.click();
-    } catch {
-      // optional
-    }
     const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey) || "/dashboard/empleado";
     window.localStorage.removeItem(citaReturnUrlStorageKey);
     router.push(returnUrl);
@@ -1016,6 +1172,16 @@ export default function CotizadorPage() {
       setFinishFormalError("No se pudo generar el PDF. Intenta de nuevo.");
       return;
     }
+    let workshopUrl: string;
+    try {
+      const logoDataUrl = await getImageDataUrl(
+        new URL("/images/kuche-logo.png", window.location.origin).toString(),
+      );
+      workshopUrl = await buildWorkshopPdfDataUrl(collectWorkshopPdfBuildInput(), logoDataUrl);
+    } catch {
+      setFinishFormalError("No se pudo generar la hoja de taller. Intenta de nuevo.");
+      return;
+    }
     const data = buildCotizacionFormalDataFromForm();
     const existingCount = (() => {
       try {
@@ -1028,26 +1194,22 @@ export default function CotizadorPage() {
       }
     })();
     const formalPdfKey = createFormalPdfKey(taskId, existingCount);
+    const workshopPdfKey = createWorkshopPdfKey(taskId, existingCount);
     try {
       await saveFormalPdf(formalPdfKey, dataUrl);
+      await saveFormalPdf(workshopPdfKey, workshopUrl);
     } catch {
-      setFinishFormalError("No se pudo guardar el PDF. Intenta de nuevo.");
+      setFinishFormalError("No se pudo guardar los PDFs. Intenta de nuevo.");
       return;
     }
     data.formalPdfKey = formalPdfKey;
+    data.workshopPdfKey = workshopPdfKey;
     const result = saveFormalAndGetNextTasks(data);
     if (!result) return;
-    try {
-      const link = document.createElement("a");
-      link.href = dataUrl;
-      link.download = `cotizacion-formal-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
-      link.click();
-    } catch {
-      // optional
-    }
     setProjectType(projectTypes[0]);
     setLocation("");
-    setInstallDate("");
+    setDeliveryWeeksMin("");
+    setDeliveryWeeksMax("");
     setLargo("4.2");
     setAlto("2.4");
     setFondo("0.6");
@@ -1055,48 +1217,6 @@ export default function CotizadorPage() {
     setMaterialBaseItemId(getDefaultMaterialBaseItemId);
     setColorItemId(getDefaultColorItemId);
     setThicknessItemId(getDefaultThicknessItemId);
-  };
-
-  const buildPrintWindow = (title: string, bodyHtml: string) => {
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      return;
-    }
-    printWindow.document.open();
-    printWindow.document.write(`<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${title}</title>
-    <style>
-      :root { color-scheme: light; }
-      body { font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif; margin: 32px; color: #111827; }
-      h1, h2, h3, p { margin: 0; }
-      .muted { color: #6b7280; }
-      .header { display: flex; align-items: flex-start; justify-content: flex-start; gap: 24px; }
-      .logo { height: 100px; width: 300px; object-fit: contain; object-position: left center; display: block; }
-      .meta { margin-top: 8px; }
-      .section { margin-top: 24px; }
-      .card { border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; }
-      .row { display: flex; justify-content: space-between; gap: 16px; }
-      .row + .row { margin-top: 12px; }
-      .divider { border: 0; border-top: 1px solid #e5e7eb; margin: 16px 0; }
-      .total { font-size: 28px; font-weight: 700; color: #8b1c1c; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { text-align: left; padding: 8px 6px; font-size: 12px; }
-      th { color: #6b7280; font-weight: 600; border-bottom: 1px solid #e5e7eb; }
-      td { border-bottom: 1px solid #f3f4f6; }
-      .right { text-align: right; }
-    </style>
-  </head>
-  <body>
-    ${bodyHtml}
-  </body>
-</html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.onload = () => printWindow.print();
   };
 
   const getImageDataUrl = async (imageUrl: string) => {
@@ -1154,6 +1274,7 @@ export default function CotizadorPage() {
     const softFill: [number, number, number] = [248, 250, 252];
     const lightBorder: [number, number, number] = [226, 232, 240];
     const dateLabel = new Date().toLocaleDateString("es-MX");
+    const deliveryWeeksStr = formatDeliveryWeeksLabel(deliveryWeeksMin, deliveryWeeksMax);
 
     const normalizedType = projectType.toLowerCase();
     const formalProjectType = normalizedType.includes("cocina")
@@ -1239,7 +1360,7 @@ export default function CotizadorPage() {
         ? "La presente propuesta sí incluye conceptos de la categoría Extraíbles y electrodomésticos según la selección del cliente."
         : "La cotización no incluye ningún electrodoméstico salvo que se indique por separado.",
       "Las medidas de los muebles pueden variar dependiendo de las medidas finales del espacio.",
-      "Tiempo de entrega estimado: 8 a 9 semanas.",
+      `Tiempo de entrega estimado: ${deliveryWeeksStr || "Por definir"}.`,
       `Precio base sin IVA: ${formatCurrency(basePrice)}. IVA estimado: ${formatCurrency(ivaEstimado)}.`,
       "Vigencia de la cotización: 15 días naturales.",
     ];
@@ -1304,7 +1425,7 @@ export default function CotizadorPage() {
         ["DIRECCIÓN", location || "Pendiente de definir"],
         ["FECHA", dateLabel],
         ["TIPO DE PROYECTO", formalProjectType],
-        ["FECHA DE INSTALACIÓN", installDate || "Por definir"],
+        ["TIEMPO DE ENTREGA (SEMANAS APROX.)", deliveryWeeksStr || "Por definir"],
       ],
       theme: "grid",
       styles: {
@@ -1486,81 +1607,18 @@ export default function CotizadorPage() {
   const buildFormalPdfDataUrl = (): Promise<string> =>
     handleGenerateClientPdf(true) as Promise<string>;
 
-  const handleGenerateWorkshopPdf = () => {
-    const logoUrl = new URL("/images/kuche-logo.png", window.location.origin).toString();
-    const detailRows = catalogoKuche
-      .map((category) => {
-        const itemRows = category.items
-          .map((item) => {
-            const qty = quantities[item.id] ?? 0;
-            if (!qty) {
-              return "";
-            }
-            const lineTotal = item.unitPrice * qty;
-            return `
-              <tr>
-                <td>${item.label}</td>
-                <td>${category.category}</td>
-                <td class="right">${qty}</td>
-                <td class="right">${formatCurrency(item.unitPrice)}</td>
-                <td class="right">${formatCurrency(lineTotal)}</td>
-              </tr>
-            `;
-          })
-          .join("");
-        if (!itemRows) {
-          return "";
-        }
-        return itemRows;
-      })
-      .join("");
-
-    const bodyHtml = `
-      <div class="header">
-        <img src="${logoUrl}" alt="Kuche" class="logo" />
-        <div>
-          <h1>Hoja de Taller</h1>
-          <p class="muted">${new Date().toLocaleDateString("es-MX")}</p>
-        </div>
-      </div>
-      <div class="meta">
-        <p class="muted">${client || "Cliente sin nombre"} · ${projectType}</p>
-        <p class="muted">${location || "Ubicación sin definir"} · ${installDate || "Fecha sin definir"}</p>
-      </div>
-      <div class="section card">
-        <div class="row">
-          <span class="muted">Total</span>
-          <strong>${formatCurrency(precioTotalSinIva)}</strong>
-        </div>
-        <div class="row">
-          <span class="muted">IVA (16%)</span>
-          <strong>${formatCurrency(montoIva)}</strong>
-        </div>
-        <hr class="divider" />
-        <div class="row">
-          <span class="muted">Total Neto</span>
-          <span class="total">${formatCurrency(totalNeto)}</span>
-        </div>
-      </div>
-      <div class="section">
-        <h2>Detalle técnico</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Material</th>
-              <th>Categoría</th>
-              <th class="right">Cantidad</th>
-              <th class="right">Precio unitario</th>
-              <th class="right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${detailRows || `<tr><td colspan="5" class="muted">Sin materiales seleccionados.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    `;
-    buildPrintWindow("Hoja de Taller", bodyHtml);
+  const handleGenerateWorkshopPdf = async () => {
+    if (typeof window === "undefined") return;
+    setFinishFormalError("");
+    try {
+      const logoDataUrl = await getImageDataUrl(
+        new URL("/images/kuche-logo.png", window.location.origin).toString(),
+      );
+      const url = await buildWorkshopPdfDataUrl(collectWorkshopPdfBuildInput(), logoDataUrl);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      setFinishFormalError("No se pudo generar la hoja de taller. Intenta de nuevo.");
+    }
   };
 
   const scenarioPrices = scenarioCards.map((scenario) => {
@@ -1572,8 +1630,10 @@ export default function CotizadorPage() {
     };
   });
 
+  const showCotizadorBottomBar = Boolean(activeCotizacionFormalTaskId || activeCitaTaskId);
+
   return (
-    <div className="space-y-8 pb-24">
+    <div className={`space-y-8 ${showCotizadorBottomBar ? "pb-32" : "pb-24"}`}>
       <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
         <p className="text-xs uppercase tracking-[0.3em] text-secondary">COTIZADOR PRO</p>
         <h1 className="mt-2 text-3xl font-semibold">Perfil del proyecto</h1>
@@ -1582,29 +1642,16 @@ export default function CotizadorPage() {
         </p>
       </div>
       {activeCitaTaskId ? (
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-primary/10 bg-white/80 p-5 shadow-md backdrop-blur-md">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cita en curso</p>
-            <p className="mt-2 text-sm text-secondary">
-              Al terminar la cita se marcará como completada en el tablero.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleFinishCita}
-            className="rounded-2xl bg-accent px-5 py-3 text-xs font-semibold text-white"
-          >
-            Terminar cita
-          </button>
+        <div className="rounded-3xl border border-primary/10 bg-white/80 p-5 shadow-md backdrop-blur-md">
+          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cita en curso</p>
+          <p className="mt-2 text-sm text-secondary">
+            Al terminar la cita se marcará como completada en el tablero. Usa el botón fijo al pie de la
+            pantalla.
+          </p>
         </div>
       ) : null}
       {activeCotizacionFormalTaskId ? (
-        <FormalCotizacionBanner
-          taskId={activeCotizacionFormalTaskId}
-          onTerminar={handleTerminarCotizacion}
-          onTerminarYContinuar={handleTerminarYContinuar}
-          error={finishFormalError}
-        />
+        <FormalCotizacionBanner taskId={activeCotizacionFormalTaskId} />
       ) : null}
 
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
@@ -1665,15 +1712,29 @@ export default function CotizadorPage() {
               className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
             />
           </label>
-          <label className="text-xs font-semibold text-secondary">
-            Fecha de instalación
-            <input
-              value={installDate}
-              onChange={(event) => setInstallDate(event.target.value)}
-              type="date"
-              className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-            />
-          </label>
+          <div className="text-xs font-semibold text-secondary">
+            <span className="block">Tiempo de entrega (Semanas aproximadas)</span>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={deliveryWeeksMin}
+                onChange={(event) => setDeliveryWeeksMin(event.target.value)}
+                type="number"
+                min={1}
+                step={1}
+                placeholder="Mín."
+                className="min-w-0 flex-1 rounded-2xl border border-primary/10 bg-white px-3 py-3 text-sm outline-none"
+              />
+              <input
+                value={deliveryWeeksMax}
+                onChange={(event) => setDeliveryWeeksMax(event.target.value)}
+                type="number"
+                min={1}
+                step={1}
+                placeholder="Máx."
+                className="min-w-0 flex-1 rounded-2xl border border-primary/10 bg-white px-3 py-3 text-sm outline-none"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="rounded-3xl border border-primary/10 bg-white p-6">
@@ -1893,7 +1954,9 @@ export default function CotizadorPage() {
                       {normalizedSearch ? (
                         <p className="text-[10px] text-secondary">{category}</p>
                       ) : null}
-                      <p className="text-[10px] text-secondary">{formatCurrency(item.unitPrice)}/pz</p>
+                      <p className="text-[10px] text-secondary">
+                        {formatCurrency(item.unitPrice)}/{catalogItemUnitLabel(item)}
+                      </p>
                     </div>
                     <div className="relative" ref={openMenuId === item.id ? openMenuRef : null}>
                       <button
@@ -1977,6 +2040,7 @@ export default function CotizadorPage() {
                 setNewItemCategory(activeCategory?.category ?? catalogoKuche[0]?.category ?? "");
                 setNewItemName("");
                 setNewItemPrice("");
+                setNewItemUnitType("pieza");
                 setEditingItemId(null);
                 setIsAddModalOpen(true);
               }}
@@ -2232,6 +2296,7 @@ export default function CotizadorPage() {
                 onClick={() => {
                   setIsAddModalOpen(false);
                   setEditingItemId(null);
+                  setNewItemUnitType("pieza");
                 }}
                 className="rounded-full border border-primary/10 px-3 py-1 text-xs font-semibold text-secondary"
               >
@@ -2273,6 +2338,21 @@ export default function CotizadorPage() {
                   className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                 />
               </label>
+              <label className="text-xs font-semibold text-secondary">
+                Tipo de unidad
+                <input
+                  value={newItemUnitType}
+                  onChange={(event) => setNewItemUnitType(event.target.value)}
+                  list="catalogo-unit-type-suggestions"
+                  placeholder="Ej. pieza, metro lineal, m²"
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                />
+                <datalist id="catalogo-unit-type-suggestions">
+                  {CATALOGO_UNIT_TYPE_SUGGESTIONS.map((opt) => (
+                    <option key={opt} value={opt} />
+                  ))}
+                </datalist>
+              </label>
             </div>
             <div className="mt-6 flex flex-wrap justify-end gap-3">
               <button
@@ -2280,6 +2360,7 @@ export default function CotizadorPage() {
                 onClick={() => {
                   setIsAddModalOpen(false);
                   setEditingItemId(null);
+                  setNewItemUnitType("pieza");
                 }}
                 className="rounded-2xl border border-primary/10 bg-white px-5 py-2 text-xs font-semibold text-secondary"
               >
@@ -2398,7 +2479,54 @@ export default function CotizadorPage() {
         </div>
       </section>
 
-      <div className="fixed bottom-6 right-6 z-40 w-[260px] rounded-3xl border border-white/70 bg-white/90 p-4 shadow-2xl backdrop-blur-md">
+      {activeCotizacionFormalTaskId ? (
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-emerald-200/90 bg-white/95 px-4 py-3 shadow-[0_-6px_24px_rgba(0,0,0,0.07)] backdrop-blur-md">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-xl text-xs text-secondary">
+              Guarda la cotización formal en la tarjeta y continúa en el tablero. El PDF no se descarga solo:
+              úsalo desde Clientes en proceso o confirmados/proyectos inactivos (admin), o con{" "}
+              <span className="font-semibold text-gray-700">Generar PDF Cliente</span>.
+            </p>
+            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleTerminarCotizacion}
+                className="rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-700"
+              >
+                Terminar
+              </button>
+              <button
+                type="button"
+                onClick={handleTerminarYContinuar}
+                className="rounded-2xl border-2 border-emerald-600 bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+              >
+                Terminar y continuar
+              </button>
+            </div>
+          </div>
+          {finishFormalError ? (
+            <p className="mx-auto mt-2 max-w-6xl text-sm text-rose-600">{finishFormalError}</p>
+          ) : null}
+        </div>
+      ) : activeCitaTaskId ? (
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-primary/15 bg-white/95 px-4 py-3 shadow-[0_-6px_24px_rgba(0,0,0,0.07)] backdrop-blur-md">
+          <div className="mx-auto flex w-full max-w-6xl flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <button
+              type="button"
+              onClick={handleFinishCita}
+              className="rounded-2xl bg-accent px-6 py-2.5 text-sm font-semibold text-white shadow-md transition hover:opacity-95"
+            >
+              Terminar cita
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        className={`fixed right-6 z-40 w-[260px] rounded-3xl border border-white/70 bg-white/90 p-4 shadow-2xl backdrop-blur-md ${
+          showCotizadorBottomBar ? "bottom-28" : "bottom-6"
+        }`}
+      >
         <p className="text-xs uppercase tracking-[0.25em] text-secondary">Total Neto</p>
         <p className="mt-2 text-2xl font-semibold text-accent">{formatCurrency(totalNeto)}</p>
         <p className="mt-2 text-[11px] text-secondary">

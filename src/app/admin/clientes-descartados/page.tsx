@@ -3,8 +3,22 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, XCircle, User, FileText, Calendar, FolderOpen, RotateCcw } from "lucide-react";
-import { initialKanbanTasks, kanbanStorageKey, type KanbanTask } from "@/lib/kanban";
+import { ArrowLeft, XCircle, User, FileText, Calendar, FolderOpen, RotateCcw, Eye, Download } from "lucide-react";
+import {
+  initialKanbanTasks,
+  kanbanStorageKey,
+  getPreliminarList,
+  getCotizacionesFormalesList,
+  type KanbanTask,
+} from "@/lib/kanban";
+import {
+  openPreliminarPdfInNewTab,
+  downloadPreliminarPdf,
+  openFormalPdfInNewTab,
+  downloadFormalPdf,
+  openWorkshopPdfInNewTab,
+  downloadWorkshopPdf,
+} from "@/lib/pdf-preliminar";
 
 type TaskFile = {
   id: string;
@@ -114,12 +128,12 @@ export default function ClientesDescartadosPage() {
                 Administración
               </p>
               <h1 className="text-2xl font-semibold text-gray-900">
-                Clientes Descartados
+                Proyectos Inactivos
               </h1>
             </div>
           </div>
           <p className="mt-2 text-sm text-secondary ml-15">
-            Clientes que no continuaron con el proyecto. Sus datos se conservan por si regresan.
+            Proyectos que por ahora no continúan. Conservamos la información por si el cliente regresa más adelante.
           </p>
         </motion.div>
 
@@ -135,10 +149,10 @@ export default function ClientesDescartadosPage() {
                 <User className="h-8 w-8 text-gray-400" />
               </div>
               <p className="mt-4 text-lg font-medium text-gray-900">
-                No hay clientes descartados
+                No hay proyectos inactivos
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Los clientes que no continúen con su proyecto aparecerán aquí.
+                Los proyectos que no continúen aparecerán aquí.
               </p>
             </div>
           ) : (
@@ -159,7 +173,7 @@ export default function ClientesDescartadosPage() {
                       </div>
                     </div>
                     <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
-                      Descartado
+                      Inactivo
                     </span>
                   </div>
 
@@ -172,6 +186,119 @@ export default function ClientesDescartadosPage() {
                       <User className="h-4 w-4" />
                       <span>Asignado a: {client.assignedTo?.join(", ") || "Sin asignar"}</span>
                     </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3 border-t border-primary/10 pt-4">
+                    {getPreliminarList(client).length > 0 ? (
+                      <div className="rounded-2xl bg-emerald-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">
+                          Levantamiento detallado{" "}
+                          {getPreliminarList(client).length > 1 ? `(${getPreliminarList(client).length})` : ""}
+                        </p>
+                        <div className="mt-2 space-y-2">
+                          {getPreliminarList(client).map((data, idx) => (
+                            <div key={idx} className="flex flex-wrap items-center gap-2 rounded-xl bg-white/80 px-3 py-2">
+                              <span className="text-xs font-medium text-emerald-800">{data.projectType}</span>
+                              <button
+                                type="button"
+                                onClick={() => openPreliminarPdfInNewTab(data)}
+                                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                              >
+                                <Eye className="h-3 w-3" />
+                                Ver PDF
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadPreliminarPdf(
+                                    data,
+                                    `levantamiento-detallado-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${client.project.replace(/\s+/g, "-")}.pdf`,
+                                  )
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                              >
+                                <Download className="h-3 w-3" />
+                                Descargar PDF
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {getCotizacionesFormalesList(client).length > 0 ? (
+                      <div className="rounded-2xl bg-violet-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-violet-800">
+                          Cotización formal + hoja de taller{" "}
+                          {getCotizacionesFormalesList(client).length > 1
+                            ? `(${getCotizacionesFormalesList(client).length})`
+                            : ""}
+                        </p>
+                        <div className="mt-2 space-y-2">
+                          {getCotizacionesFormalesList(client).map((data, idx) => (
+                            <div key={idx} className="space-y-2 rounded-xl bg-white/80 px-3 py-2">
+                              <span className="text-xs font-medium text-violet-800">{data.projectType}</span>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-600/80">
+                                  Formal
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => openFormalPdfInNewTab(data)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  Ver
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    downloadFormalPdf(
+                                      data,
+                                      `cotizacion-formal-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${client.project.replace(/\s+/g, "-")}.pdf`,
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                                >
+                                  <Download className="h-3 w-3" />
+                                  Descargar
+                                </button>
+                                {data.workshopPdfKey ? (
+                                  <>
+                                    <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-violet-600/80">
+                                      Taller
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => openWorkshopPdfInNewTab(data)}
+                                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                                    >
+                                      <Eye className="h-3 w-3" />
+                                      Ver
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        downloadWorkshopPdf(
+                                          data,
+                                          `hoja-taller-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${client.project.replace(/\s+/g, "-")}.pdf`,
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                                    >
+                                      <Download className="h-3 w-3" />
+                                      Descargar
+                                    </button>
+                                  </>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {getPreliminarList(client).length === 0 && getCotizacionesFormalesList(client).length === 0 ? (
+                      <p className="text-xs text-secondary">Sin cotizaciones PDF en esta tarjeta.</p>
+                    ) : null}
                   </div>
 
                   {client.files && client.files.length > 0 ? (
@@ -224,7 +351,7 @@ export default function ClientesDescartadosPage() {
           className="mt-8 rounded-2xl bg-gray-100 px-6 py-4"
         >
           <p className="text-sm text-gray-700">
-            <strong>Total de clientes descartados:</strong> {clients.length}
+            <strong>Total de proyectos inactivos:</strong> {clients.length}
           </p>
           <p className="mt-1 text-xs text-secondary">
             Puedes reactivar a cualquier cliente si decide volver a contactar con la empresa.

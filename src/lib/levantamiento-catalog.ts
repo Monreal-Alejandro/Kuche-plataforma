@@ -394,7 +394,7 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
  * Imagen en `public/images/electrodomesticos/` por id de catálogo (nombre de archivo real del proyecto).
  */
 const APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
-  "micro-sobremesa": "/images/electrodomesticos/microondas-libre-instalacion.jpg",
+  "micro-sobremesa": "/images/electrodomesticos/microondas-libre-instalacion.JPEG",
   "micro-empotrable": "/images/electrodomesticos/microondas-empotrables.png",
   "micro-campana": "/images/electrodomesticos/microondas-con-campana.jpg",
   "estufa-gas": "/images/electrodomesticos/estufa-gas.jpg",
@@ -402,7 +402,7 @@ const APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
   "estufa-piso-material": "/images/electrodomesticos/estufa-de-piso-diseno.jpg",
   "estufa-compacta": "/images/electrodomesticos/estufa-piso-compactas.JPG",
   "refri-top-mount": "/images/electrodomesticos/top-mount2.jpg",
-  "refri-bottom-mount": "/images/electrodomesticos/bottom-mount.jpg",
+  "refri-bottom-mount": "/images/electrodomesticos/bottom-mount.png",
   "refri-side-side": "/images/electrodomesticos/side-by-side.png",
   "refri-french-door": "/images/electrodomesticos/french-door.jpg",
   "refri-frigobar": "/images/electrodomesticos/frigobar1.jpg",
@@ -415,6 +415,7 @@ const APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
 
 /** Rutas extra a probar si la principal falla (typos en nombres de archivo, variantes). */
 const APPLIANCE_LEVANTAMIENTO_IMAGE_EXTRAS: Record<string, readonly string[]> = {
+  "micro-sobremesa": ["/images/electrodomesticos/microondas-con-campana.jpg"],
   "estufa-piso-material": ["/images/electrodomesticos/estufa-de-piso-por-diseno.jpg"],
   "estufa-electrica": ["/images/electrodomesticos/estufa-electrica2.jpg"],
   "refri-top-mount": ["/images/electrodomesticos/top-moount.jpg"],
@@ -430,6 +431,15 @@ const APPLIANCE_LEVANTAMIENTO_IMAGE_EXTRAS: Record<string, readonly string[]> = 
   ],
 };
 
+const ELECTRO_PUBLIC_PREFIX = "/images/electrodomesticos/";
+
+/** URLs que usa la UI: electrodomésticos vía API (query `n=` para nombres con `.jpg`). */
+function toApplianceDisplayUrl(url: string): string {
+  if (!url.startsWith(ELECTRO_PUBLIC_PREFIX)) return url;
+  const file = url.slice(ELECTRO_PUBLIC_PREFIX.length);
+  return `/api/electro-img?n=${encodeURIComponent(file)}`;
+}
+
 /** Orden: principal dedicada, alternativas en carpeta, imagen del catálogo, placeholder (sin duplicados). */
 export function applianceLevantamientoImageCandidates(item: ItemCatalogo): string[] {
   const primary = APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID[item.id];
@@ -437,7 +447,7 @@ export function applianceLevantamientoImageCandidates(item: ItemCatalogo): strin
   const raw = [primary, ...extras, item.image, APPLIANCE_CATALOGO_IMAGE_FALLBACK].filter(
     (u): u is string => Boolean(u?.trim()),
   );
-  return [...new Set(raw)];
+  return [...new Set(raw)].map(toApplianceDisplayUrl);
 }
 
 /** Primera ruta dedicada en `electrodomesticos/`, si existe en el mapa. */
@@ -481,51 +491,70 @@ export function applianceFirstIndexForCategory(categoria: string): number {
   return i === -1 ? 0 : i;
 }
 
+/** Fotos en `public/images/levantamiento/iluminacion/` (nombres al exportar desde Documentos). */
+const LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
+  "led-bajo": "/images/levantamiento/iluminacion/led-bajo.jpg",
+  spots: "/images/levantamiento/iluminacion/spots-empotrados-techo-cocina.jpg",
+  colgante: "/images/levantamiento/iluminacion/lampara-colgante-isla-cocina.jpg",
+  "perfil-led": "/images/levantamiento/iluminacion/perfil-led.jpg",
+  indirecta: "/images/levantamiento/iluminacion/luz-indirecta-cornisa.jpg",
+  sensor: "/images/levantamiento/iluminacion/sensor-led-interior.jpg",
+  sink: "/images/levantamiento/iluminacion/luz-focal-fregadero.jpg",
+  "foco-ajustable": "/images/levantamiento/iluminacion/foco-ajustable-riel.jpg",
+  "tira-vitrina": "/images/levantamiento/iluminacion/tira-led-vitrina.jpg",
+};
+
+export function lightingLevantamientoImageCandidates(item: ItemCatalogo): string[] {
+  const primary = LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID[item.id] ?? item.image;
+  const raw = [primary, APPLIANCE_CATALOGO_IMAGE_FALLBACK].filter((u): u is string => Boolean(u?.trim()));
+  return [...new Set(raw)];
+}
+
 export const LIGHTING_ITEMS: ItemCatalogo[] = [
   {
     id: "led-bajo",
     label: "LED bajo alacena",
-    image: "/images/render1.jpg",
+    image: LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID["led-bajo"]!,
   },
   {
     id: "spots",
     label: "Spots empotrados techo",
-    image: "/images/render3.jpg",
+    image: LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID.spots!,
   },
   {
     id: "colgante",
     label: "Colgante isla / mesón",
-    image: "/images/render4.jpg",
+    image: LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID.colgante!,
   },
   {
     id: "perfil-led",
     label: "Perfil LED lineal",
-    image: "/images/cocina2.jpg",
+    image: LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID["perfil-led"]!,
   },
   {
     id: "indirecta",
     label: "Luz indirecta / cornisa",
-    image: "/images/cocina5.jpg",
+    image: LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID.indirecta!,
   },
   {
     id: "sensor",
     label: "Sensor / LED gabinete interior",
-    image: "/images/cocina6.jpg",
+    image: LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID.sensor!,
   },
   {
     id: "sink",
     label: "Luz focal tarja",
-    image: "/images/render5.jpg",
+    image: LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID.sink!,
   },
   {
     id: "foco-ajustable",
     label: "Foco ajustable riel",
-    image: "/images/cocina1.jpg",
+    image: LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID["foco-ajustable"]!,
   },
   {
     id: "tira-vitrina",
     label: "Tira LED vitrina",
-    image: "/images/render3.jpg",
+    image: LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID["tira-vitrina"]!,
   },
 ];
 
@@ -556,6 +585,10 @@ export function emptyMedidas(): MedidasCampos {
   return { ancho: "", alto: "", fondo: "" };
 }
 
+export function medidasCamposTieneValor(m: MedidasCampos): boolean {
+  return [m.ancho, m.alto, m.fondo].some((v) => (v ?? "").trim() !== "");
+}
+
 export function initMeasuresMap(ids: string[]): Record<string, MedidasCampos> {
   const map: Record<string, MedidasCampos> = {};
   ids.forEach((id) => {
@@ -574,6 +607,32 @@ export function defaultLevantamientoDetalle(): LevantamientoDetalle {
     lightingMeasures: initMeasuresMap(LIGHTING_ITEMS.map((l) => l.id)),
     lightingOtro: emptyOtro(),
   };
+}
+
+/**
+ * Heurística para el rango preliminar: más secciones con texto, tipos con medidas u «Otro»
+ * implican más alcance de diseño/taller. No sustituye partidas ni cotización formal.
+ * ~1.2% por unidad de alcance, tope +18%.
+ */
+export function levantamientoDetalleScopeMultiplier(lev: LevantamientoDetalle): number {
+  let n = 0;
+  const com = lev.sectionComments;
+  for (const k of ["a", "b", "c", "d", "e"] as const) {
+    if (com[k]?.trim()) n += 1;
+  }
+  for (const m of Object.values(lev.wallMeasures)) {
+    if (wallMeasuresTieneValor(m)) n += 1;
+  }
+  if (lev.wallOtro.descripcion.trim() || medidasCamposTieneValor(lev.wallOtro)) n += 1;
+  for (const m of Object.values(lev.applianceMeasures)) {
+    if (medidasCamposTieneValor(m)) n += 1;
+  }
+  if (lev.applianceOtro.descripcion.trim() || medidasCamposTieneValor(lev.applianceOtro)) n += 1;
+  for (const m of Object.values(lev.lightingMeasures)) {
+    if (medidasCamposTieneValor(m)) n += 1;
+  }
+  if (lev.lightingOtro.descripcion.trim() || medidasCamposTieneValor(lev.lightingOtro)) n += 1;
+  return 1 + Math.min(0.18, n * 0.012);
 }
 
 function mergeMeasuresMapFromRaw(

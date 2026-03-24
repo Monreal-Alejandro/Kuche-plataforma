@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { UserPlus, Calculator, FileText } from "lucide-react";
 
+import { DueDateInput } from "@/components/DueDateInput";
 import { KanbanTablero } from "@/components/KanbanTablero";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -188,6 +189,7 @@ export default function OperacionesPage() {
     setNewTaskPriority("media");
     setNewTaskDueDate("");
     setNewTaskLocation("");
+    setNewTaskMapsUrl("");
     setAssignError("");
     setIsAssignModalOpen(true);
   };
@@ -394,15 +396,18 @@ export default function OperacionesPage() {
                   <option value="baja">Baja</option>
                 </select>
               </label>
-              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                Fecha límite (opcional)
-                <input
-                  type="date"
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                <span className="block">
+                  {newTaskStage === "citas"
+                    ? "Fecha de la cita (opcional)"
+                    : "Fecha límite (opcional)"}
+                </span>
+                <DueDateInput
                   value={newTaskDueDate}
-                  onChange={(e) => setNewTaskDueDate(e.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  onChange={(next) => setNewTaskDueDate(next ?? "")}
+                  className="mt-2"
                 />
-              </label>
+              </div>
             </div>
             {assignError ? (
               <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-600">

@@ -14,6 +14,7 @@ import {
   emptyWallMeasuresForId,
   getApplianceCategoryProgress,
   getWallMeasureFieldDefs,
+  levantamientoDetalleScopeMultiplier,
   LIGHTING_ITEMS,
   LIGHTING_PAGE_INDICES,
   type MedidasCampos,
@@ -21,8 +22,14 @@ import {
   WALL_PAGE_INDICES,
   type LevantamientoDetalle,
 } from "@/lib/levantamiento-catalog";
-import { buildPreliminarPdf, downloadPreliminarPdf } from "@/lib/pdf-preliminar";
+import {
+  buildPreliminarPdfDataUrl,
+  downloadPreliminarPdf,
+} from "@/lib/pdf-preliminar";
+import { createPreliminarSeguimientoPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
+import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
 import ApplianceTypeImage from "@/components/levantamiento/ApplianceTypeImage";
+import LightingTypeImage from "@/components/levantamiento/LightingTypeImage";
 import WallTypeImage from "@/components/levantamiento/WallTypeImage";
 import Link from "next/link";
 
@@ -646,7 +653,8 @@ export default function CotizadorPreliminarPage() {
   const [clientName, setClientName] = useState("");
   const [projectType, setProjectType] = useState("Cocina");
   const [location, setLocation] = useState("");
-  const [installDate, setInstallDate] = useState("");
+  const [deliveryWeeksMin, setDeliveryWeeksMin] = useState("");
+  const [deliveryWeeksMax, setDeliveryWeeksMax] = useState("");
   const [largo, setLargo] = useState("4.2");
   const [alto, setAlto] = useState("2.4");
   const [fondo, setFondo] = useState("0.6");
@@ -667,6 +675,7 @@ export default function CotizadorPreliminarPage() {
   const [applianceStep, setApplianceStep] = useState(0);
   const [applianceSearch, setApplianceSearch] = useState("");
   const [lightingPage, setLightingPage] = useState(1);
+  const [lightingSearch, setLightingSearch] = useState("");
 
   const setSectionComment = (key: "a" | "b" | "c" | "d" | "e", value: string) => {
     setLevantamiento((prev) => ({
@@ -714,14 +723,16 @@ export default function CotizadorPreliminarPage() {
   type EditableFieldId =
     | "clientName"
     | "location"
-    | "installDate"
+    | "deliveryWeeksMin"
+    | "deliveryWeeksMax"
     | "largo"
     | "alto"
     | "fondo";
 
   const clientNameInputRef = useRef<HTMLInputElement | null>(null);
   const locationInputRef = useRef<HTMLInputElement | null>(null);
-  const installDateInputRef = useRef<HTMLInputElement | null>(null);
+  const deliveryWeeksMinInputRef = useRef<HTMLInputElement | null>(null);
+  const deliveryWeeksMaxInputRef = useRef<HTMLInputElement | null>(null);
   const largoInputRef = useRef<HTMLInputElement | null>(null);
   const altoInputRef = useRef<HTMLInputElement | null>(null);
   const fondoInputRef = useRef<HTMLInputElement | null>(null);
@@ -730,7 +741,8 @@ export default function CotizadorPreliminarPage() {
   const caretPositionsRef = useRef<Record<EditableFieldId, number | null>>({
     clientName: null,
     location: null,
-    installDate: null,
+    deliveryWeeksMin: null,
+    deliveryWeeksMax: null,
     largo: null,
     alto: null,
     fondo: null,
@@ -745,7 +757,8 @@ export default function CotizadorPreliminarPage() {
 
     if (lastEdited === "clientName") inputEl = clientNameInputRef.current;
     if (lastEdited === "location") inputEl = locationInputRef.current;
-    if (lastEdited === "installDate") inputEl = installDateInputRef.current;
+    if (lastEdited === "deliveryWeeksMin") inputEl = deliveryWeeksMinInputRef.current;
+    if (lastEdited === "deliveryWeeksMax") inputEl = deliveryWeeksMaxInputRef.current;
     if (lastEdited === "largo") inputEl = largoInputRef.current;
     if (lastEdited === "alto") inputEl = altoInputRef.current;
     if (lastEdited === "fondo") inputEl = fondoInputRef.current;
@@ -763,7 +776,7 @@ export default function CotizadorPreliminarPage() {
         // Ignorar navegadores/contextos donde no se pueda ajustar la selección
       }
     }
-  }, [clientName, location, installDate, largo, alto, fondo]);
+  }, [clientName, location, deliveryWeeksMin, deliveryWeeksMax, largo, alto, fondo]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -787,13 +800,17 @@ export default function CotizadorPreliminarPage() {
   }, []);
 
   const validatePreliminarSections = (): string | null => {
-    const hasDatos = clientName.trim() !== "" || location.trim() !== "" || installDate !== "";
+    const hasDatos =
+      clientName.trim() !== "" ||
+      location.trim() !== "" ||
+      deliveryWeeksMin.trim() !== "" ||
+      deliveryWeeksMax.trim() !== "";
     const hasMedidas =
       (Number.parseFloat(largo) || 0) > 0 ||
       (Number.parseFloat(alto) || 0) > 0 ||
       (Number.parseFloat(fondo) || 0) > 0;
     if (!hasDatos)
-      return "Completa al menos un campo de Datos del proyecto (cliente, ubicación o fecha).";
+      return "Completa al menos un campo de Datos del proyecto (cliente, ubicación o semanas de entrega).";
     if (!hasMedidas) return "Completa al menos una medida (largo, alto o fondo mayor a 0).";
     return null;
   };
@@ -806,7 +823,7 @@ export default function CotizadorPreliminarPage() {
       client: clientName || "Sin nombre",
       projectType,
       location: location || "Por definir",
-      date: installDate || "Por definir",
+      date: formatDeliveryWeeksLabel(deliveryWeeksMin, deliveryWeeksMax) || "Por definir",
       rangeLabel: scenarioRangeLabel,
       cubierta: cubierta?.name ?? "Sin definir",
       frente: frente?.name ?? "Sin definir",
@@ -815,7 +832,9 @@ export default function CotizadorPreliminarPage() {
     };
   };
 
-  const savePreliminarAndGetNextTasks = (): { codigoProyecto: string | undefined; updatedTasks: KanbanTask[] } | null => {
+  const savePreliminarAndGetNextTasks = (options?: {
+    seguimientoPdf?: { key: string; fileLabel: string };
+  }): { codigoProyecto: string | undefined; updatedTasks: KanbanTask[] } | null => {
     if (!activeCitaTaskId || !activeCitaTask) return null;
     const err = validatePreliminarSections();
     if (err) {
@@ -864,14 +883,37 @@ export default function CotizadorPreliminarPage() {
 
     if (codigoProyecto) {
       const projectKey = `${seguimientoProjectStoragePrefix}${codigoProyecto}`;
-      const seguimientoProject = {
+      let existingParsed: Record<string, unknown> = {};
+      try {
+        const existing = window.localStorage.getItem(projectKey);
+        if (existing) existingParsed = JSON.parse(existing) as Record<string, unknown>;
+      } catch {
+        // ignore
+      }
+      const preliminarCotizaciones = getPreliminarList(
+        updatedTasks.find((t) => t.id === activeCitaTaskId) ?? activeCitaTask,
+      );
+      const seguimientoProject: Record<string, unknown> = {
+        ...existingParsed,
         codigo: codigoProyecto,
         cliente: activeCitaTask.project ?? clientName ?? "Cliente",
         isProspect: true,
-        preliminarCotizaciones: getPreliminarList(
-          updatedTasks.find((t) => t.id === activeCitaTaskId) ?? activeCitaTask,
-        ),
+        preliminarCotizaciones,
       };
+      if (options?.seguimientoPdf) {
+        const prevArchivos = Array.isArray(existingParsed.archivos)
+          ? [...(existingParsed.archivos as object[])]
+          : [];
+        seguimientoProject.archivos = [
+          ...prevArchivos,
+          {
+            id: `seg-preliminar-${options.seguimientoPdf.key}`,
+            name: options.seguimientoPdf.fileLabel,
+            type: "pdf",
+            indexedPdfKey: options.seguimientoPdf.key,
+          },
+        ];
+      }
       try {
         window.localStorage.setItem(projectKey, JSON.stringify(seguimientoProject));
       } catch {
@@ -882,12 +924,35 @@ export default function CotizadorPreliminarPage() {
     return { codigoProyecto, updatedTasks };
   };
 
-  const handleFinishCita = () => {
+  const handleFinishCita = async () => {
     setFinishError(null);
-    if (!activeCitaTaskId) return;
-    const result = savePreliminarAndGetNextTasks();
-    if (!result) return;
+    if (!activeCitaTaskId || !activeCitaTask) return;
+    const err = validatePreliminarSections();
+    if (err) {
+      setFinishError(err);
+      return;
+    }
     const newPreliminar = buildPreliminarDataFromForm();
+    const existingCount = getPreliminarList(activeCitaTask).length;
+    const preliminarPdfKey = createPreliminarSeguimientoPdfKey(activeCitaTaskId, existingCount);
+    let dataUrl: string;
+    try {
+      dataUrl = await buildPreliminarPdfDataUrl(newPreliminar);
+    } catch {
+      setFinishError("No se pudo generar el PDF para seguimiento. Intenta de nuevo.");
+      return;
+    }
+    try {
+      await saveFormalPdf(preliminarPdfKey, dataUrl);
+    } catch {
+      setFinishError("No se pudo guardar el PDF. Intenta de nuevo.");
+      return;
+    }
+    const fileLabel = `Levantamiento detallado — ${newPreliminar.projectType}.pdf`;
+    const result = savePreliminarAndGetNextTasks({
+      seguimientoPdf: { key: preliminarPdfKey, fileLabel },
+    });
+    if (!result) return;
     const updatedTasksWithStage = result.updatedTasks.map((task) =>
       task.id === activeCitaTaskId
         ? { ...task, stage: "disenos" as const, status: "pendiente" as const }
@@ -895,28 +960,44 @@ export default function CotizadorPreliminarPage() {
     );
     window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasksWithStage));
     window.localStorage.removeItem(activeCitaTaskStorageKey);
-    downloadPreliminarPdf(
-      newPreliminar,
-      `levantamiento-detallado-${(newPreliminar.projectType || "proyecto").replace(/\s+/g, "-")}-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`,
-    );
     const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey);
     window.localStorage.removeItem(citaReturnUrlStorageKey);
     router.push(returnUrl || "/dashboard/empleado");
   };
 
-  const handleFinishAndContinue = () => {
+  const handleFinishAndContinue = async () => {
     setFinishError(null);
-    if (!activeCitaTaskId) return;
-    const result = savePreliminarAndGetNextTasks();
-    if (!result) return;
+    if (!activeCitaTaskId || !activeCitaTask) return;
+    const err = validatePreliminarSections();
+    if (err) {
+      setFinishError(err);
+      return;
+    }
     const newPreliminar = buildPreliminarDataFromForm();
-    downloadPreliminarPdf(
-      newPreliminar,
-      `levantamiento-detallado-${(newPreliminar.projectType || "proyecto").replace(/\s+/g, "-")}-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`,
-    );
+    const existingCount = getPreliminarList(activeCitaTask).length;
+    const preliminarPdfKey = createPreliminarSeguimientoPdfKey(activeCitaTaskId, existingCount);
+    let dataUrl: string;
+    try {
+      dataUrl = await buildPreliminarPdfDataUrl(newPreliminar);
+    } catch {
+      setFinishError("No se pudo generar el PDF para seguimiento. Intenta de nuevo.");
+      return;
+    }
+    try {
+      await saveFormalPdf(preliminarPdfKey, dataUrl);
+    } catch {
+      setFinishError("No se pudo guardar el PDF. Intenta de nuevo.");
+      return;
+    }
+    const fileLabel = `Levantamiento detallado — ${newPreliminar.projectType}.pdf`;
+    const result = savePreliminarAndGetNextTasks({
+      seguimientoPdf: { key: preliminarPdfKey, fileLabel },
+    });
+    if (!result) return;
     setProjectType("Cocina");
     setLocation("");
-    setInstallDate("");
+    setDeliveryWeeksMin("");
+    setDeliveryWeeksMax("");
     setLargo("4.2");
     setAlto("2.4");
     setFondo("0.6");
@@ -930,6 +1011,7 @@ export default function CotizadorPreliminarPage() {
     setApplianceStep(0);
     setApplianceSearch("");
     setLightingPage(1);
+    setLightingSearch("");
   };
 
   const metrics = useMemo(() => {
@@ -1006,12 +1088,17 @@ export default function CotizadorPreliminarPage() {
     return scenarioOptions.find((scenario) => scenario.id === selectedScenario)?.multiplier ?? 1;
   }, [scenarioOptions, selectedScenario]);
 
+  const levantamientoScopeMultiplier = useMemo(
+    () => levantamientoDetalleScopeMultiplier(levantamiento),
+    [levantamiento],
+  );
+
   const scenarioRangeLabel = useMemo(() => {
-    const scenarioSubtotal = metrics.subtotal * selectedScenarioMultiplier;
+    const scenarioSubtotal = metrics.subtotal * selectedScenarioMultiplier * levantamientoScopeMultiplier;
     const min = scenarioSubtotal * 0.92;
     const max = scenarioSubtotal * 1.08;
     return `${formatCurrency(min)} - ${formatCurrency(max)}`;
-  }, [metrics.subtotal, selectedScenarioMultiplier]);
+  }, [metrics.subtotal, selectedScenarioMultiplier, levantamientoScopeMultiplier]);
 
   useEffect(() => {
     setPages({ cubiertas: 1, frentes: 1, herrajes: 1 });
@@ -1049,8 +1136,19 @@ export default function CotizadorPreliminarPage() {
     });
   }, [applianceSearchNorm]);
 
+  const lightingSearchNorm = lightingSearch.trim().toLowerCase();
+  const filteredLightingItems = useMemo(() => {
+    if (!lightingSearchNorm) return null;
+    return LIGHTING_ITEMS.filter((item) => {
+      const hay = `${item.label} ${item.id} ${item.hint ?? ""}`.toLowerCase();
+      return hay.includes(lightingSearchNorm);
+    });
+  }, [lightingSearchNorm]);
+
   return (
-    <main className="min-h-screen bg-background px-4 py-10 pb-44 text-primary">
+    <main
+      className={`min-h-screen bg-background px-4 py-10 text-primary ${activeCitaTask ? "pb-36 sm:pb-32" : "pb-10"}`}
+    >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
         <header>
           <p className="text-xs uppercase tracking-[0.3em] text-secondary">Levantamiento</p>
@@ -1062,40 +1160,21 @@ export default function CotizadorPreliminarPage() {
 
         {activeCitaTask ? (
           <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-emerald-800">
-                    Cita activa: {activeCitaTask.project}
-                  </p>
-                  <p className="text-xs text-emerald-600">
-                    Completa la cotización y termina la cita cuando estés listo.
-                  </p>
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
               </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={handleFinishCita}
-                  className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-700"
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  Terminar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleFinishAndContinue}
-                  className="flex items-center justify-center gap-2 rounded-2xl border-2 border-emerald-600 bg-white px-6 py-3 text-sm font-semibold text-emerald-600 shadow-lg transition hover:bg-emerald-50"
-                >
-                  Terminar y continuar
-                </button>
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">
+                  Cita activa: {activeCitaTask.project}
+                </p>
+                <p className="text-xs text-emerald-600">
+                  Completa el formulario; al pie tienes <strong>Terminar</strong> y{" "}
+                  <strong>Terminar y continuar</strong>. La estimación se guarda en la tarjeta; descarga el PDF
+                  desde Clientes en proceso o las listas del panel admin cuando la necesites (o con{" "}
+                  <strong>Generar estimación en PDF</strong> arriba).
+                </p>
               </div>
-              {finishError ? (
-                <p className="mt-3 text-sm text-rose-600">{finishError}</p>
-              ) : null}
             </div>
           </div>
         ) : null}
@@ -1153,21 +1232,49 @@ export default function CotizadorPreliminarPage() {
                     className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
                   />
                 </label>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Fecha tentativa
-                  <input
-                    ref={installDateInputRef}
-                    value={installDate}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      lastEditedFieldRef.current = "installDate";
-                      caretPositionsRef.current.installDate = event.target.selectionStart ?? null;
-                      setInstallDate(nextValue);
-                    }}
-                    type="date"
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
-                  />
-                </label>
+                <div className="md:col-span-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Tiempo de entrega (Semanas aproximadas)
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    <label className="min-w-[100px] flex-1 text-[11px] font-semibold text-secondary">
+                      Mín. semanas
+                      <input
+                        ref={deliveryWeeksMinInputRef}
+                        value={deliveryWeeksMin}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          lastEditedFieldRef.current = "deliveryWeeksMin";
+                          caretPositionsRef.current.deliveryWeeksMin = event.target.selectionStart ?? null;
+                          setDeliveryWeeksMin(nextValue);
+                        }}
+                        type="number"
+                        min={1}
+                        step={1}
+                        placeholder="ej. 8"
+                        className="mt-1 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                      />
+                    </label>
+                    <label className="min-w-[100px] flex-1 text-[11px] font-semibold text-secondary">
+                      Máx. semanas
+                      <input
+                        ref={deliveryWeeksMaxInputRef}
+                        value={deliveryWeeksMax}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          lastEditedFieldRef.current = "deliveryWeeksMax";
+                          caretPositionsRef.current.deliveryWeeksMax = event.target.selectionStart ?? null;
+                          setDeliveryWeeksMax(nextValue);
+                        }}
+                        type="number"
+                        min={1}
+                        step={1}
+                        placeholder="ej. 9"
+                        className="mt-1 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1573,12 +1680,12 @@ export default function CotizadorPreliminarPage() {
             </div>
             {currentApplianceItem ? (
               <div className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
-                <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-primary/5">
+                <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
                   <ApplianceTypeImage item={currentApplianceItem} alt="" />
-                  <span className="absolute left-2 top-2 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
+                  <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
                     {currentApplianceItem.categoria ?? "Electrodoméstico"}
                   </span>
-                  <span className="absolute bottom-2 left-2 right-2 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold leading-snug text-white">
+                  <span className="pointer-events-none absolute bottom-2 left-2 right-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold leading-snug text-white">
                     {currentApplianceItem.label}
                   </span>
                 </div>
@@ -1760,100 +1867,178 @@ export default function CotizadorPreliminarPage() {
                 Ejemplos de luminarios para maquetar el levantamiento; la lista definitiva la confirma la empresa.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {([1, 2, 3, 4] as const).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setLightingPage(n)}
-                  className={`min-h-8 min-w-8 rounded-full px-3 text-xs font-semibold transition ${
-                    lightingPage === n
-                      ? "bg-[#8B1C1C] text-white"
-                      : "border border-primary/10 bg-white text-secondary hover:border-primary/30"
-                  }`}
-                >
-                  {n === 4 ? "Otro" : `Página ${n}`}
-                </button>
-              ))}
-            </div>
-            {lightingPage < 4 ? (
-              <div className="space-y-10">
-                {LIGHTING_PAGE_INDICES[lightingPage - 1].map((idx) => {
-                  const item = LIGHTING_ITEMS[idx];
-                  const m = levantamiento.lightingMeasures[item.id] ?? { ancho: "", alto: "", fondo: "" };
-                  return (
-                    <div
-                      key={item.id}
-                      className="grid gap-4 border-b border-primary/5 pb-10 last:border-0 last:pb-0 lg:grid-cols-[minmax(0,240px)_1fr]"
-                    >
-                      <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-primary/5">
-                        <img
-                          src={item.image}
-                          alt=""
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                          onError={(e) => {
-                            e.currentTarget.src = "/images/hero-placeholder.svg";
-                          }}
-                        />
-                        <span className="absolute bottom-2 left-2 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                          {item.label}
-                        </span>
-                      </div>
-                      <div className="space-y-3">
-                        <p className="text-sm font-semibold text-primary">{item.label}</p>
-                        <div className="grid gap-3 sm:grid-cols-3">
-                          {(["ancho", "alto", "fondo"] as const).map((field) => (
-                            <label
-                              key={field}
-                              className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
-                            >
-                              {field} (m)
-                              <input
-                                value={m[field]}
-                                onChange={(e) =>
-                                  patchMedidasMap("lightingMeasures", item.id, field, e.target.value)
-                                }
-                                inputMode="decimal"
-                                className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                              />
-                            </label>
-                          ))}
+            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+              Buscar tipo de iluminación
+              <span className="relative mt-2 block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary/70" />
+                <input
+                  value={lightingSearch}
+                  onChange={(e) => setLightingSearch(e.target.value)}
+                  placeholder="Ej. LED, spot, colgante, indirecta…"
+                  className="w-full rounded-2xl border border-primary/10 bg-white py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-secondary/45"
+                />
+              </span>
+            </label>
+            {filteredLightingItems !== null ? (
+              <div className="space-y-4">
+                {filteredLightingItems.length === 0 ? (
+                  <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
+                    No hay tipos que coincidan. Prueba otra palabra o borra la búsqueda para ver las páginas.
+                  </div>
+                ) : (
+                  <div className="space-y-10">
+                    <p className="text-xs font-semibold text-secondary">
+                      {filteredLightingItems.length} resultado{filteredLightingItems.length === 1 ? "" : "s"}
+                    </p>
+                    {filteredLightingItems.map((item) => {
+                      const m = levantamiento.lightingMeasures[item.id] ?? { ancho: "", alto: "", fondo: "" };
+                      return (
+                        <div
+                          key={item.id}
+                          className="grid gap-4 border-b border-primary/5 pb-10 last:border-0 last:pb-0 lg:grid-cols-[minmax(0,240px)_1fr]"
+                        >
+                          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
+                            <LightingTypeImage item={item} alt="" />
+                            <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                              {item.label}
+                            </span>
+                          </div>
+                          <div className="space-y-3">
+                            <p className="text-sm font-semibold text-primary">{item.label}</p>
+                            <div className="grid gap-3 sm:grid-cols-3">
+                              {(["ancho", "alto", "fondo"] as const).map((field) => (
+                                <label
+                                  key={field}
+                                  className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                                >
+                                  {field} (m)
+                                  <input
+                                    value={m[field]}
+                                    onChange={(e) =>
+                                      patchMedidasMap("lightingMeasures", item.id, field, e.target.value)
+                                    }
+                                    inputMode="decimal"
+                                    className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
-                <p className="text-sm font-semibold text-primary">Otro luminario o esquema</p>
-                <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Descripción
-                  <textarea
-                    value={levantamiento.lightingOtro.descripcion}
-                    onChange={(e) => patchOtro("lightingOtro", "descripcion", e.target.value)}
-                    rows={3}
-                    className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {(["ancho", "alto", "fondo"] as const).map((field) => (
-                    <label
-                      key={field}
-                      className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
-                    >
-                      {field} (m)
-                      <input
-                        value={levantamiento.lightingOtro[field]}
-                        onChange={(e) => patchOtro("lightingOtro", field, e.target.value)}
-                        inputMode="decimal"
-                        className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                      />
-                    </label>
-                  ))}
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLightingSearch("")}
+                    className="rounded-full border border-primary/15 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
+                  >
+                    Limpiar búsqueda y ver por páginas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLightingSearch("");
+                      setLightingPage(4);
+                    }}
+                    className="rounded-full border border-dashed border-primary/25 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
+                  >
+                    Ir a «Otro» (luminario no listado)
+                  </button>
                 </div>
               </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  {([1, 2, 3, 4] as const).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setLightingPage(n)}
+                      className={`min-h-8 min-w-8 rounded-full px-3 text-xs font-semibold transition ${
+                        lightingPage === n
+                          ? "bg-[#8B1C1C] text-white"
+                          : "border border-primary/10 bg-white text-secondary hover:border-primary/30"
+                      }`}
+                    >
+                      {n === 4 ? "Otro" : `Página ${n}`}
+                    </button>
+                  ))}
+                </div>
+                {lightingPage < 4 ? (
+                  <div className="space-y-10">
+                    {LIGHTING_PAGE_INDICES[lightingPage - 1].map((idx) => {
+                      const item = LIGHTING_ITEMS[idx];
+                      const m = levantamiento.lightingMeasures[item.id] ?? { ancho: "", alto: "", fondo: "" };
+                      return (
+                        <div
+                          key={item.id}
+                          className="grid gap-4 border-b border-primary/5 pb-10 last:border-0 last:pb-0 lg:grid-cols-[minmax(0,240px)_1fr]"
+                        >
+                          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
+                            <LightingTypeImage item={item} alt="" />
+                            <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                              {item.label}
+                            </span>
+                          </div>
+                          <div className="space-y-3">
+                            <p className="text-sm font-semibold text-primary">{item.label}</p>
+                            <div className="grid gap-3 sm:grid-cols-3">
+                              {(["ancho", "alto", "fondo"] as const).map((field) => (
+                                <label
+                                  key={field}
+                                  className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                                >
+                                  {field} (m)
+                                  <input
+                                    value={m[field]}
+                                    onChange={(e) =>
+                                      patchMedidasMap("lightingMeasures", item.id, field, e.target.value)
+                                    }
+                                    inputMode="decimal"
+                                    className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
+                    <p className="text-sm font-semibold text-primary">Otro luminario o esquema</p>
+                    <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                      Descripción
+                      <textarea
+                        value={levantamiento.lightingOtro.descripcion}
+                        onChange={(e) => patchOtro("lightingOtro", "descripcion", e.target.value)}
+                        rows={3}
+                        className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                      />
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {(["ancho", "alto", "fondo"] as const).map((field) => (
+                        <label
+                          key={field}
+                          className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                        >
+                          {field} (m)
+                          <input
+                            value={levantamiento.lightingOtro[field]}
+                            onChange={(e) => patchOtro("lightingOtro", field, e.target.value)}
+                            inputMode="decimal"
+                            className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
@@ -1881,8 +2066,10 @@ export default function CotizadorPreliminarPage() {
             </div>
             <div className="grid gap-6 lg:grid-cols-3">
               {scenarioOptions.map((scenario) => {
-                const min = metrics.subtotal * scenario.multiplier * 0.94;
-                const max = metrics.subtotal * scenario.multiplier * 1.06;
+                const min =
+                  metrics.subtotal * scenario.multiplier * levantamientoScopeMultiplier * 0.94;
+                const max =
+                  metrics.subtotal * scenario.multiplier * levantamientoScopeMultiplier * 1.06;
                 const isActive = selectedScenario === scenario.id;
                 return (
                   <button
@@ -1937,7 +2124,8 @@ export default function CotizadorPreliminarPage() {
                 Generar Estimación en PDF
               </button>
               <p className="mt-3 text-xs text-secondary">
-                El PDF incluye datos generales y el rango estimado, sin desglose técnico.
+                El PDF incluye portada (datos, materiales, rango) y anexo con comentarios y medidas del
+                levantamiento cuando hay información capturada.
               </p>
             </div>
             <div className="rounded-2xl border border-primary/10 bg-primary/5 p-6">
@@ -1948,19 +2136,25 @@ export default function CotizadorPreliminarPage() {
                 <div>
                   <p className="text-xs text-secondary">Subtotal</p>
                   <p className="text-4xl font-bold text-[#8B1C1C]">
-                    {formatCurrency(metrics.subtotal * selectedScenarioMultiplier)}
+                    {formatCurrency(
+                      metrics.subtotal * selectedScenarioMultiplier * levantamientoScopeMultiplier,
+                    )}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-secondary">IVA (16%)</p>
                   <p className="text-4xl font-bold text-[#8B1C1C]">
-                    {formatCurrency(metrics.iva * selectedScenarioMultiplier)}
+                    {formatCurrency(
+                      metrics.iva * selectedScenarioMultiplier * levantamientoScopeMultiplier,
+                    )}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-secondary">Total neto</p>
                   <p className="text-4xl font-bold text-[#8B1C1C]">
-                    {formatCurrency(metrics.total * selectedScenarioMultiplier)}
+                    {formatCurrency(
+                      metrics.total * selectedScenarioMultiplier * levantamientoScopeMultiplier,
+                    )}
                   </p>
                 </div>
                 <div className="rounded-2xl bg-white px-4 py-3 text-sm text-secondary">
@@ -1971,11 +2165,53 @@ export default function CotizadorPreliminarPage() {
           </div>
         </SectionCard>
       </div>
-      <div className="fixed bottom-6 right-6 z-40 w-[260px] rounded-3xl border border-white/70 bg-white/90 p-4 shadow-2xl backdrop-blur-md">
+      {activeCitaTask ? (
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-emerald-200/90 bg-white/95 px-4 py-3 shadow-[0_-6px_24px_rgba(0,0,0,0.07)] backdrop-blur-md">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-xl text-xs text-secondary">
+              Cierra la cita y guarda la estimación en la tarjeta del cliente. Con{" "}
+              <span className="font-semibold text-emerald-800">Terminar y continuar</span> el formulario se
+              reinicia para otro espacio. El PDF no se descarga solo: úsalo desde la vista de clientes o con{" "}
+              <span className="font-semibold text-emerald-800">Generar estimación en PDF</span>.
+            </p>
+            <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+              <button
+                type="button"
+                onClick={handleFinishCita}
+                className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-700"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Terminar
+              </button>
+              <button
+                type="button"
+                onClick={handleFinishAndContinue}
+                className="flex items-center justify-center gap-2 rounded-2xl border-2 border-emerald-600 bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+              >
+                Terminar y continuar
+              </button>
+            </div>
+          </div>
+          {finishError ? (
+            <p className="mx-auto mt-2 max-w-6xl text-sm text-rose-600">{finishError}</p>
+          ) : null}
+        </div>
+      ) : null}
+      <div
+        className={`fixed right-6 z-40 w-[260px] rounded-3xl border border-white/70 bg-white/90 p-4 shadow-2xl backdrop-blur-md ${
+          activeCitaTask ? "bottom-28" : "bottom-6"
+        }`}
+      >
         <p className="text-xs uppercase tracking-[0.25em] text-secondary">Rango estimado</p>
         <p className="mt-2 text-xl font-semibold text-[#8B1C1C]">
           {scenarioRangeLabel}
         </p>
+        {levantamientoScopeMultiplier > 1.001 ? (
+          <p className="mt-1.5 text-[10px] leading-snug text-secondary">
+            Incluye ~{Math.round((levantamientoScopeMultiplier - 1) * 100)}% por volumen de información del levantamiento
+            (heurística; no son partidas).
+          </p>
+        ) : null}
         <p className="mt-2 text-[11px] text-secondary">
           {selectedSummary.meters} m lineales / {selectedSummary.label || "Selección en curso"}
         </p>
