@@ -12,10 +12,12 @@ import { KanbanTablero } from "@/components/KanbanTablero";
 import {
   kanbanColumns,
   kanbanStorageKey,
+  saveKanbanTasksToLocalStorage,
   type KanbanTask,
   type TaskPriority,
   type TaskStage,
 } from "@/lib/kanban";
+import { generatePublicProjectCode } from "@/lib/project-code";
 
 const projectBudget = 145000;
 const formatCurrency = (value: number) =>
@@ -121,13 +123,13 @@ export default function EmpleadoDashboard() {
       location: newTaskLocation.trim() || undefined,
       mapsUrl: newTaskMapsUrl.trim() || undefined,
       createdAt: now,
-      codigoProyecto: `K-${now}`,
+      codigoProyecto: generatePublicProjectCode(),
     };
     try {
       const stored = window.localStorage.getItem(kanbanStorageKey);
       const current: KanbanTask[] = stored ? JSON.parse(stored) : [];
       const next = Array.isArray(current) ? [...current, newTask] : [newTask];
-      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+      saveKanbanTasksToLocalStorage(next);
       setRefreshTrigger((t) => t + 1);
       setIsNewTaskModalOpen(false);
       setNewTaskProject("");

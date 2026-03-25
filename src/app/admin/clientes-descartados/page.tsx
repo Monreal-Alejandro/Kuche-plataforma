@@ -7,6 +7,7 @@ import { ArrowLeft, XCircle, User, FileText, Calendar, FolderOpen, RotateCcw, Ey
 import {
   initialKanbanTasks,
   kanbanStorageKey,
+  saveKanbanTasksToLocalStorage,
   getPreliminarList,
   getCotizacionesFormalesList,
   type KanbanTask,
@@ -54,13 +55,13 @@ export default function ClientesDescartadosPage() {
       try {
         const parsed = JSON.parse(stored) as KanbanTask[];
         allTasks = mergeTasks(parsed);
-        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(allTasks));
+        saveKanbanTasksToLocalStorage(allTasks);
       } catch {
         allTasks = initialKanbanTasks;
       }
     } else {
       allTasks = initialKanbanTasks;
-      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(allTasks));
+      saveKanbanTasksToLocalStorage(allTasks);
     }
     
     const discarded = allTasks.filter((task) => task.followUpStatus === "descartado");
@@ -77,16 +78,16 @@ export default function ClientesDescartadosPage() {
           if (task.id === clientId) {
             return {
               ...task,
-              followUpStatus: "pendiente",
-              status: "pendiente",
-              stage: "contrato",
+              followUpStatus: "pendiente" as const,
+              status: "pendiente" as const,
+              stage: "contrato" as const,
               followUpEnteredAt: Date.now(),
             };
           }
           return task;
         });
-        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasks));
-        setClients(updatedTasks.filter((task) => task.followUpStatus === "descartado"));
+        saveKanbanTasksToLocalStorage(updatedTasks);
+        setClients(updatedTasks.filter((t) => t.followUpStatus === "descartado"));
       } catch {
         console.error("Error al reactivar cliente");
       }
@@ -170,6 +171,12 @@ export default function ClientesDescartadosPage() {
                       <div>
                         <h3 className="font-semibold text-gray-900">{client.project}</h3>
                         <p className="text-sm text-secondary">{client.title}</p>
+                        {client.codigoProyecto ? (
+                          <p className="mt-2 text-[11px] text-secondary">
+                            Código:{" "}
+                            <span className="font-semibold text-primary">{client.codigoProyecto}</span>
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">

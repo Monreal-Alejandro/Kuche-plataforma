@@ -3,7 +3,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { activeCitaTaskStorageKey, kanbanStorageKey, citaReturnUrlStorageKey, getPreliminarList, seguimientoProjectStoragePrefix, type KanbanTask, type PreliminarData } from "@/lib/kanban";
+import {
+  activeCitaTaskStorageKey,
+  kanbanStorageKey,
+  citaReturnUrlStorageKey,
+  getPreliminarList,
+  saveKanbanTasksToLocalStorage,
+  seguimientoProjectStoragePrefix,
+  type KanbanTask,
+  type PreliminarData,
+} from "@/lib/kanban";
 import {
   APPLIANCE_CATEGORIAS,
   APPLIANCE_ITEMS,
@@ -32,6 +41,12 @@ import ApplianceTypeImage from "@/components/levantamiento/ApplianceTypeImage";
 import LightingTypeImage from "@/components/levantamiento/LightingTypeImage";
 import WallTypeImage from "@/components/levantamiento/WallTypeImage";
 import Link from "next/link";
+import { generatePublicProjectCode } from "@/lib/project-code";
+import {
+  defaultPagosForInversion,
+  formatSeguimientoDateLong,
+  normalizeEtapaForStorage,
+} from "@/lib/seguimiento-project";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
@@ -861,7 +876,7 @@ export default function CotizadorPreliminarPage() {
       if (task.id !== activeCitaTaskId) return task;
       const existingList = getPreliminarList(task);
       const preliminarCotizaciones = [...existingList, newPreliminar];
-      codigoProyecto = task.codigoProyecto ?? `K-${Date.now()}`;
+      codigoProyecto = task.codigoProyecto ?? generatePublicProjectCode();
       return {
         ...task,
         codigoProyecto,
@@ -874,7 +889,7 @@ export default function CotizadorPreliminarPage() {
     });
 
     try {
-      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasks));
+      saveKanbanTasksToLocalStorage(updatedTasks);
     } catch {
       // Si por alguna razón no podemos escribir en localStorage (cuota, modo incógnito, etc.),
       // evitamos bloquear el flujo de la cita. Los datos de esta sesión podrían no persistir,
@@ -893,12 +908,24 @@ export default function CotizadorPreliminarPage() {
       const preliminarCotizaciones = getPreliminarList(
         updatedTasks.find((t) => t.id === activeCitaTaskId) ?? activeCitaTask,
       );
+      const estimatedInversion = Math.round(
+        metrics.subtotal * selectedScenarioMultiplier * levantamientoScopeMultiplier * 1.16,
+      );
       const seguimientoProject: Record<string, unknown> = {
         ...existingParsed,
         codigo: codigoProyecto,
         cliente: activeCitaTask.project ?? clientName ?? "Cliente",
         isProspect: true,
         preliminarCotizaciones,
+        inversion: estimatedInversion,
+        fechaInicio: formatSeguimientoDateLong(),
+        fechaEntrega: newPreliminar.date || "Por definir",
+        etapaActual: normalizeEtapaForStorage(existingParsed.etapaActual),
+        estadoProyecto: "Prospecto",
+        pagos: defaultPagosForInversion(estimatedInversion),
+        garantiaInicio: "",
+        cotizacionPreliminarImage: "",
+        cotizacionFormalImage: "",
       };
       if (options?.seguimientoPdf) {
         const prevArchivos = Array.isArray(existingParsed.archivos)
@@ -958,7 +985,7 @@ export default function CotizadorPreliminarPage() {
         ? { ...task, stage: "disenos" as const, status: "pendiente" as const }
         : task,
     );
-    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasksWithStage));
+    saveKanbanTasksToLocalStorage(updatedTasksWithStage);
     window.localStorage.removeItem(activeCitaTaskStorageKey);
     const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey);
     window.localStorage.removeItem(citaReturnUrlStorageKey);

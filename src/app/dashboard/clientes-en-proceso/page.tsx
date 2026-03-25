@@ -120,6 +120,12 @@ export default function ClientesEnProcesoPage() {
                     <div>
                       <h3 className="text-lg font-semibold text-gray-900">{task.project}</h3>
                       <p className="mt-1 text-sm text-secondary">{task.title}</p>
+                      {task.codigoProyecto ? (
+                        <p className="mt-2 text-[11px] text-secondary">
+                          Código:{" "}
+                          <span className="font-semibold text-primary">{task.codigoProyecto}</span>
+                        </p>
+                      ) : null}
                       <span className="mt-2 inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                         {stageLabel[task.stage] ?? task.stage}
                       </span>

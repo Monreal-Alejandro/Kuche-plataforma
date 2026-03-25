@@ -12,6 +12,40 @@ import {
 } from "@/lib/levantamiento-catalog";
 import { getFormalPdf } from "@/lib/formal-pdf-storage";
 
+/** Tiempo antes de revocar el object URL (la pestaña nueva debe terminar de cargar). */
+const PDF_OBJECT_URL_TAB_MS = 120_000;
+
+/**
+ * Abre un PDF en pestaña nueva. Los data URL largos desde IndexedDB suelen abrir en blanco con window.open directo;
+ * convertimos a Blob + object URL. No usar noopener con blob: en algunos navegadores deja la pestaña vacía.
+ */
+function openStoredPdfInNewTab(stored: string): void {
+  void (async () => {
+    if (!stored) return;
+    try {
+      if (stored.startsWith("data:")) {
+        const res = await fetch(stored);
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const win = window.open(objectUrl, "_blank");
+        if (!win) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setTimeout(() => URL.revokeObjectURL(objectUrl), PDF_OBJECT_URL_TAB_MS);
+        return;
+      }
+      window.open(stored, "_blank", "noopener,noreferrer");
+    } catch {
+      try {
+        window.open(stored, "_blank");
+      } catch {
+        /* ignore */
+      }
+    }
+  })();
+}
+
 const escapePdfText = (value: string) =>
   value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 
@@ -308,8 +342,12 @@ export function openPreliminarPdfInNewTab(data: PreliminarData): void {
   const pdf = buildPreliminarPdf(data);
   const blob = new Blob([pdf], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
-  window.open(url, "_blank", "noopener,noreferrer");
-  URL.revokeObjectURL(url);
+  const win = window.open(url, "_blank");
+  if (!win) {
+    URL.revokeObjectURL(url);
+    return;
+  }
+  setTimeout(() => URL.revokeObjectURL(url), PDF_OBJECT_URL_TAB_MS);
 }
 
 /** Descarga el PDF con nombre sugerido. */
@@ -339,19 +377,19 @@ export function buildPreliminarPdfDataUrl(data: PreliminarData): Promise<string>
 /** Abre un PDF guardado en IndexedDB por clave (formal, taller o levantamiento-seguimiento). */
 export function openPdfFromIndexedKey(key: string): void {
   getFormalPdf(key).then((url) => {
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    if (url) openStoredPdfInNewTab(url);
   });
 }
 
 /** Abre el PDF formal en una nueva pestaña. Busca en IndexedDB por formalPdfKey, o usa pdfDataUrl si existe; si no, genera el PDF preliminar como fallback. */
 export function openFormalPdfInNewTab(data: CotizacionFormalData): void {
   if (data.pdfDataUrl) {
-    window.open(data.pdfDataUrl, "_blank", "noopener,noreferrer");
+    openStoredPdfInNewTab(data.pdfDataUrl);
     return;
   }
   if (data.formalPdfKey) {
     getFormalPdf(data.formalPdfKey).then((url) => {
-      if (url) window.open(url, "_blank", "noopener,noreferrer");
+      if (url) openStoredPdfInNewTab(url);
       else openPreliminarPdfInNewTab(data);
     });
     return;
@@ -388,7 +426,7 @@ export function downloadFormalPdf(data: CotizacionFormalData, filename?: string)
 export function openWorkshopPdfInNewTab(data: CotizacionFormalData): void {
   if (!data.workshopPdfKey) return;
   getFormalPdf(data.workshopPdfKey).then((url) => {
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    if (url) openStoredPdfInNewTab(url);
   });
 }
 

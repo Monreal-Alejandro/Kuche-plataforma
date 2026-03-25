@@ -17,6 +17,7 @@ import {
   getCotizacionesFormalesList,
   kanbanStorageKey,
   initialKanbanTasks,
+  saveKanbanTasksToLocalStorage,
   seguimientoProjectStoragePrefix,
   type KanbanTask,
   type CotizacionFormalData,
@@ -24,6 +25,12 @@ import {
 import { buildWorkshopPdfDataUrl, type WorkshopPdfBuildInput } from "@/lib/cotizacion-workshop-pdf";
 import { createFormalPdfKey, createWorkshopPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
 import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
+import { generatePublicProjectCode } from "@/lib/project-code";
+import {
+  formatSeguimientoDateLong,
+  mergePagosPreservingReceipts,
+  normalizeEtapaForStorage,
+} from "@/lib/seguimiento-project";
 
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
 /** Precio por metro lineal para material base (según ítem de ESTRUCTURA seleccionado). */
@@ -976,7 +983,7 @@ export default function CotizadorPage() {
         citaFinished: true,
       };
     });
-    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+    saveKanbanTasksToLocalStorage(next);
     window.localStorage.removeItem(activeCitaTaskStorageKey);
     setActiveCitaTaskId(null);
     router.push("/dashboard/empleado");
@@ -1027,7 +1034,7 @@ export default function CotizadorPage() {
       }
     }
     const taskToUpdate = baseTasks.find((t) => t.id === taskId);
-    const codigoProyecto = taskToUpdate?.codigoProyecto ?? `K-${Date.now()}`;
+    const codigoProyecto = taskToUpdate?.codigoProyecto ?? generatePublicProjectCode();
     const existingList = taskToUpdate ? getCotizacionesFormalesList(taskToUpdate) : [];
     const cotizacionesFormales = [...existingList, data];
     const next = baseTasks.map((task) => {
@@ -1044,7 +1051,7 @@ export default function CotizadorPage() {
         followUpStatus: task.followUpStatus,
       };
     });
-    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+    saveKanbanTasksToLocalStorage(next);
     const projectKey = `${seguimientoProjectStoragePrefix}${codigoProyecto}`;
     try {
       const existing = window.localStorage.getItem(projectKey);
@@ -1063,19 +1070,26 @@ export default function CotizadorPage() {
           indexedPdfKey: data.formalPdfKey,
         });
       }
-      if (data.workshopPdfKey) {
-        pdfArchivos.push({
-          id: `seg-taller-${safeId(data.workshopPdfKey)}`,
-          name: `Hoja de taller — ${data.projectType}.pdf`,
-          type: "pdf",
-          indexedPdfKey: data.workshopPdfKey,
-        });
-      }
+      const inversion = Math.round(totalNeto);
+      const fechaInicioPersist =
+        typeof base.fechaInicio === "string" && base.fechaInicio.trim()
+          ? base.fechaInicio
+          : formatSeguimientoDateLong();
+      const pagosMerged = mergePagosPreservingReceipts(base.pagos, inversion);
       const seguimientoProject = {
         ...base,
         codigo: codigoProyecto,
         cliente: ((base.cliente as string) || taskToUpdate?.project) ?? "Cliente",
         isProspect: false,
+        inversion,
+        fechaInicio: fechaInicioPersist,
+        fechaEntrega: data.date || "Por definir",
+        etapaActual: normalizeEtapaForStorage(base.etapaActual),
+        estadoProyecto:
+          typeof base.estadoProyecto === "string" && base.estadoProyecto.trim()
+            ? base.estadoProyecto
+            : "En proceso",
+        pagos: pagosMerged,
         cotizacionesFormales,
         archivos: [...prevArchivos, ...pdfArchivos],
       };
@@ -1149,7 +1163,7 @@ export default function CotizadorPage() {
           }
         : task,
     );
-    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasksWithStage));
+    saveKanbanTasksToLocalStorage(updatedTasksWithStage);
     window.localStorage.removeItem(activeCotizacionFormalTaskStorageKey);
     setActiveCotizacionFormalTaskId(null);
     const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey) || "/dashboard/empleado";

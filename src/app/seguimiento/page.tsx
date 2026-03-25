@@ -1,6 +1,6 @@
  "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, CheckCircle2, Download, FileText, Image as ImageIcon } from "lucide-react";
 
@@ -12,54 +12,43 @@ import {
   downloadPreliminarPdf,
   openFormalPdfInNewTab,
   downloadFormalPdf,
-  openWorkshopPdfInNewTab,
-  downloadWorkshopPdf,
   openPdfFromIndexedKey,
 } from "@/lib/pdf-preliminar";
+import {
+  isPagoRegistrado,
+  mergeSeguimientoFromStorage,
+  TIMELINE_STEPS,
+  type SeguimientoClienteProject,
+} from "@/lib/seguimiento-project";
 
-const baseMockProject = {
-  codigo: "K-8821",
-  cliente: "Residencial Navarro",
-  isProspect: true,
-  estadoProyecto: "Completado/Entregado",
-  inversion: 145000,
-  fechaInicio: "12 Octubre",
-  fechaEntrega: "15 Noviembre",
-  garantiaInicio: "2026-02-24",
-  cotizacionPreliminarImage: "/images/render5.jpg",
-  cotizacionFormalImage: "/images/render6.jpg",
-  etapaActual: "Corte CNC",
-  pagos: {
-    anticipo: {
-      amount: 45000,
-      date: "24/Feb/2026",
-      receiptLabel: "Ver Recibo",
-      receiptImage: "/images/render1.jpg",
-    },
-    segundoPago: {
-      amount: 30000,
-      date: "12/Mar/2026",
-      receiptLabel: "Ver Recibo",
-      receiptImage: "/images/render2.jpg",
-    },
-    liquidacion: {
-      amount: 0,
-      date: "",
-      receiptLabel: "Ver Recibo",
-      receiptImage: "/images/render3.jpg",
-    },
-  },
-  archivos: [
-    { id: "f1", name: "Levantamiento_Detallado.pdf", type: "pdf", src: "" },
-    { id: "f2", name: "Plano_Instalaciones.pdf", type: "pdf", src: "" },
-    {
-      id: "f3",
-      name: "Moodboard_Cocina.jpg",
-      type: "jpg",
-      src: "/images/render4.jpg",
-    },
-  ],
-} as const;
+const normalizeText = (value: string) =>
+  value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+const getPdfButtonPrimaryLabelFromFileName = (fileName: string) => {
+  const n = normalizeText(fileName);
+  if (n.includes("levantamiento detallado")) return "Ver Levantamiento Detallado";
+  if (n.includes("cotizacion formal")) return "Ver cotización formal";
+  return "Ver PDF";
+};
+
+const getPdfButtonSecondaryFromFileName = (fileName: string) => {
+  // Ej: "Levantamiento detallado — Cocina.pdf" => "Cocina"
+  const raw = fileName.replace(/\.pdf$/i, "").trim();
+  const parts = raw.split("—");
+  if (parts.length >= 2) return parts[parts.length - 1].trim();
+  const dashParts = raw.split("-");
+  if (dashParts.length >= 2) return dashParts[dashParts.length - 1].trim();
+  return "";
+};
+
+/** CTAs compactos: un cliente puede tener varias cotizaciones en la misma tarjeta. */
+const inversionPdfCtaPrimaryClass =
+  "inline-flex max-w-full items-center justify-center rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold leading-tight text-white shadow-sm ring-1 ring-black/5 transition hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const inversionPdfCtaSecondaryClass =
+  "inline-flex items-center justify-center rounded-full border border-primary/15 bg-white px-2.5 py-1 text-[11px] font-semibold leading-tight text-primary shadow-sm transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent";
+/** Una cotización: tipo + etiqueta + botones en la misma fila. */
+const inversionPdfQuoteRowClass =
+  "flex flex-row flex-wrap items-center gap-1.5 rounded-lg border border-primary/10 bg-primary/[0.02] px-2 py-1 sm:gap-2 sm:px-2.5";
 
 type SeguimientoArchivo = {
   id: string;
@@ -70,8 +59,8 @@ type SeguimientoArchivo = {
   indexedPdfKey?: string;
 };
 
-/** Proyecto guardado para seguimiento; puede venir del cotizador (preliminar/formal) o ser mock. */
-type SeguimientoProject = typeof baseMockProject & {
+/** Proyecto guardado para seguimiento (localStorage + normalización). */
+type SeguimientoProject = SeguimientoClienteProject & {
   preliminarData?: PreliminarData;
   cotizacionFormalData?: CotizacionFormalData;
   preliminarCotizaciones?: PreliminarData[];
@@ -88,42 +77,15 @@ function getFormalesListFromProject(p: SeguimientoProject): CotizacionFormalData
   return p.cotizacionFormalData ? [p.cotizacionFormalData] : [];
 }
 
-const timelineSteps = [
-  "Diseño Aprobado",
-  "Materiales en Taller",
-  "Corte CNC",
-  "Ensamble",
-  "Instalación Final",
-];
+type PaymentStepAlert = {
+  step: string;
+  label: string;
+  status: "paid" | "pending";
+  tooltip: string;
+};
 
-const paymentAlerts = [
-  {
-    step: "Diseño Aprobado",
-    label: "Anticipo",
-    status: "paid" as const,
-    tooltip: "Pago recibido. Gracias por impulsar tu proyecto.",
-  },
-  {
-    step: "Corte CNC",
-    label: "2do Pago",
-    status: "pending" as const,
-    tooltip: "Recordatorio: 2do pago pendiente. Tu proyecto sigue avanzando.",
-  },
-  {
-    step: "Instalación Final",
-    label: "Liquidación",
-    status: "pending" as const,
-    tooltip: "Recordatorio: liquidación pendiente. Tu proyecto sigue avanzando.",
-  },
-];
-
-const paymentByStep = paymentAlerts.reduce<Record<string, (typeof paymentAlerts)[number]>>(
-  (acc, alert) => {
-    acc[alert.step] = alert;
-    return acc;
-  },
-  {},
-);
+/** Evita null en hooks antes de cargar proyecto con código. */
+const VOID_SEGUIMIENTO = mergeSeguimientoFromStorage({ codigo: "", cliente: "" });
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
@@ -140,17 +102,30 @@ const installments = [
 
 const formatPayment = (payment: { amount: number; date?: string }) => {
   const formatted = formatCurrency(payment.amount);
-  return payment.date ? `${formatted} - ${payment.date}` : formatted;
+  if (payment.date?.trim()) return `${formatted} · ${payment.date}`;
+  if (payment.amount > 0) return `${formatted} · programado`;
+  return formatted;
 };
 
 const GarantiaCountdown = ({ startDate }: { startDate: string }) => {
   const msInDay = 1000 * 60 * 60 * 24;
   const daysLeft = useMemo(() => {
-    const start = new Date(startDate);
+    const t = Date.parse(startDate);
+    if (Number.isNaN(t)) return null;
+    const start = new Date(t);
     const today = new Date();
     const daysPassed = Math.floor((today.getTime() - start.getTime()) / msInDay);
     return Math.max(0, 365 - daysPassed);
-  }, [startDate, msInDay]);
+  }, [startDate]);
+
+  if (daysLeft === null) {
+    return (
+      <div className="rounded-3xl border border-primary/10 bg-white p-6 text-sm text-secondary shadow-lg">
+        Registra la fecha de inicio de garantía cuando el proyecto quede entregado para ver los días
+        restantes.
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-3xl bg-gradient-to-br from-accent/10 via-white to-white p-6 shadow-lg">
@@ -185,39 +160,79 @@ export default function SeguimientoPage() {
   useEscapeClose(Boolean(selectedImage), () => setSelectedImage(null));
   useFocusTrap(Boolean(selectedImage), modalRef);
 
-  const currentProject = project ?? baseMockProject;
+  const currentProject = project ?? VOID_SEGUIMIENTO;
   const isProspect = currentProject.isProspect;
   const currentIndex = useMemo(
-    () => Math.max(0, timelineSteps.indexOf(currentProject.etapaActual)),
-    [],
+    () => Math.max(0, TIMELINE_STEPS.indexOf(currentProject.etapaActual)),
+    [currentProject.etapaActual],
   );
+  const paymentByStep = useMemo(() => {
+    const { pagos } = currentProject;
+    const alerts: PaymentStepAlert[] = [
+      {
+        step: "Diseño Aprobado",
+        label: "Anticipo",
+        status: isPagoRegistrado(pagos.anticipo) ? "paid" : "pending",
+        tooltip: isPagoRegistrado(pagos.anticipo)
+          ? "Pago recibido. Gracias por impulsar tu proyecto."
+          : "Pendiente: anticipo. Coordina con el equipo Küche.",
+      },
+      {
+        step: "Corte CNC",
+        label: "2do pago",
+        status: isPagoRegistrado(pagos.segundoPago) ? "paid" : "pending",
+        tooltip: isPagoRegistrado(pagos.segundoPago)
+          ? "Segundo pago registrado."
+          : "Recordatorio: segundo pago. Tu proyecto sigue avanzando.",
+      },
+      {
+        step: "Instalación Final",
+        label: "Liquidación",
+        status: isPagoRegistrado(pagos.liquidacion) ? "paid" : "pending",
+        tooltip: isPagoRegistrado(pagos.liquidacion)
+          ? "Liquidación registrada."
+          : "Recordatorio: liquidación pendiente al cierre de obra.",
+      },
+    ];
+    return alerts.reduce<Record<string, PaymentStepAlert>>((acc, a) => {
+      acc[a.step] = a;
+      return acc;
+    }, {});
+  }, [currentProject.pagos]);
+  const timelineProgressPct = useMemo(() => {
+    const max = TIMELINE_STEPS.length - 1;
+    if (max <= 0) return 0;
+    return (currentIndex / max) * 100;
+  }, [currentIndex]);
+  const garantiaFechaValida =
+    typeof currentProject.garantiaInicio === "string" &&
+    currentProject.garantiaInicio.trim().length > 0 &&
+    !Number.isNaN(Date.parse(currentProject.garantiaInicio));
   const totalPagado =
-    currentProject.pagos.anticipo.amount +
-    currentProject.pagos.segundoPago.amount +
-    currentProject.pagos.liquidacion.amount;
+    (isPagoRegistrado(currentProject.pagos.anticipo) ? currentProject.pagos.anticipo.amount : 0) +
+    (isPagoRegistrado(currentProject.pagos.segundoPago) ? currentProject.pagos.segundoPago.amount : 0) +
+    (isPagoRegistrado(currentProject.pagos.liquidacion) ? currentProject.pagos.liquidacion.amount : 0);
   const restante = Math.max(0, currentProject.inversion - totalPagado);
   const infoLockedText = "Esta información se activará una vez apruebes tu proyecto.";
   /** Incluye PDFs enlazados al terminar levantamiento (prospecto) o cotización formal + taller. */
-  const filesInSections = currentProject.archivos ?? [];
+  /** La hoja de taller no se muestra al cliente; solo formal y levantamiento. */
+  const filesInSections = useMemo(() => {
+    const all = currentProject.archivos ?? [];
+    return all.filter((file) => {
+      const f = file as SeguimientoArchivo;
+      if (typeof f.indexedPdfKey === "string" && f.indexedPdfKey.startsWith("workshop-")) {
+        return false;
+      }
+      if (normalizeText(f.name).includes("hoja de taller")) return false;
+      return true;
+    });
+  }, [currentProject.archivos]);
   const quoteButtonLabel = isProspect
     ? "Ver Levantamiento Detallado"
     : "Ver cotización formal";
   const quoteImageSrc = isProspect
-    ? currentProject.cotizacionPreliminarImage
-    : currentProject.cotizacionFormalImage;
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storageKey = `kuche_project_${baseMockProject.codigo}`;
-    try {
-      const stored = window.localStorage.getItem(storageKey);
-      if (!stored) {
-        window.localStorage.setItem(storageKey, JSON.stringify(baseMockProject));
-      }
-    } catch {
-      // ignore storage errors
-    }
-  }, []);
+    ? String(currentProject.cotizacionPreliminarImage ?? "")
+    : String(currentProject.cotizacionFormalImage ?? "");
 
   return (
     <main className="min-h-screen bg-background text-primary">
@@ -257,7 +272,7 @@ export default function SeguimientoPage() {
                         return;
                       }
                       const parsed = JSON.parse(stored) as Record<string, unknown>;
-                      setProject({ ...baseMockProject, ...parsed } as unknown as SeguimientoProject);
+                      setProject(mergeSeguimientoFromStorage(parsed) as SeguimientoProject);
                       setHasAccess(true);
                       setCodeError(null);
                     } catch {
@@ -305,11 +320,14 @@ export default function SeguimientoPage() {
                     Proyecto Residencial {currentProject.cliente}
                   </h1>
                 </div>
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid items-start gap-4 md:grid-cols-3">
                   {[
                     {
                       label: "Inversión total",
-                      value: formatCurrency(currentProject.inversion),
+                      value:
+                        currentProject.inversion > 0
+                          ? formatCurrency(currentProject.inversion)
+                          : "Por definir",
                       extra: (
                         <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-secondary">
                           <span className="rounded-full bg-primary/5 px-3 py-1">
@@ -331,17 +349,23 @@ export default function SeguimientoPage() {
                       highlight: true,
                     },
                   ].map((item) => {
-                    const valueNode = isProspect ? (
-                      <span className="mt-3 inline-flex rounded-2xl bg-primary/5 px-3 py-2 text-xs font-semibold text-secondary">
-                        {infoLockedText}
-                      </span>
-                    ) : (
-                      item.value
-                    );
+                    const valueNode = (() => {
+                      if (!isProspect) return item.value;
+                      if (item.label === "Inversión total") return item.value;
+                      if (item.label === "Fecha inicio" || item.label === "Entrega estimada") {
+                        const v = String(item.value ?? "");
+                        if (v.trim() && v !== "Por definir") return v;
+                      }
+                      return (
+                        <span className="mt-3 inline-flex rounded-2xl bg-primary/5 px-3 py-2 text-xs font-semibold text-secondary">
+                          {infoLockedText}
+                        </span>
+                      );
+                    })();
                     return (
                     <div
                       key={item.label}
-                      className={`relative rounded-3xl bg-white p-6 shadow-lg ${
+                      className={`rounded-3xl bg-white p-6 shadow-lg ${
                         item.highlight ? "border border-accent/40" : "border border-white"
                       }`}
                     >
@@ -355,113 +379,71 @@ export default function SeguimientoPage() {
                           const list = isProspect ? preliminarList : formalesList;
                           const prefix = isProspect ? "levantamiento-detallado" : "cotizacion-formal";
                           if (hasPdfData && list.length > 0) {
+                            const kindLabel = isProspect
+                              ? "Levantamiento detallado"
+                              : "Cotización formal";
                             return (
-                              <div className="absolute right-6 top-6 space-y-2">
-                                {isProspect ? (
-                                  list.length === 1 ? (
-                                    <button
-                                      type="button"
-                                      className="rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                                      onClick={() => openPreliminarPdfInNewTab(list[0])}
-                                    >
-                                      {quoteButtonLabel}
-                                    </button>
-                                  ) : (
-                                    list.map((data, idx) => (
-                                      <div key={idx} className="flex flex-col items-end gap-1.5">
-                                        <span className="text-xs font-medium text-secondary">{data.projectType}</span>
-                                        <div className="flex max-w-[220px] flex-wrap items-center justify-end gap-1.5">
-                                          <button
-                                            type="button"
-                                            className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                                            onClick={() => openPreliminarPdfInNewTab(data)}
-                                          >
-                                            Ver levantamiento
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                                            onClick={() => {
-                                              const filename = `${prefix}-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
-                                              downloadPreliminarPdf(data, filename);
-                                            }}
-                                          >
-                                            Descargar
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ))
-                                  )
-                                ) : null}
-                                {!isProspect
-                                  ? list.map((data, idx) => (
-                                      <div key={idx} className="flex flex-col items-end gap-1.5">
-                                        <span className="text-xs font-medium text-secondary">{data.projectType}</span>
-                                        <div className="flex max-w-[220px] flex-wrap items-center justify-end gap-1.5">
-                                          <span className="text-[9px] font-semibold uppercase tracking-wide text-secondary/70">
-                                            Formal
-                                          </span>
-                                          <button
-                                            type="button"
-                                            className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                                            onClick={() => openFormalPdfInNewTab(data as CotizacionFormalData)}
-                                          >
-                                            Ver
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                                            onClick={() => {
-                                              const filename = `${prefix}-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
-                                              downloadFormalPdf(data as CotizacionFormalData, filename);
-                                            }}
-                                          >
-                                            Descargar
-                                          </button>
-                                          {(data as CotizacionFormalData).workshopPdfKey ? (
-                                            <>
-                                              <span className="text-[9px] font-semibold uppercase tracking-wide text-secondary/70">
-                                                Taller
-                                              </span>
-                                              <button
-                                                type="button"
-                                                className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                                                onClick={() => openWorkshopPdfInNewTab(data as CotizacionFormalData)}
-                                              >
-                                                Ver
-                                              </button>
-                                              <button
-                                                type="button"
-                                                className="rounded-full border border-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                                                onClick={() => {
-                                                  const filename = `hoja-taller-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
-                                                  downloadWorkshopPdf(data as CotizacionFormalData, filename);
-                                                }}
-                                              >
-                                                Descargar
-                                              </button>
-                                            </>
-                                          ) : null}
-                                        </div>
-                                      </div>
-                                    ))
-                                  : null}
+                              <div className="mt-3 flex w-full flex-row flex-wrap items-center gap-2">
+                                {list.map((data, idx) => {
+                                  const filename = `${prefix}-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
+                                  return (
+                                    <div key={idx} className={inversionPdfQuoteRowClass}>
+                                      <span className="text-[11px] font-semibold text-primary whitespace-nowrap">
+                                        {data.projectType}
+                                      </span>
+                                      <span className="text-[10px] font-semibold leading-tight text-secondary/80 sm:whitespace-nowrap">
+                                        {kindLabel}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        className={inversionPdfCtaPrimaryClass}
+                                        aria-label={
+                                          list.length === 1 && isProspect ? quoteButtonLabel : undefined
+                                        }
+                                        onClick={() =>
+                                          isProspect
+                                            ? openPreliminarPdfInNewTab(data)
+                                            : openFormalPdfInNewTab(data as CotizacionFormalData)
+                                        }
+                                      >
+                                        Ver PDF
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={inversionPdfCtaSecondaryClass}
+                                        onClick={() =>
+                                          isProspect
+                                            ? downloadPreliminarPdf(data, filename)
+                                            : downloadFormalPdf(data as CotizacionFormalData, filename)
+                                        }
+                                      >
+                                        Descargar
+                                      </button>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             );
                           }
-                          return (
-                            <button
-                              type="button"
-                              className="absolute right-6 top-6 rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-primary transition hover:border-accent hover:text-accent"
-                              onClick={() => {
-                                setSelectedImage({
-                                  name: quoteButtonLabel,
-                                  src: quoteImageSrc,
-                                });
-                              }}
-                            >
-                              {quoteButtonLabel}
-                            </button>
+                          return quoteImageSrc.trim() ? (
+                            <div className="mt-4 flex w-full justify-center">
+                              <button
+                                type="button"
+                                className={inversionPdfCtaPrimaryClass}
+                                onClick={() => {
+                                  setSelectedImage({
+                                    name: quoteButtonLabel,
+                                    src: quoteImageSrc,
+                                  });
+                                }}
+                              >
+                                {quoteButtonLabel}
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-xs text-secondary">
+                              Cuando el equipo adjunte la vista previa, podrás verla aquí.
+                            </p>
                           );
                         })()
                       ) : null}
@@ -481,10 +463,13 @@ export default function SeguimientoPage() {
                     );
                   })}
                 </div>
-                {!isProspect ? (
+                {currentProject.inversion > 0 ? (
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     {installments.map((item) => {
                       const payment = currentProject.pagos[item.key];
+                      const hasRecibo =
+                        typeof payment.receiptImage === "string" &&
+                        payment.receiptImage.trim().length > 2;
                       return (
                         <div
                           key={item.key}
@@ -495,17 +480,23 @@ export default function SeguimientoPage() {
                               {item.label}
                             </p>
                             <button
-                              className="rounded-full border border-primary/10 px-3 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
+                              type="button"
+                              disabled={!hasRecibo}
+                              className={`rounded-full border px-3 py-1 text-[10px] font-semibold transition ${
+                                hasRecibo
+                                  ? "border-primary/10 text-primary hover:border-accent hover:text-accent"
+                                  : "cursor-not-allowed border-primary/5 text-secondary/50"
+                              }`}
                               onClick={() => {
-                                if ("receiptImage" in payment) {
+                                if (hasRecibo) {
                                   setSelectedImage({
                                     name: `${item.label} - Recibo`,
-                                    src: payment.receiptImage,
+                                    src: payment.receiptImage as string,
                                   });
                                 }
                               }}
                             >
-                              {payment.receiptLabel ?? "Ver Recibo"}
+                              {hasRecibo ? (payment.receiptLabel ?? "Ver recibo") : "Sin recibo"}
                             </button>
                           </div>
                           <p className="mt-2 text-sm font-semibold text-primary">
@@ -517,14 +508,24 @@ export default function SeguimientoPage() {
                   </div>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary">
-                    Los pagos se activarán una vez apruebes el inicio de tu proyecto.
+                    {isProspect
+                      ? "Los montos de pago aparecerán cuando tengamos una inversión estimada o formal."
+                      : "Aún no hay inversión registrada en tu proyecto."}
                   </div>
                 )}
                 <div className="mt-6 rounded-3xl border border-primary/10 bg-white p-6">
                   <p className="text-xs uppercase tracking-[0.3em] text-secondary">Archivos</p>
-                  <div className="mt-4 flex flex-wrap gap-3">
+                  <div className="mt-4 flex flex-wrap justify-center gap-3">
+                    {filesInSections.length === 0 ? (
+                      <p className="w-full text-center text-sm text-secondary">
+                        Aún no hay archivos compartidos en tu expediente.
+                      </p>
+                    ) : null}
                     {filesInSections.map((file) => {
                       const f = file as SeguimientoArchivo;
+                      const primary = f.type === "pdf" ? getPdfButtonPrimaryLabelFromFileName(f.name) : "";
+                      const secondary =
+                        f.type === "pdf" ? getPdfButtonSecondaryFromFileName(f.name) : "";
                       return (
                       <button
                         key={f.id}
@@ -535,7 +536,7 @@ export default function SeguimientoPage() {
                             openPdfFromIndexedKey(f.indexedPdfKey);
                             return;
                           }
-                          if (f.type === "jpg" && f.src) {
+                          if (f.type === "jpg" && f.src?.trim()) {
                             setSelectedImage({
                               name: f.name,
                               src: f.src,
@@ -548,7 +549,18 @@ export default function SeguimientoPage() {
                         ) : (
                           <ImageIcon className="h-4 w-4" />
                         )}
-                        {f.name}
+                        {f.type === "pdf" ? (
+                          <span className="flex flex-col items-start leading-4">
+                            <span className="leading-4">{primary}</span>
+                            {secondary ? (
+                              <span className="text-[10px] font-semibold text-secondary/80">
+                                {secondary}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          f.name
+                        )}
                       </button>
                     );
                     })}
@@ -574,11 +586,11 @@ export default function SeguimientoPage() {
                   <div className="relative h-2 rounded-full bg-primary/10">
                     <div
                       className="absolute left-0 top-0 h-2 rounded-full bg-accent"
-                      style={{ width: `${(currentIndex / (timelineSteps.length - 1)) * 100}%` }}
+                      style={{ width: `${timelineProgressPct}%` }}
                     />
                   </div>
                   <div className="mt-6 grid grid-cols-5 gap-2 text-center text-xs text-secondary">
-                    {timelineSteps.map((step, index) => {
+                    {TIMELINE_STEPS.map((step, index) => {
                       const isCompleted = index <= currentIndex;
                       const isActive = index === currentIndex;
                       const payment = paymentByStep[step];
@@ -638,7 +650,7 @@ export default function SeguimientoPage() {
                 <div className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary">
                   La garantía se activará una vez completemos tu proyecto.
                 </div>
-              ) : currentProject.estadoProyecto === "Completado/Entregado" ? (
+              ) : currentProject.estadoProyecto === "Completado/Entregado" && garantiaFechaValida ? (
                 <section>
                   <GarantiaCountdown startDate={currentProject.garantiaInicio} />
                 </section>

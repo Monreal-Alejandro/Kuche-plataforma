@@ -112,3 +112,102 @@ export const activeCotizacionFormalTaskStorageKey = "kuche-active-cotizacion-for
 
 /** Prefijo para guardar datos de seguimiento por código: kuche_project_${codigoProyecto} */
 export const seguimientoProjectStoragePrefix = "kuche_project_";
+
+function isQuotaExceededError(e: unknown): boolean {
+  return (
+    (typeof DOMException !== "undefined" && e instanceof DOMException && e.name === "QuotaExceededError") ||
+    (typeof e === "object" &&
+      e !== null &&
+      "name" in e &&
+      (e as { name: string }).name === "QuotaExceededError")
+  );
+}
+
+function stripFormalPdfDataUrlIfRedundant(d: CotizacionFormalData): CotizacionFormalData {
+  if (d.pdfDataUrl && d.formalPdfKey) {
+    const { pdfDataUrl: _drop, ...rest } = d;
+    return rest as CotizacionFormalData;
+  }
+  return d;
+}
+
+/** Quita adjuntos pesados antes de serializar (localStorage ~5MB). El PDF formal sigue en IndexedDB por `formalPdfKey`. */
+export function stripKanbanTasksForStorage(tasks: KanbanTask[]): KanbanTask[] {
+  return tasks.map((task) => {
+    const next: KanbanTask = { ...task };
+    if (next.files?.length) {
+      next.files = next.files.map(({ src: _s, ...rest }) => rest);
+    }
+    if (next.cotizacionFormalData) {
+      next.cotizacionFormalData = stripFormalPdfDataUrlIfRedundant(next.cotizacionFormalData);
+    }
+    if (next.cotizacionesFormales?.length) {
+      next.cotizacionesFormales = next.cotizacionesFormales.map(stripFormalPdfDataUrlIfRedundant);
+    }
+    return next;
+  });
+}
+
+function stripAllFormalPdfDataUrl(tasks: KanbanTask[]): KanbanTask[] {
+  const dropUrl = (d: CotizacionFormalData): CotizacionFormalData => {
+    if (!d.pdfDataUrl) return d;
+    const { pdfDataUrl: _u, ...rest } = d;
+    return rest as CotizacionFormalData;
+  };
+  return stripKanbanTasksForStorage(tasks).map((task) => {
+    const next = { ...task };
+    if (next.cotizacionFormalData?.pdfDataUrl) {
+      next.cotizacionFormalData = dropUrl(next.cotizacionFormalData);
+    }
+    if (next.cotizacionesFormales?.length) {
+      next.cotizacionesFormales = next.cotizacionesFormales.map(dropUrl);
+    }
+    return next;
+  });
+}
+
+/** Último recurso: quita el detalle de levantamiento embebido (el PDF en IndexedDB / seguimiento puede seguir existiendo). */
+function stripPreliminarLevantamiento(d: PreliminarData): PreliminarData {
+  if (!d.levantamiento) return d;
+  const { levantamiento: _l, ...rest } = d;
+  return rest;
+}
+
+function stripAllPreliminarLevantamiento(tasks: KanbanTask[]): KanbanTask[] {
+  return stripAllFormalPdfDataUrl(tasks).map((task) => {
+    const next = { ...task };
+    if (next.preliminarData) {
+      next.preliminarData = stripPreliminarLevantamiento(next.preliminarData);
+    }
+    if (next.preliminarCotizaciones?.length) {
+      next.preliminarCotizaciones = next.preliminarCotizaciones.map(stripPreliminarLevantamiento);
+    }
+    return next;
+  });
+}
+
+/**
+ * Persiste tareas en localStorage recortando datos pesados. Reintenta con estrategias más agresivas si se excede la cuota.
+ * La UI puede seguir teniendo `files[].src` en memoria hasta recargar; no muta el arreglo recibido.
+ */
+export function saveKanbanTasksToLocalStorage(tasks: KanbanTask[]): boolean {
+  if (typeof window === "undefined") return false;
+  const attempts: (() => KanbanTask[])[] = [
+    () => stripKanbanTasksForStorage(tasks),
+    () => stripAllFormalPdfDataUrl(tasks),
+    () => stripAllPreliminarLevantamiento(tasks),
+  ];
+  for (const build of attempts) {
+    try {
+      const payload = build();
+      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(payload));
+      return true;
+    } catch (e) {
+      if (!isQuotaExceededError(e)) {
+        console.error("saveKanbanTasksToLocalStorage", e);
+        return false;
+      }
+    }
+  }
+  return false;
+}

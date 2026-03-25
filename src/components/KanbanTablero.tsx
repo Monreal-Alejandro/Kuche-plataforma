@@ -12,6 +12,7 @@ import {
   kanbanColumns,
   kanbanStorageKey,
   initialKanbanTasks,
+  saveKanbanTasksToLocalStorage,
   activeCitaTaskStorageKey,
   citaReturnUrlStorageKey,
   activeCotizacionFormalTaskStorageKey,
@@ -272,6 +273,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   const [dragOverColumnId, setDragOverColumnId] = useState<TaskStage | null>(null);
   const [sortBy, setSortBy] = useState<"default" | "priority" | "date">("default");
   const [dragErrorMessage, setDragErrorMessage] = useState<string | null>(null);
+  const [kanbanPersistError, setKanbanPersistError] = useState<string | null>(null);
   const [confirmClientTaskId, setConfirmClientTaskId] = useState<string | null>(null);
   const [deleteConfirmTaskId, setDeleteConfirmTaskId] = useState<string | null>(null);
   const skipNextWriteRef = useRef(false);
@@ -314,7 +316,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         const advanced = autoAdvanceCompletedTasks(merged);
         skipNextWriteRef.current = true;
         setKanbanTasks(advanced);
-        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
+        const okInit = saveKanbanTasksToLocalStorage(advanced);
+        setKanbanPersistError(
+          okInit
+            ? null
+            : "No se pudo guardar el tablero: almacenamiento lleno. Libera espacio del navegador o reduce tareas/archivos.",
+        );
         return;
       }
       try {
@@ -322,7 +329,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         if (!Array.isArray(parsed) || parsed.length === 0) {
           skipNextWriteRef.current = true;
           setKanbanTasks([]);
-          window.localStorage.setItem(kanbanStorageKey, JSON.stringify([]));
+          const okEmpty = saveKanbanTasksToLocalStorage([]);
+          setKanbanPersistError(
+            okEmpty
+              ? null
+              : "No se pudo guardar el tablero: almacenamiento lleno. Libera espacio del navegador o reduce tareas/archivos.",
+          );
           return;
         }
         const normalized = parsed.map((task) => normalizeTask(task));
@@ -331,7 +343,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         skipNextWriteRef.current = true;
         setKanbanTasks(advanced);
         if (advanced !== merged) {
-          window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
+          const okAdv = saveKanbanTasksToLocalStorage(advanced);
+          setKanbanPersistError(
+            okAdv
+              ? null
+              : "No se pudo guardar el tablero: almacenamiento lleno. Libera espacio del navegador o reduce tareas/archivos.",
+          );
         }
       } catch {
         // ignore malformed storage
@@ -366,7 +383,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         skipNextWriteRef.current = true;
         setKanbanTasks(advanced);
         if (advanced !== merged) {
-          window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
+          const okRef = saveKanbanTasksToLocalStorage(advanced);
+          setKanbanPersistError(
+            okRef
+              ? null
+              : "No se pudo guardar el tablero: almacenamiento lleno. Libera espacio del navegador o reduce tareas/archivos.",
+          );
         }
       }
     } catch {
@@ -380,7 +402,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       skipNextWriteRef.current = false;
       return;
     }
-    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(kanbanTasks));
+    const ok = saveKanbanTasksToLocalStorage(kanbanTasks);
+    setKanbanPersistError(
+      ok
+        ? null
+        : "No se pudo guardar el tablero: almacenamiento lleno. Libera espacio del navegador o reduce tareas/archivos.",
+    );
   }, [kanbanTasks]);
 
   useEffect(() => {
@@ -394,7 +421,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
           const advanced = autoAdvanceCompletedTasks(merged);
           setKanbanTasks(advanced);
           if (advanced !== merged) {
-            window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
+            const okSt = saveKanbanTasksToLocalStorage(advanced);
+            setKanbanPersistError(
+              okSt
+                ? null
+                : "No se pudo guardar el tablero: almacenamiento lleno. Libera espacio del navegador o reduce tareas/archivos.",
+            );
           }
         }
       } catch {
@@ -757,6 +789,15 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
             ) : null}
           </div>
         </div>
+
+        {kanbanPersistError ? (
+          <div
+            role="alert"
+            className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          >
+            {kanbanPersistError}
+          </div>
+        ) : null}
 
         <div className="mt-6 grid gap-4 lg:grid-cols-4">
           {kanbanColumns.map((column) => {
@@ -1145,6 +1186,14 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                       {activeTask.mapsUrl ? (
                         <> · <a href={normalizeMapsUrl(activeTask.mapsUrl)} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline">Ver en Maps</a></>
                       ) : null}
+                    </p>
+                  ) : null}
+                  {activeTask.codigoProyecto ? (
+                    <p className="mt-2 text-sm text-secondary">
+                      Código de seguimiento{" "}
+                      <span className="font-mono text-base font-semibold tracking-wide text-primary">
+                        {activeTask.codigoProyecto}
+                      </span>
                     </p>
                   ) : null}
                 </div>

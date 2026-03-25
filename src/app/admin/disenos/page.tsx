@@ -14,7 +14,7 @@ import {
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
-import { kanbanStorageKey, type KanbanTask, type TaskFile } from "@/lib/kanban";
+import { kanbanStorageKey, saveKanbanTasksToLocalStorage, type KanbanTask, type TaskFile } from "@/lib/kanban";
 import { downloadTaskFile } from "@/lib/task-file-download";
 
 type ProjectStatus = "Pendiente" | "Aprobado" | "Revisión";
@@ -179,7 +179,7 @@ export default function DisenosPage() {
       const next = tasks.map((t) =>
         t.id === taskId ? { ...t, designApprovedByAdmin: true } : t,
       );
-      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(next));
+      saveKanbanTasksToLocalStorage(next);
       setProjects(designProjectsFromTasks(next));
       setActiveFeedbackId(null);
     } catch {

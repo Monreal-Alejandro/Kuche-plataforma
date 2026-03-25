@@ -7,6 +7,7 @@ import { ArrowLeft, CheckCircle2, User, FileText, Calendar, FolderOpen, Eye, Dow
 import {
   initialKanbanTasks,
   kanbanStorageKey,
+  saveKanbanTasksToLocalStorage,
   getPreliminarList,
   getCotizacionesFormalesList,
   type KanbanTask,
@@ -54,13 +55,13 @@ export default function ClientesConfirmadosPage() {
       try {
         const parsed = JSON.parse(stored) as KanbanTask[];
         allTasks = mergeTasks(parsed);
-        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(allTasks));
+        saveKanbanTasksToLocalStorage(allTasks);
       } catch {
         allTasks = initialKanbanTasks;
       }
     } else {
       allTasks = initialKanbanTasks;
-      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(allTasks));
+      saveKanbanTasksToLocalStorage(allTasks);
     }
     
     const confirmed = allTasks.filter((task) => task.followUpStatus === "confirmado");
@@ -145,6 +146,12 @@ export default function ClientesConfirmadosPage() {
                       <div>
                         <h3 className="font-semibold text-gray-900">{client.project}</h3>
                         <p className="text-sm text-secondary">{client.title}</p>
+                        {client.codigoProyecto ? (
+                          <p className="mt-2 text-[11px] text-secondary">
+                            Código:{" "}
+                            <span className="font-semibold text-primary">{client.codigoProyecto}</span>
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
