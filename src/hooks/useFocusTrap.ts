@@ -1,9 +1,11 @@
 import { useEffect } from "react";
 
+/** Excluimos `input[type=file]`: suelen ir ocultos (`sr-only`); al cerrar el diálogo del SO el foco
+ *  puede quedar ahí y el trap obliga a enfocarlos → scroll raro, modal “en blanco” o sensación de bloqueo. */
 const focusableSelectors = [
   "a[href]",
   "button:not([disabled])",
-  "input:not([disabled])",
+  'input:not([disabled]):not([type="file"])',
   "select:not([disabled])",
   "textarea:not([disabled])",
   "[tabindex]:not([tabindex='-1'])",

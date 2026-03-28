@@ -26,6 +26,7 @@ import {
   levantamientoDetalleScopeMultiplier,
   LIGHTING_ITEMS,
   LIGHTING_PAGE_INDICES,
+  wallMeasureLetter,
   type MedidasCampos,
   WALL_ITEMS,
   WALL_PAGE_INDICES,
@@ -40,6 +41,7 @@ import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
 import ApplianceTypeImage from "@/components/levantamiento/ApplianceTypeImage";
 import LightingTypeImage from "@/components/levantamiento/LightingTypeImage";
 import WallTypeImage from "@/components/levantamiento/WallTypeImage";
+import WallMeasureBadgesOverlay from "@/components/levantamiento/WallMeasureBadgesOverlay";
 import Link from "next/link";
 import { generatePublicProjectCode } from "@/lib/project-code";
 import {
@@ -689,8 +691,13 @@ export default function CotizadorPreliminarPage() {
   /** Un paso por electrodoméstico (orden por categoría); el último índice es «Otro». */
   const [applianceStep, setApplianceStep] = useState(0);
   const [applianceSearch, setApplianceSearch] = useState("");
+  /** true = rejilla visual; false = detalle con medidas del ítem seleccionado. */
+  const [applianceGalleryMode, setApplianceGalleryMode] = useState(true);
+  const [applianceCategoryFilter, setApplianceCategoryFilter] = useState<string | null>(null);
   const [lightingPage, setLightingPage] = useState(1);
   const [lightingSearch, setLightingSearch] = useState("");
+  /** null = galería de la página o búsqueda; id = detalle de ese luminario. */
+  const [lightingFocusedId, setLightingFocusedId] = useState<string | null>(null);
 
   const setSectionComment = (key: "a" | "b" | "c" | "d" | "e", value: string) => {
     setLevantamiento((prev) => ({
@@ -1172,6 +1179,35 @@ export default function CotizadorPreliminarPage() {
     });
   }, [lightingSearchNorm]);
 
+  const applianceGalleryEntries = useMemo(() => {
+    let entries = APPLIANCE_ITEMS.map((item, idx) => ({ item, idx }));
+    if (applianceCategoryFilter) {
+      entries = entries.filter((e) => e.item.categoria === applianceCategoryFilter);
+    }
+    if (applianceSearchNorm) {
+      entries = entries.filter(({ item }) => {
+        const hay = `${item.label} ${item.hint ?? ""} ${item.categoria ?? ""}`.toLowerCase();
+        return hay.includes(applianceSearchNorm);
+      });
+    }
+    return entries;
+  }, [applianceCategoryFilter, applianceSearchNorm]);
+
+  useEffect(() => {
+    setLightingFocusedId(null);
+  }, [lightingPage, lightingSearch]);
+
+  const lightingDetailItem = useMemo(() => {
+    if (!lightingFocusedId) return null;
+    return LIGHTING_ITEMS.find((i) => i.id === lightingFocusedId) ?? null;
+  }, [lightingFocusedId]);
+
+  useEffect(() => {
+    if (lightingFocusedId && !LIGHTING_ITEMS.some((i) => i.id === lightingFocusedId)) {
+      setLightingFocusedId(null);
+    }
+  }, [lightingFocusedId]);
+
   return (
     <main
       className={`min-h-screen bg-background px-4 py-10 text-primary ${activeCitaTask ? "pb-36 sm:pb-32" : "pb-10"}`}
@@ -1421,7 +1457,8 @@ export default function CotizadorPreliminarPage() {
                         >
                           <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-primary/5">
                             <WallTypeImage item={item} />
-                            <span className="absolute bottom-2 left-2 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                            <WallMeasureBadgesOverlay wallId={item.id} />
+                            <span className="absolute bottom-2 left-2 z-[4] rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
                               {item.label}
                             </span>
                           </div>
@@ -1429,12 +1466,12 @@ export default function CotizadorPreliminarPage() {
                             <p className="text-sm font-semibold text-primary">{item.label}</p>
                             {item.hint ? <p className="text-xs text-secondary">{item.hint}</p> : null}
                             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                              {wallFields.map((field) => (
+                              {wallFields.map((field, fi) => (
                                 <label
                                   key={field.key}
                                   className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary"
                                 >
-                                  {field.label} (m)
+                                  {wallMeasureLetter(fi)} · {field.label} (m)
                                   <input
                                     value={m[field.key] ?? ""}
                                     onChange={(e) => patchWallMeasure(item.id, field.key, e.target.value)}
@@ -1501,7 +1538,8 @@ export default function CotizadorPreliminarPage() {
                     >
                       <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-primary/5">
                         <WallTypeImage item={item} />
-                        <span className="absolute bottom-2 left-2 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                        <WallMeasureBadgesOverlay wallId={item.id} />
+                        <span className="absolute bottom-2 left-2 z-[4] rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
                           {item.label}
                         </span>
                       </div>
@@ -1509,12 +1547,12 @@ export default function CotizadorPreliminarPage() {
                         <p className="text-sm font-semibold text-primary">{item.label}</p>
                         {item.hint ? <p className="text-xs text-secondary">{item.hint}</p> : null}
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                          {wallFields.map((field) => (
+                          {wallFields.map((field, fi) => (
                             <label
                               key={field.key}
                               className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary"
                             >
-                              {field.label} (m)
+                              {wallMeasureLetter(fi)} · {field.label} (m)
                               <input
                                 value={m[field.key] ?? ""}
                                 onChange={(e) => patchWallMeasure(item.id, field.key, e.target.value)}
@@ -1542,12 +1580,12 @@ export default function CotizadorPreliminarPage() {
                   />
                 </label>
                 <div className="grid gap-3 sm:grid-cols-3">
-                  {(["ancho", "alto", "fondo"] as const).map((field) => (
+                  {(["ancho", "alto", "fondo"] as const).map((field, fi) => (
                     <label
                       key={field}
                       className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
                     >
-                      {field} (m)
+                      {wallMeasureLetter(fi)} · {field} (m)
                       <input
                         value={levantamiento.wallOtro[field]}
                         onChange={(e) => patchOtro("wallOtro", field, e.target.value)}
@@ -1581,8 +1619,8 @@ export default function CotizadorPreliminarPage() {
                 Sección C · Electrodomésticos
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Un electrodoméstico por pantalla (orden: microondas → estufas → refrigeradores → parrillas) y al final
-                «Otro». Usa los accesos por categoría o anterior / siguiente. Medidas en metros.
+                Primero elige un tipo en la galería; al abrirlo verás la foto grande y las medidas. Orden: microondas →
+                estufas → refrigeradores → parrillas; al final «Otro». Medidas en metros.
               </p>
             </div>
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
@@ -1600,7 +1638,7 @@ export default function CotizadorPreliminarPage() {
             {filteredApplianceMatches !== null && filteredApplianceMatches.length > 0 ? (
               <div className="rounded-2xl border border-primary/10 bg-primary/[0.04] p-4">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Resultados ({filteredApplianceMatches.length}) · clic para abrir
+                  Resultados ({filteredApplianceMatches.length}) · clic para abrir detalle
                 </p>
                 <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">
                   {filteredApplianceMatches.map(({ item, idx }) => {
@@ -1609,7 +1647,10 @@ export default function CotizadorPreliminarPage() {
                       <button
                         key={item.id}
                         type="button"
-                        onClick={() => setApplianceStep(idx)}
+                        onClick={() => {
+                          setApplianceStep(idx);
+                          setApplianceGalleryMode(false);
+                        }}
                         className={`max-w-full truncate rounded-full px-3 py-1.5 text-left text-xs font-semibold transition ${
                           isCurrent
                             ? "bg-[#8B1C1C] text-white"
@@ -1636,153 +1677,240 @@ export default function CotizadorPreliminarPage() {
                 Sin coincidencias. Prueba otro término o borra el texto del buscador.
               </div>
             ) : null}
-            <div className="space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">Ir a categoría</p>
-              <div className="flex flex-wrap gap-2">
-                {APPLIANCE_CATEGORIAS.map((cat) => {
-                  const first = applianceFirstIndexForCategory(cat);
-                  const isActive = !applianceStepMeta.isOtro && currentApplianceItem?.categoria === cat;
-                  return (
+            {applianceGalleryMode ? (
+              <>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Filtrar por categoría
+                  </p>
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      key={cat}
                       type="button"
-                      onClick={() => setApplianceStep(first)}
+                      onClick={() => setApplianceCategoryFilter(null)}
                       className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                        isActive
+                        applianceCategoryFilter === null
                           ? "bg-[#8B1C1C] text-white"
                           : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
                       }`}
                     >
-                      {cat}
+                      Todos
                     </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={() => setApplianceStep(APPLIANCE_OTRO_STEP_INDEX)}
-                  className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                    applianceStepMeta.isOtro
-                      ? "bg-[#8B1C1C] text-white"
-                      : "border border-dashed border-primary/25 bg-white text-secondary hover:border-primary/35"
-                  }`}
-                >
-                  Otro
-                </button>
-              </div>
-            </div>
-            <div className="relative z-10 flex flex-col gap-4 rounded-2xl border border-primary/10 bg-white/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                {applianceStepMeta.isOtro ? (
-                  <p className="text-sm font-semibold text-primary">Otro electrodoméstico</p>
-                ) : (
-                  <p className="text-sm font-semibold text-primary">
-                    {applianceStepMeta.progress.categoria} · {applianceStepMeta.progress.indexInCategory} de{" "}
-                    {applianceStepMeta.progress.totalInCategory}
-                  </p>
-                )}
-                <p className="mt-1 text-xs text-secondary">
-                  Paso {applianceStep + 1} de {APPLIANCE_STEPS_TOTAL} · Dentro de la categoría usa anterior / siguiente
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={applianceStep <= 0}
-                  onClick={() => setApplianceStep((s) => Math.max(0, s - 1))}
-                  className="inline-flex h-10 items-center gap-1 rounded-full border border-primary/15 bg-white px-3 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <ChevronLeft className="h-5 w-5 shrink-0" />
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  disabled={applianceStep >= APPLIANCE_OTRO_STEP_INDEX}
-                  onClick={() => setApplianceStep((s) => Math.min(APPLIANCE_OTRO_STEP_INDEX, s + 1))}
-                  className="inline-flex h-10 items-center gap-1 rounded-full border border-primary/15 bg-white px-3 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Siguiente
-                  <ChevronRight className="h-5 w-5 shrink-0" />
-                </button>
-              </div>
-            </div>
-            {currentApplianceItem ? (
-              <div className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
-                <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
-                  <ApplianceTypeImage item={currentApplianceItem} alt="" />
-                  <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
-                    {currentApplianceItem.categoria ?? "Electrodoméstico"}
-                  </span>
-                  <span className="pointer-events-none absolute bottom-2 left-2 right-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold leading-snug text-white">
-                    {currentApplianceItem.label}
-                  </span>
-                </div>
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8B1C1C]">
-                      {currentApplianceItem.categoria}
-                    </p>
-                    <p className="text-base font-semibold text-primary">{currentApplianceItem.label}</p>
-                    {currentApplianceItem.hint ? (
-                      <p className="mt-2 text-sm text-secondary">{currentApplianceItem.hint}</p>
-                    ) : null}
+                    {APPLIANCE_CATEGORIAS.map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setApplianceCategoryFilter(cat)}
+                        className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                          applianceCategoryFilter === cat
+                            ? "bg-[#8B1C1C] text-white"
+                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setApplianceStep(APPLIANCE_OTRO_STEP_INDEX);
+                        setApplianceGalleryMode(false);
+                      }}
+                      className="rounded-full border border-dashed border-primary/25 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
+                    >
+                      Otro
+                    </button>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {(["ancho", "alto", "fondo"] as const).map((field) => {
-                      const m =
-                        levantamiento.applianceMeasures[currentApplianceItem.id] ?? {
-                          ancho: "",
-                          alto: "",
-                          fondo: "",
-                        };
+                </div>
+                {applianceGalleryEntries.length === 0 ? (
+                  <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-6 text-center text-sm text-secondary">
+                    No hay tipos con este filtro. Cambia categoría o limpia la búsqueda.
+                  </div>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {applianceGalleryEntries.map(({ item, idx }) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setApplianceStep(idx);
+                          setApplianceGalleryMode(false);
+                        }}
+                        className="group relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:border-primary/30 hover:shadow-md"
+                      >
+                        <div className="relative aspect-[4/3] w-full overflow-hidden bg-primary/5">
+                          <ApplianceTypeImage item={item} alt="" />
+                          <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-white">
+                            {item.categoria ?? "Electrodoméstico"}
+                          </span>
+                        </div>
+                        <div className="p-3">
+                          <p className="line-clamp-2 text-sm font-semibold text-primary">{item.label}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setApplianceGalleryMode(true)}
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0" />
+                  Volver a la galería
+                </button>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">Ir a categoría</p>
+                  <div className="flex flex-wrap gap-2">
+                    {APPLIANCE_CATEGORIAS.map((cat) => {
+                      const first = applianceFirstIndexForCategory(cat);
+                      const isActive = !applianceStepMeta.isOtro && currentApplianceItem?.categoria === cat;
                       return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setApplianceStep(first)}
+                          className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                            isActive
+                              ? "bg-[#8B1C1C] text-white"
+                              : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setApplianceStep(APPLIANCE_OTRO_STEP_INDEX)}
+                      className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                        applianceStepMeta.isOtro
+                          ? "bg-[#8B1C1C] text-white"
+                          : "border border-dashed border-primary/25 bg-white text-secondary hover:border-primary/35"
+                      }`}
+                    >
+                      Otro
+                    </button>
+                  </div>
+                </div>
+                <div className="relative z-10 flex flex-col gap-4 rounded-2xl border border-primary/10 bg-white/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    {applianceStepMeta.isOtro ? (
+                      <p className="text-sm font-semibold text-primary">Otro electrodoméstico</p>
+                    ) : (
+                      <p className="text-sm font-semibold text-primary">
+                        {applianceStepMeta.progress.categoria} · {applianceStepMeta.progress.indexInCategory} de{" "}
+                        {applianceStepMeta.progress.totalInCategory}
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs text-secondary">
+                      Paso {applianceStep + 1} de {APPLIANCE_STEPS_TOTAL} · Dentro de la categoría usa anterior /
+                      siguiente
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={applianceStep <= 0}
+                      onClick={() => setApplianceStep((s) => Math.max(0, s - 1))}
+                      className="inline-flex h-10 items-center gap-1 rounded-full border border-primary/15 bg-white px-3 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronLeft className="h-5 w-5 shrink-0" />
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      disabled={applianceStep >= APPLIANCE_OTRO_STEP_INDEX}
+                      onClick={() => setApplianceStep((s) => Math.min(APPLIANCE_OTRO_STEP_INDEX, s + 1))}
+                      className="inline-flex h-10 items-center gap-1 rounded-full border border-primary/15 bg-white px-3 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Siguiente
+                      <ChevronRight className="h-5 w-5 shrink-0" />
+                    </button>
+                  </div>
+                </div>
+                {currentApplianceItem ? (
+                  <div className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
+                    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
+                      <ApplianceTypeImage item={currentApplianceItem} alt="" />
+                      <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
+                        {currentApplianceItem.categoria ?? "Electrodoméstico"}
+                      </span>
+                      <span className="pointer-events-none absolute bottom-2 left-2 right-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold leading-snug text-white">
+                        {currentApplianceItem.label}
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8B1C1C]">
+                          {currentApplianceItem.categoria}
+                        </p>
+                        <p className="text-base font-semibold text-primary">{currentApplianceItem.label}</p>
+                        {currentApplianceItem.hint ? (
+                          <p className="mt-2 text-sm text-secondary">{currentApplianceItem.hint}</p>
+                        ) : null}
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        {(["ancho", "alto", "fondo"] as const).map((field) => {
+                          const m =
+                            levantamiento.applianceMeasures[currentApplianceItem.id] ?? {
+                              ancho: "",
+                              alto: "",
+                              fondo: "",
+                            };
+                          return (
+                            <label
+                              key={field}
+                              className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                            >
+                              {field} (m)
+                              <input
+                                value={m[field]}
+                                onChange={(e) =>
+                                  patchMedidasMap("applianceMeasures", currentApplianceItem.id, field, e.target.value)
+                                }
+                                inputMode="decimal"
+                                className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
+                    <p className="text-sm font-semibold text-primary">Otro electrodoméstico</p>
+                    <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                      Descripción
+                      <textarea
+                        value={levantamiento.applianceOtro.descripcion}
+                        onChange={(e) => patchOtro("applianceOtro", "descripcion", e.target.value)}
+                        rows={3}
+                        className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                      />
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {(["ancho", "alto", "fondo"] as const).map((field) => (
                         <label
                           key={field}
                           className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
                         >
                           {field} (m)
                           <input
-                            value={m[field]}
-                            onChange={(e) =>
-                              patchMedidasMap("applianceMeasures", currentApplianceItem.id, field, e.target.value)
-                            }
+                            value={levantamiento.applianceOtro[field]}
+                            onChange={(e) => patchOtro("applianceOtro", field, e.target.value)}
                             inputMode="decimal"
                             className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
                           />
                         </label>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
-                <p className="text-sm font-semibold text-primary">Otro electrodoméstico</p>
-                <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Descripción
-                  <textarea
-                    value={levantamiento.applianceOtro.descripcion}
-                    onChange={(e) => patchOtro("applianceOtro", "descripcion", e.target.value)}
-                    rows={3}
-                    className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {(["ancho", "alto", "fondo"] as const).map((field) => (
-                    <label
-                      key={field}
-                      className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
-                    >
-                      {field} (m)
-                      <input
-                        value={levantamiento.applianceOtro[field]}
-                        onChange={(e) => patchOtro("applianceOtro", field, e.target.value)}
-                        inputMode="decimal"
-                        className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
+                )}
+              </>
             )}
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
@@ -1891,7 +2019,7 @@ export default function CotizadorPreliminarPage() {
                 Sección E · Iluminación
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Ejemplos de luminarios para maquetar el levantamiento; la lista definitiva la confirma la empresa.
+                Galería de tipos: elige uno y luego registra medidas. La lista definitiva la confirma la empresa.
               </p>
             </div>
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
@@ -1912,49 +2040,78 @@ export default function CotizadorPreliminarPage() {
                   <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
                     No hay tipos que coincidan. Prueba otra palabra o borra la búsqueda para ver las páginas.
                   </div>
+                ) : lightingDetailItem ? (
+                  <div className="space-y-4">
+                    <button
+                      type="button"
+                      onClick={() => setLightingFocusedId(null)}
+                      className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
+                    >
+                      <ChevronLeft className="h-4 w-4 shrink-0" />
+                      Volver a la galería
+                    </button>
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,240px)_1fr]">
+                      <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
+                        <LightingTypeImage item={lightingDetailItem} alt="" />
+                        <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                          {lightingDetailItem.label}
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        <p className="text-sm font-semibold text-primary">{lightingDetailItem.label}</p>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          {(["ancho", "alto", "fondo"] as const).map((field) => {
+                            const m =
+                              levantamiento.lightingMeasures[lightingDetailItem.id] ?? {
+                                ancho: "",
+                                alto: "",
+                                fondo: "",
+                              };
+                            return (
+                              <label
+                                key={field}
+                                className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                              >
+                                {field} (m)
+                                <input
+                                  value={m[field]}
+                                  onChange={(e) =>
+                                    patchMedidasMap("lightingMeasures", lightingDetailItem.id, field, e.target.value)
+                                  }
+                                  inputMode="decimal"
+                                  className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
-                  <div className="space-y-10">
+                  <>
                     <p className="text-xs font-semibold text-secondary">
-                      {filteredLightingItems.length} resultado{filteredLightingItems.length === 1 ? "" : "s"}
+                      {filteredLightingItems.length} resultado{filteredLightingItems.length === 1 ? "" : "s"} · clic para
+                      medidas
                     </p>
-                    {filteredLightingItems.map((item) => {
-                      const m = levantamiento.lightingMeasures[item.id] ?? { ancho: "", alto: "", fondo: "" };
-                      return (
-                        <div
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {filteredLightingItems.map((item) => (
+                        <button
                           key={item.id}
-                          className="grid gap-4 border-b border-primary/5 pb-10 last:border-0 last:pb-0 lg:grid-cols-[minmax(0,240px)_1fr]"
+                          type="button"
+                          onClick={() => setLightingFocusedId(item.id)}
+                          className="group relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:border-primary/30 hover:shadow-md"
                         >
-                          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
+                          <div className="relative aspect-[4/3] w-full overflow-hidden bg-primary/5">
                             <LightingTypeImage item={item} alt="" />
                             <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
                               {item.label}
                             </span>
                           </div>
-                          <div className="space-y-3">
-                            <p className="text-sm font-semibold text-primary">{item.label}</p>
-                            <div className="grid gap-3 sm:grid-cols-3">
-                              {(["ancho", "alto", "fondo"] as const).map((field) => (
-                                <label
-                                  key={field}
-                                  className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
-                                >
-                                  {field} (m)
-                                  <input
-                                    value={m[field]}
-                                    onChange={(e) =>
-                                      patchMedidasMap("lightingMeasures", item.id, field, e.target.value)
-                                    }
-                                    inputMode="decimal"
-                                    className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                                  />
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -1995,25 +2152,34 @@ export default function CotizadorPreliminarPage() {
                   ))}
                 </div>
                 {lightingPage < 4 ? (
-                  <div className="space-y-10">
-                    {LIGHTING_PAGE_INDICES[lightingPage - 1].map((idx) => {
-                      const item = LIGHTING_ITEMS[idx];
-                      const m = levantamiento.lightingMeasures[item.id] ?? { ancho: "", alto: "", fondo: "" };
-                      return (
-                        <div
-                          key={item.id}
-                          className="grid gap-4 border-b border-primary/5 pb-10 last:border-0 last:pb-0 lg:grid-cols-[minmax(0,240px)_1fr]"
-                        >
-                          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
-                            <LightingTypeImage item={item} alt="" />
-                            <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                              {item.label}
-                            </span>
-                          </div>
-                          <div className="space-y-3">
-                            <p className="text-sm font-semibold text-primary">{item.label}</p>
-                            <div className="grid gap-3 sm:grid-cols-3">
-                              {(["ancho", "alto", "fondo"] as const).map((field) => (
+                  lightingDetailItem ? (
+                    <div className="space-y-4">
+                      <button
+                        type="button"
+                        onClick={() => setLightingFocusedId(null)}
+                        className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
+                      >
+                        <ChevronLeft className="h-4 w-4 shrink-0" />
+                        Volver a la galería
+                      </button>
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,240px)_1fr]">
+                        <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
+                          <LightingTypeImage item={lightingDetailItem} alt="" />
+                          <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                            {lightingDetailItem.label}
+                          </span>
+                        </div>
+                        <div className="space-y-3">
+                          <p className="text-sm font-semibold text-primary">{lightingDetailItem.label}</p>
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            {(["ancho", "alto", "fondo"] as const).map((field) => {
+                              const m =
+                                levantamiento.lightingMeasures[lightingDetailItem.id] ?? {
+                                  ancho: "",
+                                  alto: "",
+                                  fondo: "",
+                                };
+                              return (
                                 <label
                                   key={field}
                                   className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
@@ -2022,19 +2188,40 @@ export default function CotizadorPreliminarPage() {
                                   <input
                                     value={m[field]}
                                     onChange={(e) =>
-                                      patchMedidasMap("lightingMeasures", item.id, field, e.target.value)
+                                      patchMedidasMap("lightingMeasures", lightingDetailItem.id, field, e.target.value)
                                     }
                                     inputMode="decimal"
                                     className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
                                   />
                                 </label>
-                              ))}
-                            </div>
+                              );
+                            })}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {LIGHTING_PAGE_INDICES[lightingPage - 1].map((idx) => {
+                        const item = LIGHTING_ITEMS[idx];
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setLightingFocusedId(item.id)}
+                            className="group relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:border-primary/30 hover:shadow-md"
+                          >
+                            <div className="relative aspect-[4/3] w-full overflow-hidden bg-primary/5">
+                              <LightingTypeImage item={item} alt="" />
+                              <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                                {item.label}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )
                 ) : (
                   <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
                     <p className="text-sm font-semibold text-primary">Otro luminario o esquema</p>

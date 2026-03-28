@@ -1,14 +1,15 @@
- "use client";
+"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { CheckCircle2, Plus } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { DueDateInput } from "@/components/DueDateInput";
 import { KanbanTablero } from "@/components/KanbanTablero";
+import { PublicStatusEditorModal } from "@/components/PublicStatusEditorModal";
 import {
   kanbanColumns,
   kanbanStorageKey,
@@ -18,19 +19,6 @@ import {
   type TaskStage,
 } from "@/lib/kanban";
 import { generatePublicProjectCode } from "@/lib/project-code";
-
-const projectBudget = 145000;
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(value);
-const installmentAmount = projectBudget / 3;
-
-const publicTimelineSteps = [
-  "Diseño Aprobado",
-  "Materiales en Taller",
-  "Corte CNC",
-  "Ensamble",
-  "Instalación Final",
-];
 
 const CURRENT_USER = "Valeria";
 
@@ -67,18 +55,8 @@ export default function EmpleadoDashboard() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [isPublicEditorOpen, setIsPublicEditorOpen] = useState(false);
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
-  const [publicStep, setPublicStep] = useState(publicTimelineSteps[2]);
-  const [publicFiles, setPublicFiles] = useState([
-    { id: "p1", name: "Render_Actualizado.jpg", type: "jpg" },
-    { id: "p2", name: "Plano_Tecnico.pdf", type: "pdf" },
-  ]);
-  const [newFileName, setNewFileName] = useState("");
-  const [newFileType, setNewFileType] = useState("pdf");
-  const [paymentInputs, setPaymentInputs] = useState({
-    anticipo: 45000,
-    segundoPago: 30000,
-    liquidacion: 0,
-  });
+  const [kanbanTasks, setKanbanTasks] = useState<KanbanTask[]>([]);
+  const [selectedPublicTaskId, setSelectedPublicTaskId] = useState<string | null>(null);
   const [newTaskProject, setNewTaskProject] = useState("");
   const [newTaskStage, setNewTaskStage] = useState<TaskStage>("citas");
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("media");
@@ -87,20 +65,48 @@ export default function EmpleadoDashboard() {
   const [newTaskMapsUrl, setNewTaskMapsUrl] = useState("");
   const [taskError, setTaskError] = useState("");
 
-  const publicEditorRef = useRef<HTMLDivElement | null>(null);
   const newTaskModalRef = useRef<HTMLDivElement | null>(null);
-  const totalPagado =
-    paymentInputs.anticipo + paymentInputs.segundoPago + paymentInputs.liquidacion;
-  const restante = Math.max(0, projectBudget - totalPagado);
-  
-  useEscapeClose(isPublicEditorOpen, () => setIsPublicEditorOpen(false));
+
   useEscapeClose(isNewTaskModalOpen, () => setIsNewTaskModalOpen(false));
-  useFocusTrap(isPublicEditorOpen, publicEditorRef);
   useFocusTrap(isNewTaskModalOpen, newTaskModalRef);
 
   useEffect(() => {
     setTeamMembers(loadTeamMembers());
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(kanbanStorageKey);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      setKanbanTasks(Array.isArray(parsed) ? (parsed as KanbanTask[]) : []);
+    } catch {
+      setKanbanTasks([]);
+    }
+  }, [refreshTrigger]);
+
+  const myTasksWithCode = useMemo(() => {
+    return kanbanTasks.filter(
+      (t) =>
+        Boolean(t.codigoProyecto?.trim()) &&
+        (t.assignedTo ?? []).some((n) => n === CURRENT_USER),
+    );
+  }, [kanbanTasks]);
+
+  const selectedPublicTask = useMemo(
+    () => myTasksWithCode.find((t) => t.id === selectedPublicTaskId) ?? null,
+    [myTasksWithCode, selectedPublicTaskId],
+  );
+
+  useEffect(() => {
+    if (myTasksWithCode.length === 0) {
+      setSelectedPublicTaskId(null);
+      return;
+    }
+    if (!selectedPublicTaskId || !myTasksWithCode.some((t) => t.id === selectedPublicTaskId)) {
+      setSelectedPublicTaskId(myTasksWithCode[0].id);
+    }
+  }, [myTasksWithCode, selectedPublicTaskId]);
 
   const handleCreateTask = () => {
     const project = newTaskProject.trim();
@@ -282,181 +288,54 @@ export default function EmpleadoDashboard() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-secondary">Detalles de proyecto</p>
-            <h3 className="mt-2 text-xl font-semibold">Cliente K-8821 · Residencial</h3>
+            <h3 className="mt-2 text-xl font-semibold">
+              {selectedPublicTask && selectedPublicTask.codigoProyecto
+                ? `Cliente ${selectedPublicTask.codigoProyecto} · ${selectedPublicTask.project ?? selectedPublicTask.title}`
+                : "Sin proyectos asignados con código"}
+            </h3>
             <p className="mt-2 text-sm text-secondary">
-              Actualiza el estatus público y sube entregables.
+              Actualiza el estatus público (/seguimiento) solo para tareas que te están asignadas y tienen código de proyecto.
             </p>
           </div>
-          <button
-            onClick={() => setIsPublicEditorOpen(true)}
-            className="rounded-2xl bg-primary px-4 py-2 text-xs font-semibold text-white"
-          >
-            Editar Estatus Público
-          </button>
+          <div className="flex flex-col gap-3 sm:items-end">
+            {myTasksWithCode.length > 0 ? (
+              <label className="w-full text-xs font-semibold text-secondary sm:max-w-xs">
+                Proyecto
+                <select
+                  value={selectedPublicTaskId ?? ""}
+                  onChange={(e) => setSelectedPublicTaskId(e.target.value || null)}
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                >
+                  {myTasksWithCode.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.codigoProyecto} · {t.project ?? t.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <button
+              type="button"
+              disabled={!selectedPublicTask?.codigoProyecto}
+              onClick={() => setIsPublicEditorOpen(true)}
+              className="rounded-2xl bg-primary px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Editar Estatus Público
+            </button>
+          </div>
         </div>
       </motion.section>
 
-      <AnimatePresence>
-        {isPublicEditorOpen ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-          >
-            <motion.div
-              ref={publicEditorRef}
-              tabIndex={-1}
-              initial={{ y: 40, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 40, opacity: 0 }}
-              className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/70 bg-white/90 shadow-2xl backdrop-blur-md"
-            >
-              <div className="max-h-[90vh] overflow-y-auto p-6">
-                <h3 className="text-lg font-semibold">Editar estatus público</h3>
-                <p className="mt-2 text-sm text-secondary">
-                  Cambia el paso actual y agrega nuevos archivos visibles al cliente.
-                </p>
-
-                <div className="mt-4">
-                  <label className="text-xs font-semibold text-secondary">
-                    Paso actual
-                    <select
-                      value={publicStep}
-                      onChange={(event) => setPublicStep(event.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                    >
-                      {publicTimelineSteps.map((step) => (
-                        <option key={step} value={step}>
-                          {step}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="mt-5 space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                    Archivos actuales
-                  </p>
-                  {publicFiles.map((file) => (
-                    <div
-                      key={file.id}
-                      className="flex items-center justify-between rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm"
-                    >
-                      <span>{file.name}</span>
-                      <span className="text-xs text-secondary uppercase">{file.type}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-5 grid gap-3 md:grid-cols-[1fr_140px]">
-                  <input
-                    value={newFileName}
-                    onChange={(event) => setNewFileName(event.target.value)}
-                    placeholder="Nombre del archivo"
-                    className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                  />
-                  <select
-                    value={newFileType}
-                    onChange={(event) => setNewFileType(event.target.value)}
-                    className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                  >
-                    <option value="pdf">PDF</option>
-                    <option value="jpg">JPG</option>
-                  </select>
-                </div>
-
-                <button
-                  onClick={() => {
-                    if (!newFileName.trim()) return;
-                    setPublicFiles((prev) => [
-                      ...prev,
-                      {
-                        id: `p-${Date.now()}`,
-                        name: newFileName.trim(),
-                        type: newFileType,
-                      },
-                    ]);
-                    setNewFileName("");
-                  }}
-                  className="mt-3 w-full rounded-2xl border border-primary/10 bg-white py-3 text-xs font-semibold text-secondary"
-                >
-                  Subir nuevo archivo
-                </button>
-
-                <div className="mt-6 rounded-2xl border border-primary/10 bg-white p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                    Pagos del cliente
-                  </p>
-                  <p className="mt-2 text-sm text-secondary">
-                    Registra cuánto ha pagado el cliente en cada etapa.
-                  </p>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    {[
-                      { key: "anticipo", label: "Anticipo" },
-                      { key: "segundoPago", label: "2do pago" },
-                      { key: "liquidacion", label: "Liquidación" },
-                    ].map((item) => (
-                      <label key={item.key} className="text-xs font-semibold text-secondary">
-                        {item.label}
-                        <input
-                          type="number"
-                          min={0}
-                          value={paymentInputs[item.key as keyof typeof paymentInputs]}
-                          onChange={(event) =>
-                            setPaymentInputs((prev) => ({
-                              ...prev,
-                              [item.key]: Number(event.target.value || 0),
-                            }))
-                          }
-                          className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
-                        />
-                        <span className="mt-2 block text-[11px] font-medium text-secondary">
-                          Restante:{" "}
-                          {formatCurrency(
-                            Math.max(
-                              0,
-                              installmentAmount -
-                                paymentInputs[item.key as keyof typeof paymentInputs],
-                            ),
-                          )}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
-                    <span className="rounded-full bg-primary/5 px-3 py-1 text-secondary">
-                      Pagado:{" "}
-                      <span className="font-semibold text-primary">
-                        {formatCurrency(totalPagado)}
-                      </span>
-                    </span>
-                    <span className="rounded-full bg-accent/10 px-3 py-1 text-accent">
-                      Restante: {formatCurrency(restante)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-6 flex gap-3">
-                  <button
-                    onClick={() => setIsPublicEditorOpen(false)}
-                    className="w-full rounded-2xl border border-primary/10 bg-white py-3 text-xs font-semibold text-secondary"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={() => setIsPublicEditorOpen(false)}
-                    className="w-full rounded-2xl bg-accent py-3 text-xs font-semibold text-white"
-                  >
-                    Guardar cambios
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      {isPublicEditorOpen && selectedPublicTask?.codigoProyecto ? (
+        <PublicStatusEditorModal
+          open
+          onClose={() => setIsPublicEditorOpen(false)}
+          role="employee"
+          codigoProyecto={selectedPublicTask.codigoProyecto}
+          subtitle={`${selectedPublicTask.project ?? selectedPublicTask.title}`}
+          onSaved={() => setRefreshTrigger((t) => t + 1)}
+        />
+      ) : null}
 
       {isNewTaskModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

@@ -191,6 +191,99 @@ export function getWallMeasureFieldDefs(wallId: string): WallMeasureFieldDef[] {
   return WALL_MEASURE_SCHEMA[wallId] ?? [];
 }
 
+/** Letra de referencia en diagrama (A, B, C…) alineada al orden del formulario. */
+export function wallMeasureLetter(index: number): string {
+  const i = ((index % 26) + 26) % 26;
+  return String.fromCharCode(65 + i);
+}
+
+/**
+ * Posiciones opcionales (top/left en %) para badges A,B,… sobre la foto del tipo de muro.
+ * Si falta o no coincide el número de campos, se reparten en una cuadrícula automática.
+ */
+export const WALL_MEASURE_BADGE_POSITIONS: Partial<
+  Record<string, readonly { top: string; left: string }[]>
+> = {
+  "pared-recta": [
+    { top: "18%", left: "22%" },
+    { top: "12%", left: "72%" },
+    { top: "68%", left: "48%" },
+  ],
+  "pared-ventana": [
+    { top: "14%", left: "18%" },
+    { top: "38%", left: "52%" },
+    { top: "42%", left: "28%" },
+    { top: "62%", left: "70%" },
+    { top: "78%", left: "38%" },
+  ],
+  "pared-puerta": [
+    { top: "14%", left: "20%" },
+    { top: "36%", left: "50%" },
+    { top: "58%", left: "72%" },
+    { top: "72%", left: "32%" },
+  ],
+  "esquina-90": [
+    { top: "22%", left: "28%" },
+    { top: "22%", left: "68%" },
+    { top: "58%", left: "48%" },
+    { top: "78%", left: "48%" },
+  ],
+  "pared-nicho": [
+    { top: "12%", left: "24%" },
+    { top: "32%", left: "58%" },
+    { top: "48%", left: "40%" },
+    { top: "38%", left: "78%" },
+    { top: "72%", left: "52%" },
+  ],
+  "pared-media-altura": [
+    { top: "20%", left: "24%" },
+    { top: "42%", left: "62%" },
+    { top: "55%", left: "38%" },
+    { top: "18%", left: "78%" },
+  ],
+  "pared-divisoria": [
+    { top: "28%", left: "32%" },
+    { top: "48%", left: "52%" },
+    { top: "68%", left: "72%" },
+  ],
+  "falso-muro": [
+    { top: "28%", left: "32%" },
+    { top: "48%", left: "52%" },
+    { top: "68%", left: "72%" },
+  ],
+  "pared-salientes": [
+    { top: "18%", left: "22%" },
+    { top: "36%", left: "58%" },
+    { top: "48%", left: "36%" },
+    { top: "58%", left: "72%" },
+    { top: "78%", left: "48%" },
+  ],
+  "pared-l": [
+    { top: "24%", left: "30%" },
+    { top: "24%", left: "68%" },
+    { top: "58%", left: "48%" },
+    { top: "78%", left: "48%" },
+  ],
+};
+
+export function getWallMeasureBadgePositions(wallId: string): { top: string; left: string }[] {
+  const defs = getWallMeasureFieldDefs(wallId);
+  const n = defs.length;
+  const custom = WALL_MEASURE_BADGE_POSITIONS[wallId];
+  if (custom && custom.length === n) {
+    return custom.map((p) => ({ top: p.top, left: p.left }));
+  }
+  const cols = Math.min(3, Math.max(1, n));
+  const rows = Math.ceil(n / cols);
+  return Array.from({ length: n }, (_, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const topPct = 10 + ((row + 0.5) / rows) * 75;
+    const leftPct = 8 + ((col + 0.5) / cols) * 84;
+    return { top: `${topPct}%`, left: `${leftPct}%` };
+  });
+}
+
 export function emptyWallMeasuresForId(wallId: string): Record<string, string> {
   const defs = getWallMeasureFieldDefs(wallId);
   return Object.fromEntries(defs.map((d) => [d.key, ""]));
@@ -402,7 +495,7 @@ const APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
   "estufa-piso-material": "/images/electrodomesticos/estufa-de-piso-diseno.jpg",
   "estufa-compacta": "/images/electrodomesticos/estufa-piso-compactas.JPG",
   "refri-top-mount": "/images/electrodomesticos/top-mount2.jpg",
-  "refri-bottom-mount": "/images/electrodomesticos/bottom-mount.png",
+  "refri-bottom-mount": "/images/electrodomesticos/botton-mount1.jpg",
   "refri-side-side": "/images/electrodomesticos/side-by-side.png",
   "refri-french-door": "/images/electrodomesticos/french-door.jpg",
   "refri-frigobar": "/images/electrodomesticos/frigobar1.jpg",

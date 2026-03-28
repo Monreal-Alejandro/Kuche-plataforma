@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dir = path.join(__dirname, "..", "public", "images", "electrodomesticos");
 
 /** Archivos que mostraban cuadros grises en la UI. */
-const TARGETS = ["bottom-mount.png", "estufa-de-piso-diseno.jpg"];
+const TARGETS = ["estufa-de-piso-diseno.jpg"];
 
 /**
  * Sustituir píxeles que parecen tablero (casi gris / blanco, poca saturación),

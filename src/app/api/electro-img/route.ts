@@ -57,6 +57,8 @@ export async function GET(request: Request) {
 
     const out = await sharp(buf, { failOn: "none" })
       .rotate()
+      // PNG con alfa mal exportado (p. ej. desde Excel): evita “huecos” y bordes rotos al pasar a JPEG.
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
       .jpeg({ quality: 88, mozjpeg: true })
       .toBuffer();
 

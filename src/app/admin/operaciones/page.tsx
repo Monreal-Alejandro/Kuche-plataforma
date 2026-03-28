@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { UserPlus, Calculator, FileText } from "lucide-react";
 
 import { DueDateInput } from "@/components/DueDateInput";
 import { KanbanTablero } from "@/components/KanbanTablero";
+import { PublicStatusEditorModal } from "@/components/PublicStatusEditorModal";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import {
@@ -64,6 +65,9 @@ export default function OperacionesPage() {
   const [newMemberName, setNewMemberName] = useState("");
   const [teamError, setTeamError] = useState("");
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [kanbanTasks, setKanbanTasks] = useState<KanbanTask[]>([]);
+  const [selectedPublicTaskId, setSelectedPublicTaskId] = useState<string | null>(null);
+  const [isPublicEditorOpen, setIsPublicEditorOpen] = useState(false);
   const assignModalRef = useRef<HTMLDivElement | null>(null);
   const teamModalRef = useRef<HTMLDivElement | null>(null);
 
@@ -75,6 +79,37 @@ export default function OperacionesPage() {
   useEffect(() => {
     setTeamMembers(loadTeamMembers());
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(kanbanStorageKey);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      setKanbanTasks(Array.isArray(parsed) ? (parsed as KanbanTask[]) : []);
+    } catch {
+      setKanbanTasks([]);
+    }
+  }, [refreshTrigger]);
+
+  const tasksWithProjectCode = useMemo(
+    () => kanbanTasks.filter((t) => Boolean(t.codigoProyecto?.trim())),
+    [kanbanTasks],
+  );
+
+  const selectedPublicTask = useMemo(
+    () => tasksWithProjectCode.find((t) => t.id === selectedPublicTaskId) ?? null,
+    [tasksWithProjectCode, selectedPublicTaskId],
+  );
+
+  useEffect(() => {
+    if (tasksWithProjectCode.length === 0) {
+      setSelectedPublicTaskId(null);
+      return;
+    }
+    if (!selectedPublicTaskId || !tasksWithProjectCode.some((t) => t.id === selectedPublicTaskId)) {
+      setSelectedPublicTaskId(tasksWithProjectCode[0].id);
+    }
+  }, [tasksWithProjectCode, selectedPublicTaskId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -262,6 +297,51 @@ export default function OperacionesPage() {
         />
       </motion.section>
 
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35 }}
+        className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md"
+      >
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-secondary">Seguimiento cliente</p>
+            <h2 className="mt-2 text-xl font-semibold text-gray-900">Estatus público (/seguimiento)</h2>
+            <p className="mt-2 text-sm text-secondary">
+              Edita timeline, garantía, pagos y archivos visibles para cualquier proyecto con código.
+            </p>
+          </div>
+          <div className="flex w-full flex-col gap-3 sm:max-w-md lg:w-auto lg:min-w-[280px]">
+            {tasksWithProjectCode.length > 0 ? (
+              <label className="text-xs font-semibold text-secondary">
+                Proyecto
+                <select
+                  value={selectedPublicTaskId ?? ""}
+                  onChange={(e) => setSelectedPublicTaskId(e.target.value || null)}
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm font-medium text-gray-900 outline-none"
+                >
+                  {tasksWithProjectCode.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.codigoProyecto} · {t.project ?? t.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p className="text-sm text-secondary">No hay tareas con código de proyecto en el tablero.</p>
+            )}
+            <button
+              type="button"
+              disabled={!selectedPublicTask?.codigoProyecto}
+              onClick={() => setIsPublicEditorOpen(true)}
+              className="rounded-2xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Editar estatus público
+            </button>
+          </div>
+        </div>
+      </motion.section>
+
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
           <div className="flex items-start gap-4">
@@ -435,6 +515,17 @@ export default function OperacionesPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {isPublicEditorOpen && selectedPublicTask?.codigoProyecto ? (
+        <PublicStatusEditorModal
+          open
+          onClose={() => setIsPublicEditorOpen(false)}
+          role="admin"
+          codigoProyecto={selectedPublicTask.codigoProyecto}
+          subtitle={`${selectedPublicTask.project ?? selectedPublicTask.title}`}
+          onSaved={() => setRefreshTrigger((t) => t + 1)}
+        />
       ) : null}
 
       {isTeamModalOpen ? (

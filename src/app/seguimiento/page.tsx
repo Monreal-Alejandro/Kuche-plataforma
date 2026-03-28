@@ -526,14 +526,26 @@ export default function SeguimientoPage() {
                       const primary = f.type === "pdf" ? getPdfButtonPrimaryLabelFromFileName(f.name) : "";
                       const secondary =
                         f.type === "pdf" ? getPdfButtonSecondaryFromFileName(f.name) : "";
+                      const canOpenFile =
+                        f.type === "pdf"
+                          ? Boolean(f.indexedPdfKey || f.src?.trim())
+                          : Boolean(f.src?.trim());
                       return (
                       <button
                         key={f.id}
                         type="button"
-                        className="inline-flex items-center gap-2 rounded-full border border-primary/10 px-4 py-2 text-xs font-semibold text-primary transition hover:border-accent hover:text-accent"
+                        disabled={!canOpenFile}
+                        title={!canOpenFile ? "Archivo no adjunto aún" : undefined}
+                        className="inline-flex items-center gap-2 rounded-full border border-primary/10 px-4 py-2 text-xs font-semibold text-primary transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-primary/10 disabled:hover:text-primary"
                         onClick={() => {
-                          if (f.type === "pdf" && f.indexedPdfKey) {
-                            openPdfFromIndexedKey(f.indexedPdfKey);
+                          if (f.type === "pdf") {
+                            if (f.indexedPdfKey) {
+                              openPdfFromIndexedKey(f.indexedPdfKey);
+                              return;
+                            }
+                            if (f.src?.trim()) {
+                              window.open(f.src, "_blank", "noopener,noreferrer");
+                            }
                             return;
                           }
                           if (f.type === "jpg" && f.src?.trim()) {

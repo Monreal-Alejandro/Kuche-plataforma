@@ -1607,14 +1607,28 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
                       Archivos
                     </p>
-                    <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-white px-4 py-6 text-sm text-secondary">
+                    <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-white px-4 py-6 text-sm text-secondary transition hover:border-primary/40 hover:bg-primary/[0.03]">
                       <FileUp className="h-4 w-4" />
                       Subir PDF o renders
                       <input
                         type="file"
                         multiple
-                        className="hidden"
-                        onChange={(event) => handleFilesUpload(activeTask.id, event.target.files)}
+                        tabIndex={-1}
+                        className="sr-only"
+                        onChange={(event) => {
+                          const target = event.target;
+                          const files = target.files;
+                          if (!files?.length) {
+                            target.value = "";
+                            window.requestAnimationFrame(() => {
+                              activeTaskRef.current?.focus({ preventScroll: true });
+                            });
+                            return;
+                          }
+                          void handleFilesUpload(activeTask.id, files).finally(() => {
+                            target.value = "";
+                          });
+                        }}
                       />
                     </label>
                     <div className="mt-4 space-y-2">
@@ -1739,20 +1753,35 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                   ? "Adjunta documentos de seguimiento del proyecto."
                   : "Adjunta renders o planos para esta tarea de diseño."}
               </p>
-              <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-white px-4 py-8 text-center text-sm text-secondary">
+              <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-white px-4 py-8 text-center text-sm text-secondary transition hover:border-primary/40 hover:bg-primary/[0.03]">
                 <FileUp className="h-4 w-4" />
                 Seleccionar archivos
                 <input
                   type="file"
                   multiple
                   accept="image/*,.pdf"
-                  className="hidden"
-                  onChange={(event) => {
+                  tabIndex={-1}
+                  className="sr-only"
+                  onChange={async (event) => {
                     const target = event.target;
-                    handleFilesUpload(uploadTaskId, target.files).finally(() => {
-                      setUploadTaskId(null);
+                    const id = uploadTaskId;
+                    if (!id) return;
+                    const list = target.files;
+                    if (!list?.length) {
                       target.value = "";
-                    });
+                      window.requestAnimationFrame(() => {
+                        uploadTaskRef.current?.focus({ preventScroll: true });
+                      });
+                      return;
+                    }
+                    try {
+                      await handleFilesUpload(id, list);
+                      setUploadTaskId(null);
+                    } catch {
+                      /* persistencia u otro error: el modal sigue abierto */
+                    } finally {
+                      target.value = "";
+                    }
                   }}
                 />
               </label>
