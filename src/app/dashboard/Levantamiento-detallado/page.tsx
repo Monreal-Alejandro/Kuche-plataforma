@@ -16,9 +16,7 @@ import {
 import {
   APPLIANCE_CATEGORIAS,
   APPLIANCE_ITEMS,
-  applianceFirstIndexForCategory,
   APPLIANCE_OTRO_STEP_INDEX,
-  APPLIANCE_STEPS_TOTAL,
   defaultLevantamientoDetalle,
   emptyWallMeasuresForId,
   getApplianceCategoryProgress,
@@ -30,6 +28,7 @@ import {
   type MedidasCampos,
   WALL_ITEMS,
   WALL_PAGE_INDICES,
+  type ItemCatalogo,
   type LevantamientoDetalle,
 } from "@/lib/levantamiento-catalog";
 import {
@@ -100,7 +99,10 @@ const defaultCategoryImage: Record<MaterialCategory, string> = {
 
 const resolveMaterialImage = (name: string, category: MaterialCategory, fallback?: string) => {
   const match = materialImageMap[category].find((entry) => entry.match.test(name));
-  return match?.src ?? fallback ?? defaultCategoryImage[category];
+  if (match) return match.src;
+  /** Ignorar URLs externas (p. ej. pollinations): suelen fallar y el <img> cae en el placeholder. */
+  if (fallback?.startsWith("/")) return fallback;
+  return defaultCategoryImage[category];
 };
 
 const SectionCard = ({ children }: { children: React.ReactNode }) => (
@@ -108,6 +110,30 @@ const SectionCard = ({ children }: { children: React.ReactNode }) => (
     {children}
   </div>
 );
+
+/** Carrusel: póster grande 2:3; título en overlay sobre la imagen. Encabezados de fila = estilo Küche (como el resto del formulario). */
+const streamRowShell = "rounded-2xl bg-zinc-950 px-2 py-4 shadow-inner ring-1 ring-white/10 sm:px-4 sm:py-5";
+const streamRowHeading = "text-xs font-semibold uppercase tracking-[0.28em] text-zinc-100";
+const streamRowHint = "mt-1 text-sm font-medium tracking-wide text-zinc-500";
+const streamRankClass =
+  "w-[0.42em] min-w-[1.25rem] shrink-0 select-none self-end pb-1 text-center text-lg font-semibold tabular-nums leading-none text-zinc-500 sm:min-w-[1.4rem] sm:text-xl";
+const streamVerTodosClass =
+  "shrink-0 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 underline-offset-2 transition hover:text-zinc-100 hover:underline";
+const streamPosterClass = (selected: boolean) =>
+  `relative z-10 aspect-[2/3] w-[min(10.5rem,52vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(12.5rem,38vw)] lg:w-[min(13.5rem,32vw)] ${
+    selected ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950" : "ring-1 ring-white/10 hover:ring-white/55"
+  }`;
+const streamPosterTitleOverlay =
+  "pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent px-2 pb-2.5 pt-14";
+const streamPosterLabelClass =
+  "line-clamp-2 text-xs font-medium leading-snug text-white/95 sm:text-sm";
+/** Miniaturas de carrusel: `cover` sin `object-center` aquí — el centro choca con `object-[…]` en iluminación. */
+const streamCatalogThumbBase = "absolute inset-0 z-0 h-full w-full object-cover";
+const streamCatalogThumbImageClass = `${streamCatalogThumbBase} object-center`;
+/** Encuadre por ítem: `LightingTypeImage` aplica `object-position` inline (catálogo). */
+const streamLightingThumbClass = `${streamCatalogThumbBase} object-center`;
+const streamScrollClass =
+  "flex gap-3 overflow-x-auto pb-2 pt-1 pl-0.5 [-ms-overflow-style:none] [scrollbar-color:rgba(255,255,255,0.2)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 sm:gap-4";
 
 const MaterialGrid = ({
   title,
@@ -134,7 +160,7 @@ const MaterialGrid = ({
   materialSearch: string;
   tierFilter: MaterialTierFilter;
 }) => {
-  const pageSize = 6;
+  const pageSize = 4;
   const normalizedSearch = materialSearch.trim().toLowerCase();
   const filtered = options.filter((option) => {
     const matchesSearch = !normalizedSearch || option.name.toLowerCase().includes(normalizedSearch);
@@ -151,7 +177,7 @@ const MaterialGrid = ({
       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
         {title}
       </p>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         {paginated.map((option) => {
           const isActive = option.id === selectedId;
           const imageSrc = resolveMaterialImage(option.name, category, option.image);
@@ -161,36 +187,39 @@ const MaterialGrid = ({
               key={option.id}
               type="button"
               onClick={() => onSelect(option.id)}
-              className={`relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:-translate-y-1 hover:shadow-lg ${
-                isActive ? "ring-4 ring-[#8B1C1C]" : ""
+              className={`group w-full rounded-2xl border border-primary/10 bg-white p-3 text-left shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl ${
+                isActive ? "ring-2 ring-[#8B1C1C] ring-offset-2 ring-offset-white" : ""
               }`}
             >
-              <div className="h-24 w-full overflow-hidden">
-                <img
-                  src={imageSrc}
-                  alt={option.name}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  onError={(event) => {
-                    event.currentTarget.src = "/images/hero-placeholder.svg";
-                  }}
-                />
+              <div className="relative overflow-hidden rounded-2xl">
+                <div className="relative aspect-square w-full overflow-hidden bg-primary/[0.04]">
+                  <img
+                    src={imageSrc}
+                    alt={option.name}
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={(event) => {
+                      event.currentTarget.src = "/images/hero-placeholder.svg";
+                    }}
+                  />
+                </div>
+                <div className="pointer-events-none absolute left-3 top-3 z-[1] max-w-[calc(100%-1.5rem)] truncate rounded-full bg-white/70 px-3 py-1 text-[11px] font-semibold text-primary shadow-md backdrop-blur">
+                  {option.name}
+                </div>
+                {isActive ? (
+                  <span className="absolute right-3 top-3 z-[1] rounded-full bg-[#8B1C1C] p-1 text-white shadow-md">
+                    <Check className="h-3 w-3" />
+                  </span>
+                ) : null}
               </div>
-              {isActive ? (
-                <span className="absolute right-3 top-3 rounded-full bg-[#8B1C1C] p-1 text-white shadow">
-                  <Check className="h-3 w-3" />
-                </span>
-              ) : null}
-              <div className="relative space-y-2 px-4 py-3 pb-10">
-                <p className="text-sm font-semibold text-primary">{option.name}</p>
-                <span className="w-fit rounded-full bg-primary/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                  {option.tier}
-                </span>
-                <p className="absolute bottom-3 right-4 text-xs font-semibold text-[#8B1C1C]">
-                  Estimado con tus medidas {formatCurrency(optionPrice)}
-                </p>
-              </div>
+              <p className="mt-3 text-xs font-medium text-secondary">{option.name}</p>
+              <span className="mt-2 inline-flex w-fit rounded-full bg-primary/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                {option.tier}
+              </span>
+              <p className="mt-2 text-xs font-semibold text-[#8B1C1C]">
+                Estimado con tus medidas {formatCurrency(optionPrice)}
+              </p>
             </button>
           );
         })}
@@ -691,13 +720,17 @@ export default function CotizadorPreliminarPage() {
   /** Un paso por electrodoméstico (orden por categoría); el último índice es «Otro». */
   const [applianceStep, setApplianceStep] = useState(0);
   const [applianceSearch, setApplianceSearch] = useState("");
-  /** true = rejilla visual; false = detalle con medidas del ítem seleccionado. */
-  const [applianceGalleryMode, setApplianceGalleryMode] = useState(true);
-  const [applianceCategoryFilter, setApplianceCategoryFilter] = useState<string | null>(null);
-  const [lightingPage, setLightingPage] = useState(1);
+  /** true = carruseles; false = detalle en la misma página (sin modal). */
+  const [applianceBrowseMode, setApplianceBrowseMode] = useState(true);
   const [lightingSearch, setLightingSearch] = useState("");
-  /** null = galería de la página o búsqueda; id = detalle de ese luminario. */
+  const [lightingShowOtro, setLightingShowOtro] = useState(false);
+  const [lightingBrowseMode, setLightingBrowseMode] = useState(true);
+  /** id del luminario en vista detalle (cuando lightingBrowseMode es false). */
   const [lightingFocusedId, setLightingFocusedId] = useState<string | null>(null);
+  const applianceRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  /** Al pasar de carrusel → detalle el documento se acorta y el scroll absoluto deja la vista en la sección siguiente; se reencuadra la sección C. */
+  const applianceSectionRef = useRef<HTMLDivElement | null>(null);
+  const lightingSectionRef = useRef<HTMLDivElement | null>(null);
 
   const setSectionComment = (key: "a" | "b" | "c" | "d" | "e", value: string) => {
     setLevantamiento((prev) => ({
@@ -1044,7 +1077,10 @@ export default function CotizadorPreliminarPage() {
     setWallSearch("");
     setApplianceStep(0);
     setApplianceSearch("");
-    setLightingPage(1);
+    setApplianceBrowseMode(true);
+    setLightingShowOtro(false);
+    setLightingBrowseMode(true);
+    setLightingFocusedId(null);
     setLightingSearch("");
   };
 
@@ -1179,34 +1215,75 @@ export default function CotizadorPreliminarPage() {
     });
   }, [lightingSearchNorm]);
 
-  const applianceGalleryEntries = useMemo(() => {
-    let entries = APPLIANCE_ITEMS.map((item, idx) => ({ item, idx }));
-    if (applianceCategoryFilter) {
-      entries = entries.filter((e) => e.item.categoria === applianceCategoryFilter);
+  const applianceCarouselRows = useMemo(() => {
+    const norm = applianceSearchNorm;
+    const matchesSearch = (item: ItemCatalogo) => {
+      if (!norm) return true;
+      const hay = `${item.label} ${item.hint ?? ""} ${item.categoria ?? ""}`.toLowerCase();
+      return hay.includes(norm);
+    };
+    if (norm) {
+      const entries = APPLIANCE_ITEMS.map((item, idx) => ({ item, idx })).filter(({ item }) =>
+        matchesSearch(item),
+      );
+      return entries.length ? [{ key: "busqueda", title: "Resultados de búsqueda", entries }] : [];
     }
-    if (applianceSearchNorm) {
-      entries = entries.filter(({ item }) => {
-        const hay = `${item.label} ${item.hint ?? ""} ${item.categoria ?? ""}`.toLowerCase();
-        return hay.includes(applianceSearchNorm);
-      });
-    }
-    return entries;
-  }, [applianceCategoryFilter, applianceSearchNorm]);
+    return APPLIANCE_CATEGORIAS.map((cat) => {
+      const entries = APPLIANCE_ITEMS.map((item, idx) => ({ item, idx })).filter(
+        ({ item }) => item.categoria === cat,
+      );
+      return { key: cat, title: cat, entries };
+    }).filter((row) => row.entries.length > 0);
+  }, [applianceSearchNorm]);
+
+  const applianceIndicesInCurrentCategory = useMemo(() => {
+    if (applianceStep >= APPLIANCE_OTRO_STEP_INDEX) return [] as number[];
+    const cat = APPLIANCE_ITEMS[applianceStep]?.categoria;
+    if (!cat) return [];
+    return APPLIANCE_ITEMS.map((item, i) => (item.categoria === cat ? i : -1)).filter((i) => i >= 0);
+  }, [applianceStep]);
 
   useEffect(() => {
     setLightingFocusedId(null);
-  }, [lightingPage, lightingSearch]);
+    setLightingBrowseMode(true);
+  }, [lightingSearch, lightingShowOtro]);
 
   const lightingDetailItem = useMemo(() => {
     if (!lightingFocusedId) return null;
     return LIGHTING_ITEMS.find((i) => i.id === lightingFocusedId) ?? null;
   }, [lightingFocusedId]);
 
+  const lightingModalNavIds = useMemo(() => {
+    if (!lightingFocusedId) return [] as string[];
+    if (lightingSearchNorm && filteredLightingItems && filteredLightingItems.length > 0) {
+      return filteredLightingItems.map((i) => i.id);
+    }
+    for (const indices of LIGHTING_PAGE_INDICES) {
+      const ids = indices.map((idx) => LIGHTING_ITEMS[idx].id);
+      if (ids.includes(lightingFocusedId)) return ids;
+    }
+    return [];
+  }, [lightingFocusedId, lightingSearchNorm, filteredLightingItems]);
+
+  const lightingRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
   useEffect(() => {
     if (lightingFocusedId && !LIGHTING_ITEMS.some((i) => i.id === lightingFocusedId)) {
       setLightingFocusedId(null);
     }
   }, [lightingFocusedId]);
+
+  useLayoutEffect(() => {
+    if (!applianceBrowseMode) {
+      applianceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [applianceBrowseMode]);
+
+  useLayoutEffect(() => {
+    if (!lightingBrowseMode && lightingFocusedId) {
+      lightingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [lightingBrowseMode, lightingFocusedId]);
 
   return (
     <main
@@ -1613,228 +1690,34 @@ export default function CotizadorPreliminarPage() {
         </SectionCard>
 
         <SectionCard>
-          <div className="space-y-6">
+          <div ref={applianceSectionRef} className="scroll-mt-6 space-y-6">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
                 Sección C · Electrodomésticos
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Primero elige un tipo en la galería; al abrirlo verás la foto grande y las medidas. Orden: microondas →
-                estufas → refrigeradores → parrillas; al final «Otro». Medidas en metros.
+                Pósters grandes (2:3); el nombre va en la parte baja de la foto. Clic abre el detalle en la página.
+                Medidas en metros.
               </p>
             </div>
-            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-              Buscar electrodoméstico
-              <span className="relative mt-2 block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary/70" />
-                <input
-                  value={applianceSearch}
-                  onChange={(e) => setApplianceSearch(e.target.value)}
-                  placeholder="Nombre, categoría o palabra del tipo…"
-                  className="w-full rounded-2xl border border-primary/10 bg-white py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-secondary/45"
-                />
-              </span>
-            </label>
-            {filteredApplianceMatches !== null && filteredApplianceMatches.length > 0 ? (
-              <div className="rounded-2xl border border-primary/10 bg-primary/[0.04] p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Resultados ({filteredApplianceMatches.length}) · clic para abrir detalle
-                </p>
-                <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">
-                  {filteredApplianceMatches.map(({ item, idx }) => {
-                    const isCurrent = applianceStep === idx && !applianceStepMeta.isOtro;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          setApplianceStep(idx);
-                          setApplianceGalleryMode(false);
-                        }}
-                        className={`max-w-full truncate rounded-full px-3 py-1.5 text-left text-xs font-semibold transition ${
-                          isCurrent
-                            ? "bg-[#8B1C1C] text-white"
-                            : "border border-primary/15 bg-white text-primary hover:border-primary/35"
-                        }`}
-                        title={`${item.categoria ?? ""} — ${item.label}`}
-                      >
-                        <span className="text-secondary/80">{item.categoria ?? ""}: </span>
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
+            {!applianceBrowseMode ? (
+              <div className="space-y-5">
                 <button
                   type="button"
-                  onClick={() => setApplianceSearch("")}
-                  className="mt-3 text-xs font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
-                >
-                  Limpiar búsqueda
-                </button>
-              </div>
-            ) : filteredApplianceMatches !== null && filteredApplianceMatches.length === 0 ? (
-              <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
-                Sin coincidencias. Prueba otro término o borra el texto del buscador.
-              </div>
-            ) : null}
-            {applianceGalleryMode ? (
-              <>
-                <div className="space-y-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                    Filtrar por categoría
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setApplianceCategoryFilter(null)}
-                      className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                        applianceCategoryFilter === null
-                          ? "bg-[#8B1C1C] text-white"
-                          : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
-                      }`}
-                    >
-                      Todos
-                    </button>
-                    {APPLIANCE_CATEGORIAS.map((cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setApplianceCategoryFilter(cat)}
-                        className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                          applianceCategoryFilter === cat
-                            ? "bg-[#8B1C1C] text-white"
-                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setApplianceStep(APPLIANCE_OTRO_STEP_INDEX);
-                        setApplianceGalleryMode(false);
-                      }}
-                      className="rounded-full border border-dashed border-primary/25 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
-                    >
-                      Otro
-                    </button>
-                  </div>
-                </div>
-                {applianceGalleryEntries.length === 0 ? (
-                  <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-6 text-center text-sm text-secondary">
-                    No hay tipos con este filtro. Cambia categoría o limpia la búsqueda.
-                  </div>
-                ) : (
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {applianceGalleryEntries.map(({ item, idx }) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          setApplianceStep(idx);
-                          setApplianceGalleryMode(false);
-                        }}
-                        className="group relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:border-primary/30 hover:shadow-md"
-                      >
-                        <div className="relative aspect-[4/3] w-full overflow-hidden bg-primary/5">
-                          <ApplianceTypeImage item={item} alt="" />
-                          <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-white">
-                            {item.categoria ?? "Electrodoméstico"}
-                          </span>
-                        </div>
-                        <div className="p-3">
-                          <p className="line-clamp-2 text-sm font-semibold text-primary">{item.label}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setApplianceGalleryMode(true)}
+                  onClick={() => setApplianceBrowseMode(true)}
                   className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
                 >
                   <ChevronLeft className="h-4 w-4 shrink-0" />
-                  Volver a la galería
+                  Volver al catálogo
                 </button>
-                <div className="space-y-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">Ir a categoría</p>
-                  <div className="flex flex-wrap gap-2">
-                    {APPLIANCE_CATEGORIAS.map((cat) => {
-                      const first = applianceFirstIndexForCategory(cat);
-                      const isActive = !applianceStepMeta.isOtro && currentApplianceItem?.categoria === cat;
-                      return (
-                        <button
-                          key={cat}
-                          type="button"
-                          onClick={() => setApplianceStep(first)}
-                          className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                            isActive
-                              ? "bg-[#8B1C1C] text-white"
-                              : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
-                          }`}
-                        >
-                          {cat}
-                        </button>
-                      );
-                    })}
-                    <button
-                      type="button"
-                      onClick={() => setApplianceStep(APPLIANCE_OTRO_STEP_INDEX)}
-                      className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                        applianceStepMeta.isOtro
-                          ? "bg-[#8B1C1C] text-white"
-                          : "border border-dashed border-primary/25 bg-white text-secondary hover:border-primary/35"
-                      }`}
-                    >
-                      Otro
-                    </button>
-                  </div>
-                </div>
-                <div className="relative z-10 flex flex-col gap-4 rounded-2xl border border-primary/10 bg-white/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    {applianceStepMeta.isOtro ? (
-                      <p className="text-sm font-semibold text-primary">Otro electrodoméstico</p>
-                    ) : (
-                      <p className="text-sm font-semibold text-primary">
-                        {applianceStepMeta.progress.categoria} · {applianceStepMeta.progress.indexInCategory} de{" "}
-                        {applianceStepMeta.progress.totalInCategory}
-                      </p>
-                    )}
-                    <p className="mt-1 text-xs text-secondary">
-                      Paso {applianceStep + 1} de {APPLIANCE_STEPS_TOTAL} · Dentro de la categoría usa anterior /
-                      siguiente
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={applianceStep <= 0}
-                      onClick={() => setApplianceStep((s) => Math.max(0, s - 1))}
-                      className="inline-flex h-10 items-center gap-1 rounded-full border border-primary/15 bg-white px-3 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <ChevronLeft className="h-5 w-5 shrink-0" />
-                      Anterior
-                    </button>
-                    <button
-                      type="button"
-                      disabled={applianceStep >= APPLIANCE_OTRO_STEP_INDEX}
-                      onClick={() => setApplianceStep((s) => Math.min(APPLIANCE_OTRO_STEP_INDEX, s + 1))}
-                      className="inline-flex h-10 items-center gap-1 rounded-full border border-primary/15 bg-white px-3 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Siguiente
-                      <ChevronRight className="h-5 w-5 shrink-0" />
-                    </button>
-                  </div>
-                </div>
                 {currentApplianceItem ? (
                   <div className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
-                    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
-                      <ApplianceTypeImage item={currentApplianceItem} alt="" />
+                    <div className="relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0">
+                      <ApplianceTypeImage
+                        item={currentApplianceItem}
+                        alt=""
+                        className="absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
+                      />
                       <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
                         {currentApplianceItem.categoria ?? "Electrodoméstico"}
                       </span>
@@ -1878,6 +1761,38 @@ export default function CotizadorPreliminarPage() {
                           );
                         })}
                       </div>
+                      {applianceIndicesInCurrentCategory.length > 1 ? (
+                        <div className="flex flex-wrap gap-2 border-t border-primary/10 pt-4">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const pos = applianceIndicesInCurrentCategory.indexOf(applianceStep);
+                              if (pos > 0) setApplianceStep(applianceIndicesInCurrentCategory[pos - 1]!);
+                            }}
+                            disabled={applianceIndicesInCurrentCategory.indexOf(applianceStep) <= 0}
+                            className="inline-flex items-center gap-1 rounded-full border border-primary/15 px-3 py-2 text-xs font-semibold text-primary disabled:opacity-40"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                            Anterior en categoría
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const pos = applianceIndicesInCurrentCategory.indexOf(applianceStep);
+                              const list = applianceIndicesInCurrentCategory;
+                              if (pos < list.length - 1) setApplianceStep(list[pos + 1]!);
+                            }}
+                            disabled={
+                              applianceIndicesInCurrentCategory.indexOf(applianceStep) >=
+                              applianceIndicesInCurrentCategory.length - 1
+                            }
+                            className="inline-flex items-center gap-1 rounded-full border border-primary/15 px-3 py-2 text-xs font-semibold text-primary disabled:opacity-40"
+                          >
+                            Siguiente en categoría
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ) : (
@@ -1910,6 +1825,202 @@ export default function CotizadorPreliminarPage() {
                     </div>
                   </div>
                 )}
+              </div>
+            ) : (
+              <>
+                <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                  Buscar electrodoméstico
+                  <span className="relative mt-2 block">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary/70" />
+                    <input
+                      value={applianceSearch}
+                      onChange={(e) => setApplianceSearch(e.target.value)}
+                      placeholder="Nombre, categoría o palabra del tipo…"
+                      className="w-full rounded-2xl border border-primary/10 bg-white py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-secondary/45"
+                    />
+                  </span>
+                </label>
+                {filteredApplianceMatches !== null && filteredApplianceMatches.length > 0 ? (
+                  <div className="rounded-2xl border border-primary/10 bg-primary/[0.04] p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                      Resultados ({filteredApplianceMatches.length}) · clic para ir al detalle
+                    </p>
+                    <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">
+                      {filteredApplianceMatches.map(({ item, idx }) => {
+                        const isCurrent = applianceStep === idx && !applianceStepMeta.isOtro;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setApplianceStep(idx);
+                              setApplianceBrowseMode(false);
+                            }}
+                            className={`max-w-full truncate rounded-full px-3 py-1.5 text-left text-xs font-semibold transition ${
+                              isCurrent
+                                ? "bg-[#8B1C1C] text-white"
+                                : "border border-primary/15 bg-white text-primary hover:border-primary/35"
+                            }`}
+                            title={`${item.categoria ?? ""} — ${item.label}`}
+                          >
+                            <span className="text-secondary/80">{item.categoria ?? ""}: </span>
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setApplianceSearch("")}
+                      className="mt-3 text-xs font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
+                    >
+                      Limpiar búsqueda
+                    </button>
+                  </div>
+                ) : filteredApplianceMatches !== null && filteredApplianceMatches.length === 0 ? (
+                  <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
+                    Sin coincidencias. Prueba otro término o borra el texto del buscador.
+                  </div>
+                ) : null}
+                {!applianceSearchNorm && applianceCarouselRows.length > 0 ? (
+                  <div className="space-y-8">
+                    {applianceCarouselRows.map((row) => (
+                      <div key={row.key} className={streamRowShell}>
+                        <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                          <div>
+                            <p className={streamRowHeading}>{row.title}</p>
+                            <p className={streamRowHint}>Electrodomésticos</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const el = applianceRowRefs.current[row.key];
+                              if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+                            }}
+                            className={streamVerTodosClass}
+                          >
+                            Ver todos
+                          </button>
+                        </div>
+                        <div
+                          ref={(el) => {
+                            applianceRowRefs.current[row.key] = el;
+                          }}
+                          className={streamScrollClass}
+                        >
+                          {row.entries.map(({ item, idx }, rank) => (
+                            <div key={item.id} className="flex shrink-0 items-end gap-1">
+                              <span className={streamRankClass} aria-hidden>
+                                {rank + 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setApplianceStep(idx);
+                                  setApplianceBrowseMode(false);
+                                }}
+                                className="text-left"
+                              >
+                                <div className={streamPosterClass(applianceStep === idx)}>
+                                  <ApplianceTypeImage
+                                    item={item}
+                                    alt=""
+                                    className={streamCatalogThumbImageClass}
+                                  />
+                                  <div className={streamPosterTitleOverlay}>
+                                    <p className={streamPosterLabelClass}>{item.label}</p>
+                                  </div>
+                                </div>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <div className={streamRowShell}>
+                      <div className="mb-4">
+                        <p className={streamRowHeading}>Otro</p>
+                        <p className={streamRowHint}>No listado en catálogo</p>
+                      </div>
+                      <div className={streamScrollClass}>
+                        <div className="flex shrink-0 items-end gap-1">
+                          <span className={`${streamRankClass} pb-2 font-semibold text-zinc-500`} aria-hidden title="Otro">
+                            +
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApplianceStep(APPLIANCE_OTRO_STEP_INDEX);
+                              setApplianceBrowseMode(false);
+                            }}
+                            className="text-left"
+                          >
+                            <div
+                              className={`${streamPosterClass(false)} flex flex-col items-center justify-end border-2 border-dashed border-white/25 bg-zinc-900/80 pb-3 pt-10`}
+                            >
+                              <span className="px-2 text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-300">
+                                Otro
+                              </span>
+                              <span className="mt-1 px-2 text-center text-xs text-zinc-500">No en catálogo</span>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : applianceSearchNorm && applianceCarouselRows.length > 0 ? (
+                  <div className={streamRowShell}>
+                    <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                      <div>
+                        <p className={streamRowHeading}>Resultados de búsqueda</p>
+                        <p className={streamRowHint}>Electrodomésticos</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = applianceRowRefs.current.busqueda;
+                          if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+                        }}
+                        className={streamVerTodosClass}
+                      >
+                        Ver todos
+                      </button>
+                    </div>
+                    <div
+                      ref={(el) => {
+                        applianceRowRefs.current.busqueda = el;
+                      }}
+                      className={streamScrollClass}
+                    >
+                      {applianceCarouselRows[0]?.entries.map(({ item, idx }, rank) => (
+                        <div key={item.id} className="flex shrink-0 items-end gap-1">
+                          <span className={streamRankClass} aria-hidden>
+                            {rank + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApplianceStep(idx);
+                              setApplianceBrowseMode(false);
+                            }}
+                            className="text-left"
+                          >
+                            <div className={streamPosterClass(applianceStep === idx)}>
+                              <ApplianceTypeImage
+                                item={item}
+                                alt=""
+                                className={streamCatalogThumbImageClass}
+                              />
+                              <div className={streamPosterTitleOverlay}>
+                                <p className={streamPosterLabelClass}>{item.label}</p>
+                              </div>
+                            </div>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </>
             )}
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
@@ -2013,13 +2124,14 @@ export default function CotizadorPreliminarPage() {
         </SectionCard>
 
         <SectionCard>
-          <div className="space-y-6">
+          <div ref={lightingSectionRef} className="scroll-mt-6 space-y-6">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
                 Sección E · Iluminación
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Galería de tipos: elige uno y luego registra medidas. La lista definitiva la confirma la empresa.
+                Pósters grandes; título sobre la imagen. Clic abre el detalle aquí. La lista definitiva la confirma la
+                empresa.
               </p>
             </div>
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
@@ -2034,84 +2146,194 @@ export default function CotizadorPreliminarPage() {
                 />
               </span>
             </label>
-            {filteredLightingItems !== null ? (
+            {lightingShowOtro ? (
+              <div className="space-y-4">
+                <button
+                  type="button"
+                  onClick={() => setLightingShowOtro(false)}
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0" />
+                  Volver al catálogo
+                </button>
+                <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
+                  <p className="text-sm font-semibold text-primary">Otro luminario o esquema</p>
+                  <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Descripción
+                    <textarea
+                      value={levantamiento.lightingOtro.descripcion}
+                      onChange={(e) => patchOtro("lightingOtro", "descripcion", e.target.value)}
+                      rows={3}
+                      className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {(["ancho", "alto", "fondo"] as const).map((field) => (
+                      <label
+                        key={field}
+                        className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                      >
+                        {field} (m)
+                        <input
+                          value={levantamiento.lightingOtro[field]}
+                          onChange={(e) => patchOtro("lightingOtro", field, e.target.value)}
+                          inputMode="decimal"
+                          className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : !lightingBrowseMode && lightingDetailItem ? (
+              <div className="space-y-5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLightingBrowseMode(true);
+                    setLightingFocusedId(null);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0" />
+                  Volver al catálogo
+                </button>
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,240px)_1fr]">
+                  <div className="relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0">
+                    <LightingTypeImage
+                      item={lightingDetailItem}
+                      alt=""
+                      className="absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
+                    />
+                    <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                      {lightingDetailItem.label}
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-base font-semibold text-primary">{lightingDetailItem.label}</p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {(["ancho", "alto", "fondo"] as const).map((field) => {
+                        const m =
+                          levantamiento.lightingMeasures[lightingDetailItem.id] ?? {
+                            ancho: "",
+                            alto: "",
+                            fondo: "",
+                          };
+                        return (
+                          <label
+                            key={field}
+                            className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                          >
+                            {field} (m)
+                            <input
+                              value={m[field]}
+                              onChange={(e) =>
+                                patchMedidasMap("lightingMeasures", lightingDetailItem.id, field, e.target.value)
+                              }
+                              inputMode="decimal"
+                              className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {lightingModalNavIds.length > 1 ? (
+                      <div className="flex flex-wrap gap-2 border-t border-primary/10 pt-4">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const pos = lightingModalNavIds.indexOf(lightingFocusedId!);
+                            if (pos > 0) setLightingFocusedId(lightingModalNavIds[pos - 1]!);
+                          }}
+                          disabled={!lightingFocusedId || lightingModalNavIds.indexOf(lightingFocusedId) <= 0}
+                          className="inline-flex items-center gap-1 rounded-full border border-primary/15 px-3 py-2 text-xs font-semibold text-primary disabled:opacity-40"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                          Anterior
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const pos = lightingFocusedId ? lightingModalNavIds.indexOf(lightingFocusedId) : -1;
+                            if (pos < lightingModalNavIds.length - 1) {
+                              setLightingFocusedId(lightingModalNavIds[pos + 1]!);
+                            }
+                          }}
+                          disabled={
+                            !lightingFocusedId ||
+                            lightingModalNavIds.indexOf(lightingFocusedId) >= lightingModalNavIds.length - 1
+                          }
+                          className="inline-flex items-center gap-1 rounded-full border border-primary/15 px-3 py-2 text-xs font-semibold text-primary disabled:opacity-40"
+                        >
+                          Siguiente
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : filteredLightingItems !== null ? (
               <div className="space-y-4">
                 {filteredLightingItems.length === 0 ? (
                   <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
-                    No hay tipos que coincidan. Prueba otra palabra o borra la búsqueda para ver las páginas.
-                  </div>
-                ) : lightingDetailItem ? (
-                  <div className="space-y-4">
-                    <button
-                      type="button"
-                      onClick={() => setLightingFocusedId(null)}
-                      className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
-                    >
-                      <ChevronLeft className="h-4 w-4 shrink-0" />
-                      Volver a la galería
-                    </button>
-                    <div className="grid gap-4 lg:grid-cols-[minmax(0,240px)_1fr]">
-                      <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
-                        <LightingTypeImage item={lightingDetailItem} alt="" />
-                        <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                          {lightingDetailItem.label}
-                        </span>
-                      </div>
-                      <div className="space-y-3">
-                        <p className="text-sm font-semibold text-primary">{lightingDetailItem.label}</p>
-                        <div className="grid gap-3 sm:grid-cols-3">
-                          {(["ancho", "alto", "fondo"] as const).map((field) => {
-                            const m =
-                              levantamiento.lightingMeasures[lightingDetailItem.id] ?? {
-                                ancho: "",
-                                alto: "",
-                                fondo: "",
-                              };
-                            return (
-                              <label
-                                key={field}
-                                className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
-                              >
-                                {field} (m)
-                                <input
-                                  value={m[field]}
-                                  onChange={(e) =>
-                                    patchMedidasMap("lightingMeasures", lightingDetailItem.id, field, e.target.value)
-                                  }
-                                  inputMode="decimal"
-                                  className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                                />
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
+                    No hay tipos que coincidan. Prueba otra palabra o borra la búsqueda para ver el catálogo por filas.
                   </div>
                 ) : (
-                  <>
-                    <p className="text-xs font-semibold text-secondary">
-                      {filteredLightingItems.length} resultado{filteredLightingItems.length === 1 ? "" : "s"} · clic para
-                      medidas
-                    </p>
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                      {filteredLightingItems.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setLightingFocusedId(item.id)}
-                          className="group relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:border-primary/30 hover:shadow-md"
-                        >
-                          <div className="relative aspect-[4/3] w-full overflow-hidden bg-primary/5">
-                            <LightingTypeImage item={item} alt="" />
-                            <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                              {item.label}
-                            </span>
-                          </div>
-                        </button>
+                  <div className={streamRowShell}>
+                    <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                      <div>
+                        <p className={streamRowHeading}>Resultados de búsqueda</p>
+                        <p className={streamRowHint}>
+                          Iluminación · {filteredLightingItems.length} tipo
+                          {filteredLightingItems.length === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = lightingRowRefs.current.busqueda;
+                          if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+                        }}
+                        className={streamVerTodosClass}
+                      >
+                        Ver todos
+                      </button>
+                    </div>
+                    <div
+                      ref={(el) => {
+                        lightingRowRefs.current.busqueda = el;
+                      }}
+                      className={streamScrollClass}
+                    >
+                      {filteredLightingItems.map((item, rank) => (
+                        <div key={item.id} className="flex shrink-0 items-end gap-1">
+                          <span className={streamRankClass} aria-hidden>
+                            {rank + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLightingFocusedId(item.id);
+                              setLightingBrowseMode(false);
+                            }}
+                            className="text-left"
+                          >
+                            <div className={streamPosterClass(lightingFocusedId === item.id)}>
+                              <LightingTypeImage
+                                item={item}
+                                alt=""
+                                className={streamLightingThumbClass}
+                              />
+                              <div className={streamPosterTitleOverlay}>
+<p className={streamPosterLabelClass}>{item.label}</p>
+                              </div>
+                            </div>
+                          </button>
+                        </div>
                       ))}
                     </div>
-                  </>
+                  </div>
                 )}
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -2119,13 +2341,13 @@ export default function CotizadorPreliminarPage() {
                     onClick={() => setLightingSearch("")}
                     className="rounded-full border border-primary/15 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
                   >
-                    Limpiar búsqueda y ver por páginas
+                    Limpiar búsqueda y ver carruseles
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setLightingSearch("");
-                      setLightingPage(4);
+                      setLightingShowOtro(true);
                     }}
                     className="rounded-full border border-dashed border-primary/25 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
                   >
@@ -2134,125 +2356,92 @@ export default function CotizadorPreliminarPage() {
                 </div>
               </div>
             ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-2">
-                  {([1, 2, 3, 4] as const).map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setLightingPage(n)}
-                      className={`min-h-8 min-w-8 rounded-full px-3 text-xs font-semibold transition ${
-                        lightingPage === n
-                          ? "bg-[#8B1C1C] text-white"
-                          : "border border-primary/10 bg-white text-secondary hover:border-primary/30"
-                      }`}
-                    >
-                      {n === 4 ? "Otro" : `Página ${n}`}
-                    </button>
-                  ))}
-                </div>
-                {lightingPage < 4 ? (
-                  lightingDetailItem ? (
-                    <div className="space-y-4">
-                      <button
-                        type="button"
-                        onClick={() => setLightingFocusedId(null)}
-                        className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
+              <div className="space-y-8">
+                {LIGHTING_PAGE_INDICES.map((indices, rowIdx) => {
+                  const rowKey = `luz-${rowIdx}`;
+                  return (
+                    <div key={rowKey} className={streamRowShell}>
+                      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                        <div>
+                          <p className={streamRowHeading}>
+                            Iluminación · grupo {rowIdx + 1} de {LIGHTING_PAGE_INDICES.length}
+                          </p>
+                          <p className={streamRowHint}>Catálogo de referencia</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const el = lightingRowRefs.current[rowKey];
+                            if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+                          }}
+                          className={streamVerTodosClass}
+                        >
+                          Ver todos
+                        </button>
+                      </div>
+                      <div
+                        ref={(el) => {
+                          lightingRowRefs.current[rowKey] = el;
+                        }}
+                        className={streamScrollClass}
                       >
-                        <ChevronLeft className="h-4 w-4 shrink-0" />
-                        Volver a la galería
-                      </button>
-                      <div className="grid gap-4 lg:grid-cols-[minmax(0,240px)_1fr]">
-                        <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
-                          <LightingTypeImage item={lightingDetailItem} alt="" />
-                          <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                            {lightingDetailItem.label}
-                          </span>
-                        </div>
-                        <div className="space-y-3">
-                          <p className="text-sm font-semibold text-primary">{lightingDetailItem.label}</p>
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            {(["ancho", "alto", "fondo"] as const).map((field) => {
-                              const m =
-                                levantamiento.lightingMeasures[lightingDetailItem.id] ?? {
-                                  ancho: "",
-                                  alto: "",
-                                  fondo: "",
-                                };
-                              return (
-                                <label
-                                  key={field}
-                                  className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
-                                >
-                                  {field} (m)
-                                  <input
-                                    value={m[field]}
-                                    onChange={(e) =>
-                                      patchMedidasMap("lightingMeasures", lightingDetailItem.id, field, e.target.value)
-                                    }
-                                    inputMode="decimal"
-                                    className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                        {indices.map((idx, rank) => {
+                          const item = LIGHTING_ITEMS[idx];
+                          return (
+                            <div key={item.id} className="flex shrink-0 items-end gap-1">
+                              <span className={streamRankClass} aria-hidden>
+                                {rank + 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLightingFocusedId(item.id);
+                                  setLightingBrowseMode(false);
+                                }}
+                                className="text-left"
+                              >
+                                <div className={streamPosterClass(lightingFocusedId === item.id)}>
+                                  <LightingTypeImage
+                                    item={item}
+                                    alt=""
+                                    className={streamLightingThumbClass}
                                   />
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
+                                  <div className={streamPosterTitleOverlay}>
+                                    <p className={streamPosterLabelClass}>{item.label}</p>
+                                  </div>
+                                </div>
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  ) : (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                      {LIGHTING_PAGE_INDICES[lightingPage - 1].map((idx) => {
-                        const item = LIGHTING_ITEMS[idx];
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setLightingFocusedId(item.id)}
-                            className="group relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:border-primary/30 hover:shadow-md"
-                          >
-                            <div className="relative aspect-[4/3] w-full overflow-hidden bg-primary/5">
-                              <LightingTypeImage item={item} alt="" />
-                              <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                                {item.label}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )
-                ) : (
-                  <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
-                    <p className="text-sm font-semibold text-primary">Otro luminario o esquema</p>
-                    <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Descripción
-                      <textarea
-                        value={levantamiento.lightingOtro.descripcion}
-                        onChange={(e) => patchOtro("lightingOtro", "descripcion", e.target.value)}
-                        rows={3}
-                        className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                      />
-                    </label>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      {(["ancho", "alto", "fondo"] as const).map((field) => (
-                        <label
-                          key={field}
-                          className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                  );
+                })}
+                <div className={streamRowShell}>
+                  <div className="mb-4">
+                    <p className={streamRowHeading}>Otro</p>
+                    <p className={streamRowHint}>No listado en catálogo</p>
+                  </div>
+                  <div className={streamScrollClass}>
+                    <div className="flex shrink-0 items-end gap-1">
+                      <span className={`${streamRankClass} pb-2 font-semibold text-zinc-500`} aria-hidden>
+                        +
+                      </span>
+                      <button type="button" onClick={() => setLightingShowOtro(true)} className="text-left">
+                        <div
+                          className={`${streamPosterClass(false)} flex flex-col items-center justify-end border-2 border-dashed border-white/25 bg-zinc-900/80 pb-3 pt-10`}
                         >
-                          {field} (m)
-                          <input
-                            value={levantamiento.lightingOtro[field]}
-                            onChange={(e) => patchOtro("lightingOtro", field, e.target.value)}
-                            inputMode="decimal"
-                            className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                          />
-                        </label>
-                      ))}
+                          <span className="px-2 text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-300">
+                            Otro
+                          </span>
+                          <span className="mt-1 px-2 text-center text-xs text-zinc-500">No en catálogo</span>
+                        </div>
+                      </button>
                     </div>
                   </div>
-                )}
-              </>
+                </div>
+              </div>
             )}
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección

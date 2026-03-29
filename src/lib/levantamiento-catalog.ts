@@ -597,6 +597,14 @@ const LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
   "tira-vitrina": "/images/levantamiento/iluminacion/tira-led-vitrina.jpg",
 };
 
+/**
+ * `object-position` en CSS (se aplica como estilo inline en `LightingTypeImage` para que no dependa de Tailwind).
+ * La foto de spots es panorámica: el foco queda arriba-derecha; ~68%/18% lo acerca al centro del tile.
+ */
+export const LIGHTING_CATALOG_OBJECT_POSITION: Partial<Record<string, string>> = {
+  spots: "68% 18%",
+};
+
 export function lightingLevantamientoImageCandidates(item: ItemCatalogo): string[] {
   const primary = LIGHTING_LEVANTAMIENTO_IMAGE_BY_ID[item.id] ?? item.image;
   const raw = [primary, APPLIANCE_CATALOGO_IMAGE_FALLBACK].filter((u): u is string => Boolean(u?.trim()));
