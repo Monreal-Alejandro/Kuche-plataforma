@@ -4,6 +4,7 @@
  */
 
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import { runtimeStore } from '@/lib/runtime-store';
 
 // URL base del backend
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -21,8 +22,8 @@ const axiosInstance: AxiosInstance = axios.create({
 // Interceptor de request - Agrega el token JWT si existe
 axiosInstance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // Intentar obtener el token del localStorage
-    const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+    // Token en memoria de ejecucion (sin dependencia de localStorage)
+    const token = runtimeStore.getItem('authToken');
     
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -58,11 +59,8 @@ axiosInstance.interceptors.response.use(
       
       // Token expirado o no autorizado
       if (status === 401) {
-        // Limpiar token del localStorage
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('authToken');
-          localStorage.removeItem('user');
-        }
+        runtimeStore.removeItem('authToken');
+        runtimeStore.removeItem('user');
         
         // Redirigir a login si no estamos ya ahí
         if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {

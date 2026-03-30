@@ -43,7 +43,7 @@ export default function AdminClientesEnProcesoPage() {
   return (
     <ClientWorkflowGrid
       title="Clientes en proceso"
-      subtitle="Todos los clientes que aún no han confirmado ni descartado el proyecto."
+      subtitle="Todos los clientes que aún no han confirmado ni marcado como inactivo el proyecto."
       badgeLabel="En proceso"
       badgeClassName="bg-primary/10 text-primary"
       emptyTitle="No hay clientes en proceso"

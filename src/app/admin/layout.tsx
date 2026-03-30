@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ChevronLeft,
   Calendar,
@@ -25,27 +25,13 @@ const navigation = [
   { label: "Agenda", href: "/admin/agenda", icon: Calendar },
   { label: "Clientes en proceso", href: "/admin/clientes-en-proceso", icon: Users },
   { label: "Clientes Confirmados", href: "/admin/clientes-confirmados", icon: CheckCircle2 },
-  { label: "Clientes Descartados", href: "/admin/clientes-descartados", icon: XCircle },
+  { label: "Proyectos Inactivos", href: "/admin/proyectos-inactivos", icon: XCircle },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem("Küche.admin.sidebar.collapsed");
-    if (stored === "true") {
-      setIsCollapsed(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      "Küche.admin.sidebar.collapsed",
-      isCollapsed ? "true" : "false",
-    );
-  }, [isCollapsed]);
 
   return (
     <AdminWorkflowProvider>

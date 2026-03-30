@@ -26,6 +26,20 @@ export type AdminWorkflowTask = KanbanTask & {
   assignedToIds: string[];
   backendSource: "tarea" | "cita";
   scheduledAt?: string;
+  visita?: {
+    fechaProgramada?: string;
+    aprobadaPorAdmin?: boolean;
+    aprobadaPorCliente?: boolean;
+  };
+  sourceType?: "cita" | "diseno" | null;
+  cita?: {
+    fechaAgendada?: string;
+    nombreCliente?: string;
+    correoCliente?: string;
+    telefonoCliente?: string;
+    ubicacion?: string;
+    informacionAdicional?: string;
+  };
   sourceCitaId?: string;
   sourceDisenoId?: string;
 };
@@ -64,7 +78,9 @@ const priorityMap: Record<string, TaskPriority> = {
 const followUpMap: Record<string, FollowUpStatus> = {
   pendiente: "pendiente",
   confirmado: "confirmado",
-  descartado: "descartado",
+  // Compatibilidad con payloads legacy del backend/BD.
+  descartado: "inactivo",
+  inactivo: "inactivo",
 };
 
 const ensureStringArray = (value: unknown): string[] => {
@@ -124,25 +140,64 @@ const toIsoString = (value: unknown): string | undefined => {
   return undefined;
 };
 
-const isCitaCard = (item: KanbanItem) => {
-  const candidate = (item.raw ?? item) as Record<string, unknown>;
+const extractVisitaPayload = (raw: Record<string, unknown>) => {
+  const visita = asRecord(raw.visita);
+  if (!visita) return null;
+  return {
+    fechaProgramada: toIsoString(visita.fechaProgramada),
+    aprobadaPorAdmin: toBoolean(visita.aprobadaPorAdmin),
+    aprobadaPorCliente: toBoolean(visita.aprobadaPorCliente),
+  };
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+
+const extractCitaPayload = (raw: Record<string, unknown>) => {
+  const fromNested = asRecord(raw.cita);
+  if (fromNested) return fromNested;
+
+  if (raw.fechaAgendada || raw.nombreCliente || raw.correoCliente || raw.telefonoCliente || raw.ubicacion) {
+    return raw;
+  }
+
+  return null;
+};
+
+const isCitaCard = (item: KanbanItem, raw: Record<string, unknown>, citaPayload: Record<string, unknown> | null) => {
+  const sourceType = toString(raw.sourceType)?.toLowerCase();
+  if (sourceType === "cita") return true;
+
   return Boolean(
-    candidate.fechaAgendada ||
-      candidate.nombreCliente ||
-      (typeof candidate.cliente === "object" && candidate.cliente !== null),
+    citaPayload &&
+      (item.etapa === "citas" || toString(raw.etapa)?.toLowerCase() === "citas" || raw.sourceCitaId),
   );
 };
 
-const getCitaClientName = (raw: Record<string, unknown>, fallbackTitle: string) => {
-  const cliente = raw.cliente;
+const getCitaClientName = (
+  raw: Record<string, unknown>,
+  citaPayload: Record<string, unknown> | null,
+  fallbackTitle: string,
+) => {
+  const cliente = citaPayload?.cliente ?? raw.cliente;
   if (typeof cliente === "object" && cliente !== null && "nombre" in cliente) {
     const nombre = toString((cliente as Record<string, unknown>).nombre);
     if (nombre) return nombre;
   }
-  return toString(raw.nombreCliente) ?? fallbackTitle;
+  return toString(citaPayload?.nombreCliente ?? raw.nombreCliente) ?? fallbackTitle;
 };
 
-const getAssignedFromCita = (raw: Record<string, unknown>) => {
+const getAssignedFromTask = (item: KanbanItem, raw: Record<string, unknown>) => {
+  const assignedToIds = ensureStringArray(raw.asignadoA ?? item.asignadoA);
+  const assignedToNames = ensureStringArray(raw.asignadoANombre ?? item.asignadoANombre);
+
+  if (assignedToIds.length > 0 || assignedToNames.length > 0) {
+    return {
+      assignedTo: assignedToNames.length > 0 ? assignedToNames : ["Sin asignar"],
+      assignedToIds,
+    };
+  }
+
   const ingeniero = raw.ingenieroAsignado;
   if (typeof ingeniero === "string" && ingeniero.trim().length > 0) {
     return {
@@ -170,6 +225,8 @@ const getAssignedFromCita = (raw: Record<string, unknown>) => {
 const normalizeCitaStatus = (value: unknown): TaskStatus => {
   if (typeof value !== "string") return "pendiente";
   const normalized = value.toLowerCase();
+  if (normalized === "pendiente") return "pendiente";
+  if (normalized === "completada") return "completada";
   if (normalized === "completada" || normalized === "cancelada") return "completada";
   return "pendiente";
 };
@@ -185,48 +242,87 @@ export const getAssignedLabel = (task: AdminWorkflowTask) => {
 };
 
 export const isTaskConfirmed = (task: AdminWorkflowTask) => task.followUpStatus === "confirmado";
-export const isTaskDiscarded = (task: AdminWorkflowTask) => task.followUpStatus === "descartado";
+export const isTaskDiscarded = (task: AdminWorkflowTask) => task.followUpStatus === "inactivo";
 export const isTaskInProgress = (task: AdminWorkflowTask) => !isTaskConfirmed(task) && !isTaskDiscarded(task);
 
 export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask => {
   const raw = (item.raw ?? item) as Record<string, unknown>;
-  if (isCitaCard(item)) {
+  const citaPayload = extractCitaPayload(raw);
+  const visitaPayload = extractVisitaPayload(raw);
+
+  if (isCitaCard(item, raw, citaPayload)) {
+    const stage = normalizeStage(raw.etapa ?? item.etapa ?? "citas");
+    const isCitasStage = stage === "citas";
     const fallbackTitle = toString((item as unknown as Record<string, unknown>).title) ?? "Cita";
-    const clientName = getCitaClientName(raw, fallbackTitle);
-    const { assignedTo, assignedToIds } = getAssignedFromCita(raw);
-    const scheduledAt = toIsoString(raw.fechaAgendada);
-    const citaStatus = normalizeCitaStatus(raw.estado);
+    const clientName = getCitaClientName(raw, citaPayload, fallbackTitle);
+    const { assignedTo, assignedToIds } = getAssignedFromTask(item, raw);
+    const scheduledAt = toIsoString(citaPayload?.fechaAgendada ?? raw.fechaAgendada);
+    const citaStatus = normalizeCitaStatus(item.estado ?? raw.estado);
+    const citaSourceId = toString(raw.sourceId) ?? toString(raw.sourceCitaId) ?? item._id;
+    const citaInfo = toString(citaPayload?.informacionAdicional ?? raw.informacionAdicional ?? item.notas);
+    const visitScheduledAt = visitaPayload?.fechaProgramada ?? toIsoString(raw.visitScheduledAt);
+    const designApprovedByAdmin =
+      visitaPayload?.aprobadaPorAdmin ?? toBoolean(raw.designApprovedByAdmin) ?? false;
+    const designApprovedByClient =
+      visitaPayload?.aprobadaPorCliente ?? toBoolean(raw.designApprovedByClient) ?? false;
+    const archivosFuente = Array.isArray(item.archivos)
+      ? item.archivos
+      : Array.isArray(raw.archivos)
+        ? (raw.archivos as KanbanItem["archivos"])
+        : [];
 
     return {
       id: item._id,
-      sourceId: item._id,
-      title: toString(raw.informacionAdicional) ?? fallbackTitle,
-      stage: normalizeStage(raw.etapa ?? item.etapa ?? "citas"),
+      sourceId: isCitasStage ? citaSourceId : item._id,
+      title: citaInfo ?? fallbackTitle,
+      stage,
       status: citaStatus,
       assignedTo,
       assignedToIds,
       project: clientName,
-      notes: toString(raw.informacionAdicional) ?? "",
-      files: [],
-      priority: citaStatus === "completada" ? "alta" : normalizePriority(raw.prioridad ?? raw.priority),
+      notes: citaInfo ?? toString(item.notas) ?? "",
+      files: (archivosFuente || []).map((file) => ({
+        id: file.id,
+        name: file.nombre,
+        type: file.tipo,
+        src: file.url,
+      })),
+      priority: citaStatus === "completada" ? "alta" : normalizePriority(raw.prioridad ?? item.prioridad),
       dueDate: scheduledAt ? scheduledAt.slice(0, 10) : undefined,
-      location: toString(raw.ubicacion ?? raw.location),
+      location: toString(citaPayload?.ubicacion ?? raw.ubicacion ?? raw.location),
       mapsUrl: toString(raw.mapsUrl),
       createdAt: toTimestamp(raw.createdAt ?? item.createdAt),
       followUpEnteredAt: undefined,
       followUpStatus: "pendiente",
       citaStarted: typeof raw.estado === "string" ? raw.estado === "en_proceso" || raw.estado === "completada" : false,
       citaFinished: typeof raw.estado === "string" ? raw.estado === "completada" : false,
-      designApprovedByAdmin: false,
-      designApprovedByClient: false,
+      designApprovedByAdmin,
+      designApprovedByClient,
+      visitScheduledAt,
+      visita: {
+        fechaProgramada: visitScheduledAt,
+        aprobadaPorAdmin: designApprovedByAdmin,
+        aprobadaPorCliente: designApprovedByClient,
+      },
       preliminarData: undefined,
       cotizacionFormalData: undefined,
       preliminarCotizaciones: undefined,
       cotizacionesFormales: undefined,
       codigoProyecto: toString(raw.codigoProyecto),
-      backendSource: "cita",
+      backendSource: isCitasStage ? "cita" : "tarea",
+      sourceType: "cita",
+      cita: citaPayload
+        ? {
+            fechaAgendada: toIsoString(citaPayload.fechaAgendada),
+            nombreCliente: toString(citaPayload.nombreCliente),
+            correoCliente: toString(citaPayload.correoCliente),
+            telefonoCliente: toString(citaPayload.telefonoCliente),
+            ubicacion: toString(citaPayload.ubicacion),
+            informacionAdicional: toString(citaPayload.informacionAdicional),
+          }
+        : undefined,
       scheduledAt,
-      sourceCitaId: toString(raw.sourceCitaId) ?? item._id,
+      sourceCitaId: toString(raw.sourceCitaId) ?? citaSourceId,
       sourceDisenoId: toString(raw.sourceDisenoId),
     };
   }
@@ -237,7 +333,7 @@ export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask =>
   return {
     id: item._id,
     sourceId: item._id,
-    title: item.titulo,
+    title: item.titulo || item.notas || "Tarea",
     stage: normalizeStage(item.etapa),
     status: normalizeStatus(item.estado),
     assignedTo: assignedTo.length > 0 ? assignedTo : ["Sin asignar"],
@@ -259,8 +355,16 @@ export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask =>
     followUpStatus: normalizeFollowUpStatus(raw.followUpStatus) as SeguimientoTarea,
     citaStarted: toBoolean(raw.citaStarted) ?? false,
     citaFinished: toBoolean(raw.citaFinished) ?? false,
-    designApprovedByAdmin: toBoolean(raw.designApprovedByAdmin) ?? false,
-    designApprovedByClient: toBoolean(raw.designApprovedByClient) ?? false,
+    designApprovedByAdmin:
+      visitaPayload?.aprobadaPorAdmin ?? toBoolean(raw.designApprovedByAdmin) ?? false,
+    designApprovedByClient:
+      visitaPayload?.aprobadaPorCliente ?? toBoolean(raw.designApprovedByClient) ?? false,
+    visitScheduledAt: visitaPayload?.fechaProgramada ?? toIsoString(raw.visitScheduledAt),
+    visita: {
+      fechaProgramada: visitaPayload?.fechaProgramada ?? toIsoString(raw.visitScheduledAt),
+      aprobadaPorAdmin: visitaPayload?.aprobadaPorAdmin ?? toBoolean(raw.designApprovedByAdmin) ?? false,
+      aprobadaPorCliente: visitaPayload?.aprobadaPorCliente ?? toBoolean(raw.designApprovedByClient) ?? false,
+    },
     preliminarData:
       raw.preliminarData && typeof raw.preliminarData === "object"
         ? (raw.preliminarData as KanbanTask["preliminarData"])
@@ -277,35 +381,67 @@ export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask =>
       : undefined,
     codigoProyecto: toString(raw.codigoProyecto),
     backendSource: "tarea",
+    sourceType: (toString(raw.sourceType) as AdminWorkflowTask["sourceType"]) ?? null,
+    cita: asRecord(raw.cita)
+      ? {
+          fechaAgendada: toIsoString((raw.cita as Record<string, unknown>).fechaAgendada),
+          nombreCliente: toString((raw.cita as Record<string, unknown>).nombreCliente),
+          correoCliente: toString((raw.cita as Record<string, unknown>).correoCliente),
+          telefonoCliente: toString((raw.cita as Record<string, unknown>).telefonoCliente),
+          ubicacion: toString((raw.cita as Record<string, unknown>).ubicacion),
+          informacionAdicional: toString((raw.cita as Record<string, unknown>).informacionAdicional),
+        }
+      : undefined,
     scheduledAt: undefined,
     sourceCitaId: toString(raw.sourceCitaId),
     sourceDisenoId: toString(raw.sourceDisenoId),
   };
 };
 
-export const buildTaskUpdatePayload = (task: AdminWorkflowTask): Partial<KanbanItem> & Record<string, unknown> => ({
-  titulo: task.title,
-  etapa: task.stage as EtapaTarea,
-  estado: task.status as EstadoTarea,
-  asignadoA: task.assignedToIds,
-  nombreProyecto: task.project,
-  notas: task.notes ?? "",
-  prioridad: task.priority ?? "media",
-  fechaLimite: task.dueDate,
-  ubicacion: task.location,
-  mapsUrl: task.mapsUrl,
-  followUpEnteredAt: task.followUpEnteredAt,
-  followUpStatus: task.followUpStatus ?? "pendiente",
-  citaStarted: task.citaStarted ?? false,
-  citaFinished: task.citaFinished ?? false,
-  designApprovedByAdmin: task.designApprovedByAdmin ?? false,
-  designApprovedByClient: task.designApprovedByClient ?? false,
-  preliminarData: task.preliminarData,
-  cotizacionFormalData: task.cotizacionFormalData,
-  preliminarCotizaciones: getPreliminarList(task),
-  cotizacionesFormales: getCotizacionesFormalesList(task),
-  codigoProyecto: task.codigoProyecto,
-});
+export const buildTaskUpdatePayload = (task: AdminWorkflowTask): Partial<KanbanItem> & Record<string, unknown> => {
+  const approvedByAdmin = task.designApprovedByAdmin ?? task.visita?.aprobadaPorAdmin ?? false;
+  const approvedByClient = task.designApprovedByClient ?? task.visita?.aprobadaPorCliente ?? false;
+  const visitScheduledAt = task.visitScheduledAt ?? task.visita?.fechaProgramada;
+
+  return {
+    etapa: task.stage as EtapaTarea,
+    estado: task.status as EstadoTarea,
+    asignadoA: task.assignedToIds,
+    nombreProyecto: task.project,
+    notas: task.notes ?? "",
+    prioridad: task.priority ?? "media",
+    fechaLimite: task.dueDate,
+    ubicacion: task.location,
+    mapsUrl: task.mapsUrl,
+    followUpEnteredAt: task.followUpEnteredAt,
+    followUpStatus: task.followUpStatus ?? "pendiente",
+    citaStarted: task.citaStarted ?? false,
+    citaFinished: task.citaFinished ?? false,
+    designApprovedByAdmin: approvedByAdmin,
+    designApprovedByClient: approvedByClient,
+    visitScheduledAt,
+    visita: {
+      fechaProgramada: visitScheduledAt,
+      aprobadaPorAdmin: approvedByAdmin,
+      aprobadaPorCliente: approvedByClient,
+    },
+    preliminarData: task.preliminarData,
+    cotizacionFormalData: task.cotizacionFormalData,
+    preliminarCotizaciones: getPreliminarList(task),
+    cotizacionesFormales: getCotizacionesFormalesList(task),
+    codigoProyecto: task.codigoProyecto,
+    sourceType: task.sourceType ?? undefined,
+    sourceId: task.sourceType ? task.sourceId : undefined,
+    cita: task.sourceType === "cita" && task.cita
+      ? {
+          ...task.cita,
+          nombreCliente: task.project || task.cita.nombreCliente,
+          informacionAdicional: task.notes || task.title || task.cita.informacionAdicional,
+          ubicacion: task.location ?? task.cita.ubicacion,
+        }
+      : undefined,
+  };
+};
 
 export async function fetchAdminWorkflowTasksSequentially(): Promise<AdminWorkflowLoadResult> {
   const requests: Array<{ label: string; load: () => Promise<{ success: boolean; data?: KanbanItem[]; message?: string }> }> = [

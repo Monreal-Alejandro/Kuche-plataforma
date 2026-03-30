@@ -23,6 +23,7 @@ import {
   type PreliminarData,
   type CotizacionFormalData,
 } from "@/lib/kanban";
+import { runtimeStore } from "@/lib/runtime-store";
 
 const currentUser = "Valeria";
 
@@ -129,8 +130,10 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
   const priority: TaskPriority =
     task.priority === "alta" || task.priority === "baja" ? task.priority : "media";
   const followUpStatus: FollowUpStatus =
-    task.followUpStatus === "confirmado" || task.followUpStatus === "descartado"
-      ? task.followUpStatus
+    task.followUpStatus === "confirmado"
+      ? "confirmado"
+      : task.followUpStatus === "inactivo" || task.followUpStatus === "descartado"
+        ? "inactivo"
       : "pendiente";
   const preliminarData =
     task.preliminarData &&
@@ -196,7 +199,7 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
   };
 };
 
-/** Enriquece las tareas guardadas con datos de initial (createdAt, files, etc.). No reañade tareas eliminadas: lo guardado en localStorage es la fuente de verdad. */
+/** Enriquece las tareas guardadas con datos de initial (createdAt, files, etc.). */
 const mergeTasks = (storedTasks: KanbanTask[]) => {
   const initialMap = new Map(initialKanbanTasks.map((task) => [task.id, task]));
   return storedTasks.map((task) => {
@@ -249,13 +252,13 @@ const autoAdvanceCompletedTasks = (tasks: KanbanTask[]): KanbanTask[] => {
 export type KanbanTableroProps = {
   /** Filtrar por nombre de empleado. null = ver todo, string = solo ese empleado. */
   filterByEmployee?: string | null;
-  /** Incrementar para forzar re-lectura desde localStorage (ej. tras crear tarea). */
+  /** Incrementar para forzar re-lectura desde almacenamiento en memoria (ej. tras crear tarea). */
   refreshTrigger?: number;
   /** Lista de integrantes para reasignar desde el detalle. */
   teamMembers?: { id: string; name: string }[];
   /** Si false, no se muestra el botón Eliminar tarea (ej. vista empleado). Por defecto true. */
   allowDeleteTask?: boolean;
-  /** Llamado después de descartar un cliente en Seguimiento (ej. admin redirige a clientes-descartados). */
+  /** Llamado después de marcar un cliente como inactivo en Seguimiento (ej. admin redirige a proyectos-inactivos). */
   onAfterDiscard?: () => void;
 };
 
@@ -288,15 +291,14 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   useFocusTrap(Boolean(deleteConfirmTaskId), deleteConfirmRef);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
     const syncFromStorage = () => {
-      const stored = window.localStorage.getItem(kanbanStorageKey);
+      const stored = runtimeStore.getItem(kanbanStorageKey);
       if (!stored) {
         const merged = mergeTasks(initialKanbanTasks);
         const advanced = autoAdvanceCompletedTasks(merged);
         skipNextWriteRef.current = true;
         setKanbanTasks(advanced);
-        window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
+        runtimeStore.setItem(kanbanStorageKey, JSON.stringify(advanced));
         return;
       }
       try {
@@ -304,7 +306,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         if (!Array.isArray(parsed) || parsed.length === 0) {
           skipNextWriteRef.current = true;
           setKanbanTasks([]);
-          window.localStorage.setItem(kanbanStorageKey, JSON.stringify([]));
+          runtimeStore.setItem(kanbanStorageKey, JSON.stringify([]));
           return;
         }
         const normalized = parsed.map((task) => normalizeTask(task));
@@ -313,7 +315,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         skipNextWriteRef.current = true;
         setKanbanTasks(advanced);
         if (advanced !== merged) {
-          window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
+          runtimeStore.setItem(kanbanStorageKey, JSON.stringify(advanced));
         }
       } catch {
         // ignore malformed storage
@@ -336,8 +338,8 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined" || refreshTrigger === 0) return;
-    const stored = window.localStorage.getItem(kanbanStorageKey);
+    if (refreshTrigger === 0) return;
+    const stored = runtimeStore.getItem(kanbanStorageKey);
     if (!stored) return;
     try {
       const parsed = JSON.parse(stored) as KanbanTask[];
@@ -348,7 +350,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         skipNextWriteRef.current = true;
         setKanbanTasks(advanced);
         if (advanced !== merged) {
-          window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
+          runtimeStore.setItem(kanbanStorageKey, JSON.stringify(advanced));
         }
       }
     } catch {
@@ -357,35 +359,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   }, [refreshTrigger]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
     if (skipNextWriteRef.current) {
       skipNextWriteRef.current = false;
       return;
     }
-    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(kanbanTasks));
+    runtimeStore.setItem(kanbanStorageKey, JSON.stringify(kanbanTasks));
   }, [kanbanTasks]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== kanbanStorageKey || !event.newValue) return;
-      try {
-        const parsed = JSON.parse(event.newValue) as KanbanTask[];
-        if (Array.isArray(parsed)) {
-          const merged = mergeTasks(parsed.map((task) => normalizeTask(task)));
-          const advanced = autoAdvanceCompletedTasks(merged);
-          setKanbanTasks(advanced);
-          if (advanced !== merged) {
-            window.localStorage.setItem(kanbanStorageKey, JSON.stringify(advanced));
-          }
-        }
-      } catch {
-        // ignore malformed storage
-      }
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
 
   useEffect(() => {
     const autoDiscardExpiredFollowUps = () => {
@@ -403,7 +382,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
               hasChanges = true;
               return {
                 ...task,
-                followUpStatus: "descartado" as FollowUpStatus,
+                followUpStatus: "inactivo" as FollowUpStatus,
                 status: "completada" as TaskStatus,
               };
             }
@@ -508,8 +487,8 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     }
 
     if (task.stage === "contrato") {
-      if (task.followUpStatus !== "confirmado" && task.followUpStatus !== "descartado") {
-        showError("Debes confirmar o descartar el seguimiento antes de mover esta tarea");
+      if (task.followUpStatus !== "confirmado" && task.followUpStatus !== "inactivo") {
+        showError("Debes confirmar o marcar inactivo el seguimiento antes de mover esta tarea");
         return false;
       }
     }
@@ -519,7 +498,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       task.stage === "citas" ? Boolean(task.citaStarted && task.citaFinished) :
       task.stage === "disenos" ? Boolean(task.designApprovedByAdmin && task.designApprovedByClient) :
       task.stage === "cotizacion" ? Boolean(task.citaStarted && task.citaFinished) :
-      task.stage === "contrato" ? (task.followUpStatus === "confirmado" || task.followUpStatus === "descartado") :
+      task.stage === "contrato" ? (task.followUpStatus === "confirmado" || task.followUpStatus === "inactivo") :
       task.status === "completada";
     if (!flowComplete) {
       showError("Debes completar la tarea antes de moverla a otra columna");
@@ -535,16 +514,14 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   };
 
   const discardFollowUp = (taskId: string) => {
-    updateTask(taskId, (task) => ({ ...task, followUpStatus: "descartado" as FollowUpStatus, status: "completada" as TaskStatus }));
+    updateTask(taskId, (task) => ({ ...task, followUpStatus: "inactivo" as FollowUpStatus, status: "completada" as TaskStatus }));
     onAfterDiscard?.();
   };
 
   const startCita = (taskId: string) => {
     updateTask(taskId, (task) => ({ ...task, citaStarted: true }));
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(activeCitaTaskStorageKey, taskId);
-      window.localStorage.setItem(citaReturnUrlStorageKey, window.location.pathname);
-    }
+    runtimeStore.setItem(activeCitaTaskStorageKey, taskId);
+    runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
     router.push("/dashboard/cotizador-preliminar");
   };
 
@@ -559,10 +536,8 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
 
   const startCotizacionFormal = (taskId: string) => {
     updateTask(taskId, (t) => ({ ...t, citaStarted: true }));
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(activeCotizacionFormalTaskStorageKey, taskId);
-      window.localStorage.setItem(citaReturnUrlStorageKey, window.location.pathname);
-    }
+    runtimeStore.setItem(activeCotizacionFormalTaskStorageKey, taskId);
+    runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
     router.push("/dashboard/cotizador");
   };
 
@@ -782,7 +757,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                 return (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold text-white animate-pulse">
                                     <XCircle className="h-3 w-3" />
-                                    Descartando automáticamente...
+                                    Marcando inactivo automáticamente...
                                   </span>
                                 );
                               }
@@ -790,7 +765,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                 return (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-1 text-[10px] font-semibold text-rose-700 animate-pulse">
                                     <AlertTriangle className="h-3 w-3" />
-                                    ¡Urgente! Se descarta en {daysUntilDiscard} días
+                                    ¡Urgente! Se inactiva en {daysUntilDiscard} días
                                   </span>
                                 );
                               }
@@ -963,7 +938,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                 </button>
                               ) : null}
 
-                              {/* SEGUIMIENTO: Confirmar/Descartar cliente */}
+                              {/* SEGUIMIENTO: Confirmar/Marcar inactivo */}
                               {task.stage === "contrato" && task.followUpStatus === "pendiente" ? (
                                 <>
                                   <button
@@ -986,7 +961,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                     className="inline-flex w-auto items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100"
                                   >
                                     <XCircle className="h-3 w-3" />
-                                    Descartar
+                                    Marcar inactivo
                                   </button>
                                 </>
                               ) : null}
@@ -996,10 +971,10 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                   Cliente confirmado
                                 </span>
                               ) : null}
-                              {task.stage === "contrato" && task.followUpStatus === "descartado" ? (
+                              {task.stage === "contrato" && task.followUpStatus === "inactivo" ? (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-[11px] font-semibold text-gray-500">
                                   <XCircle className="h-3 w-3" />
-                                  Descartado
+                                  Proyecto inactivo
                                 </span>
                               ) : null}
                             </div>
@@ -1464,10 +1439,10 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                       <CheckCircle2 className="h-5 w-5" />
                       <span className="font-semibold">Cliente confirmado</span>
                     </div>
-                  ) : activeTask.followUpStatus === "descartado" ? (
+                  ) : activeTask.followUpStatus === "inactivo" ? (
                     <div className="mt-3 flex items-center gap-2 rounded-2xl bg-gray-100 px-4 py-3 text-sm text-gray-500">
                       <XCircle className="h-5 w-5" />
-                      <span className="font-semibold">Cliente descartado</span>
+                      <span className="font-semibold">Proyecto inactivo</span>
                     </div>
                   ) : (
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1485,7 +1460,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                         className="flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                       >
                         <XCircle className="h-4 w-4" />
-                        Descartar
+                        Marcar inactivo
                       </button>
                     </div>
                   )}

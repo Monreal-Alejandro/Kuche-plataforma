@@ -87,7 +87,7 @@ export const eliminarTarjetaCita = async (citaId: string) => {
 };
 
 export const promoverCitaATarea = async (task: AdminWorkflowTask, stageDestino: Exclude<TaskStage, "citas">) => {
-  const sourceCitaId = task.sourceCitaId ?? task.sourceId;
+  const sourceCitaId = task.sourceId ?? task.sourceCitaId;
 
   try {
     const promotedResponse = await axiosInstance.post<{ success: boolean; message?: string }>(
@@ -141,6 +141,6 @@ export const promoverCitaATarea = async (task: AdminWorkflowTask, stageDestino: 
     return createResponse;
   }
 
-  await actualizarEstadoCita(task.sourceId, { estado: "completada" });
+  await actualizarEstadoCita(sourceCitaId, { estado: "completada" });
   return createResponse;
 };

@@ -61,3 +61,8 @@ export function getFormalPdf(key: string): Promise<string | null> {
 export function createFormalPdfKey(taskId: string, index: number): string {
   return `formal-${taskId}-${index}-${Date.now()}`;
 }
+
+/** Genera una clave única para la hoja de taller PDF asociada a una cotización formal. */
+export function createWorkshopPdfKey(taskId: string, index: number): string {
+  return `workshop-${taskId}-${index}-${Date.now()}`;
+}

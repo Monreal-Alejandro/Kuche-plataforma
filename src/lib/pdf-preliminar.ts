@@ -7,6 +7,13 @@ const escapePdfText = (value: string) =>
 const sanitizePdfText = (value: string) =>
   escapePdfText(value.normalize("NFD").replace(/\p{Diacritic}/gu, ""));
 
+const wallTypeLabel: Record<string, string> = {
+  pared_lisa: "Pared lisa",
+  pared_con_ventana: "Pared con ventana",
+  pared_con_puerta: "Pared con puerta",
+  pared_mixta: "Pared mixta",
+};
+
 /** Genera el PDF de cotización preliminar a partir de los datos guardados. */
 export function buildPreliminarPdf(data: PreliminarData): string {
   const drawRect = (x: number, y: number, w: number, h: number, color: string) =>
@@ -14,6 +21,15 @@ export function buildPreliminarPdf(data: PreliminarData): string {
 
   const drawText = (x: number, y: number, size: number, color: string, text: string) =>
     `BT\n/F1 ${size} Tf\n${color} rg\n${x} ${y} Td\n(${sanitizePdfText(text)}) Tj\nET`;
+
+  const wallSpecs = Array.isArray(data.wallSpecs) ? data.wallSpecs : [];
+  const wallSummary = wallSpecs.length
+    ? `${wallSpecs.length} pared(es) capturadas`
+    : "Sin captura de paredes";
+  const wallDetail = wallSpecs
+    .slice(0, 2)
+    .map((wall, index) => `${index + 1}. ${wallTypeLabel[wall.type] ?? wall.type}`)
+    .join(" | ");
 
   const content = [
     drawRect(0, 732, 612, 60, "0.55 0.11 0.11"),
@@ -33,17 +49,32 @@ export function buildPreliminarPdf(data: PreliminarData): string {
     drawText(330, 555, 10, "0.35 0.35 0.35", `Cubierta: ${data.cubierta}`),
     drawText(330, 538, 10, "0.35 0.35 0.35", `Frente: ${data.frente}`),
     drawText(330, 521, 10, "0.35 0.35 0.35", `Herraje: ${data.herraje}`),
-    drawRect(40, 470, 532, 1, "0.85 0.85 0.85"),
+    drawText(330, 504, 10, "0.35 0.35 0.35", `Paredes: ${wallSummary}`),
+    drawText(
+      330,
+      487,
+      9,
+      "0.35 0.35 0.35",
+      wallDetail || "Sin detalle adicional de paredes",
+    ),
+    drawText(
+      330,
+      470,
+      9,
+      "0.35 0.35 0.35",
+      `Costo estimado por paredes: $${(data.wallCostEstimate ?? 0).toLocaleString("es-MX")}`,
+    ),
+    drawRect(40, 455, 532, 1, "0.85 0.85 0.85"),
     drawText(
       48,
-      445,
+      430,
       9,
       "0.4 0.4 0.4",
       "Este documento es preliminar. Los costos finales pueden variar segun medidas,",
     ),
     drawText(
       48,
-      432,
+      417,
       9,
       "0.4 0.4 0.4",
       "materiales y complejidad del proyecto. Valido como guia inicial.",

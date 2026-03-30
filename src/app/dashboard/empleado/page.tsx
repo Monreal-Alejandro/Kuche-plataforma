@@ -20,17 +20,25 @@ import {
   type KanbanItem,
 } from "@/lib/axios/kanbanApi";
 import { agregarArchivos } from "@/lib/axios/tareasApi";
+import { subirArchivoYObtenerUrl } from "@/lib/axios/uploadsApi";
 import {
+  activeCitaTaskStorageKey,
+  activeCotizacionFormalTaskStorageKey,
+  citaReturnUrlStorageKey,
   kanbanColumns,
+  kanbanStorageKey,
   type KanbanTask,
   type TaskFile,
   type TaskStage,
   type TaskStatus,
 } from "@/lib/kanban";
+import { runtimeStore } from "@/lib/runtime-store";
 
 type DashboardFlowItem = Omit<KanbanTask, "assignedTo"> & {
   assignedTo: string;
   assignedToId?: string;
+  sourceId: string;
+  backendSource: "tarea" | "cita";
   raw?: Record<string, unknown>;
 };
 
@@ -91,32 +99,89 @@ const normalizeStatus = (value: string): TaskStatus => {
   return "pendiente";
 };
 
-const mapTaskFromApi = (task: KanbanItem): DashboardFlowItem => ({
-  id: task._id,
-  title: task.titulo,
-  stage: normalizeStage(task.etapa),
-  status: normalizeStatus(task.estado),
-  assignedTo:
-    Array.isArray(task.asignadoANombre) && task.asignadoANombre.length > 0
-      ? task.asignadoANombre.join(", ")
-      : typeof task.asignadoANombre === "string" && task.asignadoANombre.trim().length > 0
-        ? task.asignadoANombre
-        : "Sin asignar",
-  assignedToId:
-    Array.isArray(task.asignadoA) && task.asignadoA.length > 0
-      ? task.asignadoA[0]
-      : typeof task.asignadoA === "string"
-        ? task.asignadoA
-        : undefined,
-  project: task.nombreProyecto || "General",
-  notes: task.notas || "",
-  raw: task.raw,
-  files: (task.archivos || []).map((file) => ({
-    id: file.id,
-    name: file.nombre,
-    type: file.tipo,
-  })),
-});
+const extractCitaPayload = (task: KanbanItem) => {
+  const fromTask = task.cita;
+  if (fromTask && typeof fromTask === "object") {
+    return fromTask as Record<string, unknown>;
+  }
+
+  const raw = task.raw;
+  if (raw && typeof raw === "object" && "cita" in raw) {
+    const nested = (raw as Record<string, unknown>).cita;
+    if (nested && typeof nested === "object") {
+      return nested as Record<string, unknown>;
+    }
+  }
+
+  return null;
+};
+
+const getCitaString = (cita: Record<string, unknown> | null, key: string) => {
+  const value = cita?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+};
+
+const mapTaskFromApi = (task: KanbanItem): DashboardFlowItem => {
+  const cita = extractCitaPayload(task);
+  const isCitaSource = task.sourceType === "cita" || (task.etapa === "citas" && Boolean(cita));
+  const citaNombre = getCitaString(cita, "nombreCliente");
+  const citaInfo = getCitaString(cita, "informacionAdicional");
+  const citaTelefono = getCitaString(cita, "telefonoCliente");
+  const citaUbicacion = getCitaString(cita, "ubicacion");
+  const citaFecha = getCitaString(cita, "fechaAgendada");
+
+  const clientName =
+    (citaNombre
+      ? citaNombre
+      : task.nombreProyecto) ||
+    task.titulo ||
+    "Cliente sin nombre";
+
+  const summary =
+    (citaInfo
+      ? citaInfo
+      : task.notas) ||
+    task.titulo ||
+    "Cita";
+
+  const secondaryLine = [
+    citaTelefono,
+    citaUbicacion,
+  ]
+    .filter((value): value is string => Boolean(value && value.trim().length > 0))
+    .join(" · ");
+
+  return {
+    id: task._id,
+    sourceId: (isCitaSource ? task.sourceId : undefined) || task.sourceCitaId || task._id,
+    backendSource: isCitaSource ? "cita" : "tarea",
+    title: clientName,
+    stage: normalizeStage(task.etapa),
+    status: normalizeStatus(task.estado),
+    assignedTo:
+      Array.isArray(task.asignadoANombre) && task.asignadoANombre.length > 0
+        ? task.asignadoANombre.join(", ")
+        : typeof task.asignadoANombre === "string" && task.asignadoANombre.trim().length > 0
+          ? task.asignadoANombre
+          : "Sin asignar",
+    assignedToId:
+      Array.isArray(task.asignadoA) && task.asignadoA.length > 0
+        ? task.asignadoA[0]
+        : typeof task.asignadoA === "string"
+          ? task.asignadoA
+          : undefined,
+    project: secondaryLine || task.nombreProyecto || "General",
+    notes: summary,
+    location: citaUbicacion || task.ubicacion || undefined,
+    dueDate: citaFecha ? citaFecha.slice(0, 10) : undefined,
+    raw: task.raw,
+    files: (task.archivos || []).map((file) => ({
+      id: file.id,
+      name: file.nombre,
+      type: file.tipo,
+    })),
+  };
+};
 
 const COLUMN_REQUEST_PLAN: Array<{ stage: TaskStage; load: () => Promise<{ success: boolean; data?: KanbanItem[]; message?: string }> }> = [
   { stage: "citas", load: obtenerKanbanCitas },
@@ -131,6 +196,7 @@ export default function EmpleadoDashboard() {
   const [viewMode, setViewMode] = useState<"all" | "mine">("all");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [uploadTaskId, setUploadTaskId] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isPublicEditorOpen, setIsPublicEditorOpen] = useState(false);
   const [kanbanTasks, setKanbanTasks] = useState<DashboardFlowItem[]>([]);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
@@ -158,6 +224,12 @@ export default function EmpleadoDashboard() {
   useFocusTrap(Boolean(activeTaskId), activeTaskRef);
   useFocusTrap(Boolean(uploadTaskId), uploadTaskRef);
   useFocusTrap(isPublicEditorOpen, publicEditorRef);
+
+  useEffect(() => {
+    if (!uploadTaskId) {
+      setUploadError(null);
+    }
+  }, [uploadTaskId]);
 
   useEffect(() => {
     const upsertColumnTasks = (columnStage: TaskStage, tasks: DashboardFlowItem[]) => {
@@ -235,7 +307,7 @@ export default function EmpleadoDashboard() {
       let response: { success: boolean } = { success: false };
 
       if (currentTask.stage === "citas") {
-        response = await actualizarEstadoCita(taskId, {
+        response = await actualizarEstadoCita(currentTask.sourceId, {
           estado: status === "completada" ? "completada" : "programada",
           ...(status === "completada" ? { fechaTermino: new Date().toISOString() } : {}),
         });
@@ -287,7 +359,10 @@ export default function EmpleadoDashboard() {
   const handleFilesUpload = async (taskId: string, files: FileList | null) => {
     if (!files?.length) return;
 
-    const nextFiles: TaskFile[] = Array.from(files).map((file) => ({
+    setUploadError(null);
+
+    const filesArray = Array.from(files);
+    const nextFiles: TaskFile[] = filesArray.map((file) => ({
       id: `file-${Date.now()}-${file.name}`,
       name: file.name,
       type: inferFileType(file.name),
@@ -300,26 +375,58 @@ export default function EmpleadoDashboard() {
     }));
 
     try {
+      const archivosPayload = await Promise.all(
+        filesArray.map(async (file, index) => {
+          const uploadedUrl = await subirArchivoYObtenerUrl(file);
+          return {
+            nombre: nextFiles[index].name,
+            tipo: nextFiles[index].type,
+            url: uploadedUrl,
+          };
+        }),
+      );
+
+      console.log("[EmpleadoDashboard] agregarArchivos payload:", {
+        taskId,
+        archivos: archivosPayload,
+      });
+
       const response = await agregarArchivos(
         taskId,
-        nextFiles.map((file) => ({
-          nombre: file.name,
-          tipo: file.type,
-          url: "",
-        })),
+        archivosPayload,
       );
       if (!response.success) {
         setKanbanTasks(previousTasks);
       }
     } catch (error) {
       console.error("Error al subir archivos:", error);
+      setUploadError(error instanceof Error ? error.message : "No se pudieron subir los archivos.");
       setKanbanTasks(previousTasks);
     }
   };
 
   const handleStartCita = (taskId: string) => {
+    const runtimeTasks: KanbanTask[] = kanbanTasks.map((task) => ({
+      ...(task as unknown as KanbanTask),
+      assignedTo: task.assignedTo ? [task.assignedTo] : [],
+    }));
+    runtimeStore.setItem(kanbanStorageKey, JSON.stringify(runtimeTasks));
+    runtimeStore.setItem(activeCitaTaskStorageKey, taskId);
+    runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
     setActiveTaskId(null);
-    router.push(`/dashboard/cotizador?tareaId=${taskId}`);
+    router.push("/dashboard/cotizador-preliminar");
+  };
+
+  const handleStartCotizacion = (taskId: string) => {
+    const runtimeTasks: KanbanTask[] = kanbanTasks.map((task) => ({
+      ...(task as unknown as KanbanTask),
+      assignedTo: task.assignedTo ? [task.assignedTo] : [],
+    }));
+    runtimeStore.setItem(kanbanStorageKey, JSON.stringify(runtimeTasks));
+    runtimeStore.setItem(activeCotizacionFormalTaskStorageKey, taskId);
+    runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
+    setActiveTaskId(null);
+    router.push("/dashboard/cotizador");
   };
 
   const handleFinishCita = async (taskId: string) => {
@@ -463,7 +570,7 @@ export default function EmpleadoDashboard() {
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleStartCita(task.id);
+                                    handleStartCotizacion(task.id);
                                   }}
                                   className="inline-flex w-auto items-center rounded-full border border-primary/10 bg-white px-3 py-1 text-[11px] font-semibold text-secondary"
                                 >
@@ -690,7 +797,7 @@ export default function EmpleadoDashboard() {
                       {activeTask.status === "pendiente" ? (
                         <button
                           type="button"
-                          onClick={() => handleStartCita(activeTask.id)}
+                          onClick={() => handleStartCotizacion(activeTask.id)}
                           className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
                         >
                           Iniciar
@@ -818,6 +925,11 @@ export default function EmpleadoDashboard() {
                   ? "Adjunta el contrato firmado o sus anexos."
                   : "Adjunta renders o planos para esta tarea de diseño."}
               </p>
+              {uploadError ? (
+                <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {uploadError}
+                </p>
+              ) : null}
               <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-white px-4 py-8 text-center text-sm text-secondary">
                 <FileUp className="h-4 w-4" />
                 Seleccionar archivos

@@ -3,8 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CheckCircle2 } from "lucide-react";
-import { activeCitaTaskStorageKey, kanbanStorageKey, citaReturnUrlStorageKey, getPreliminarList, seguimientoProjectStoragePrefix, type KanbanTask, type PreliminarData } from "@/lib/kanban";
+import {
+  activeCitaTaskStorageKey,
+  kanbanStorageKey,
+  citaReturnUrlStorageKey,
+  finishedCitaTaskStorageKey,
+  getPreliminarList,
+  seguimientoProjectStoragePrefix,
+  type KanbanTask,
+  type PreliminarData,
+  type PreliminarWallSpec,
+  type PreliminarWallType,
+} from "@/lib/kanban";
 import { buildPreliminarPdf, downloadPreliminarPdf } from "@/lib/pdf-preliminar";
+import { runtimeStore } from "@/lib/runtime-store";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
@@ -12,6 +24,34 @@ const formatCurrency = (value: number) =>
     currency: "MXN",
     maximumFractionDigits: 0,
   }).format(value);
+
+const WALL_BASE_RATE_PER_M2 = 950;
+
+const wallTypeLabel: Record<PreliminarWallType, string> = {
+  pared_lisa: "Pared lisa",
+  pared_con_ventana: "Pared con ventana",
+  pared_con_puerta: "Pared con puerta",
+  pared_mixta: "Pared mixta",
+};
+
+const wallTypeMultiplier: Record<PreliminarWallType, number> = {
+  pared_lisa: 1,
+  pared_con_ventana: 1.12,
+  pared_con_puerta: 1.15,
+  pared_mixta: 1.22,
+};
+
+const createEmptyWallSpec = (): PreliminarWallSpec => ({
+  id: `wall-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  type: "pared_lisa",
+  totalWidthCm: 0,
+  totalHeightCm: 0,
+  openingWidthCm: 0,
+  openingHeightCm: 0,
+  topGapToCeilingCm: 0,
+  leftSpanCm: 0,
+  rightSpanCm: 0,
+});
 
 type MaterialOption = {
   id: string;
@@ -514,6 +554,7 @@ export default function CotizadorPreliminarPage() {
   const [selectedFrente, setSelectedFrente] = useState(materialCatalog.frentes[0].id);
   const [selectedHerraje, setSelectedHerraje] = useState(materialCatalog.herrajes[0].id);
   const [selectedScenario, setSelectedScenario] = useState("esencial");
+  const [wallSpecs, setWallSpecs] = useState<PreliminarWallSpec[]>([createEmptyWallSpec()]);
   const [materialSearch, setMaterialSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<"Todos" | "Estandar" | "Premium" | "Lujo">(
     "Todos",
@@ -522,11 +563,10 @@ export default function CotizadorPreliminarPage() {
   const [finishError, setFinishError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const taskId = window.localStorage.getItem(activeCitaTaskStorageKey);
+    const taskId = runtimeStore.getItem(activeCitaTaskStorageKey);
     if (taskId) {
       setActiveCitaTaskId(taskId);
-      const stored = window.localStorage.getItem(kanbanStorageKey);
+      const stored = runtimeStore.getItem(kanbanStorageKey);
       if (stored) {
         try {
           const tasks = JSON.parse(stored) as KanbanTask[];
@@ -542,6 +582,19 @@ export default function CotizadorPreliminarPage() {
     }
   }, []);
 
+  const wallCost = useMemo(() => {
+    return wallSpecs.reduce((total, wall) => {
+      const totalAreaM2 = Math.max(0, wall.totalWidthCm * wall.totalHeightCm) / 10000;
+      const hasOpening = wall.type !== "pared_lisa";
+      const openingAreaM2 = hasOpening
+        ? Math.max(0, (wall.openingWidthCm ?? 0) * (wall.openingHeightCm ?? 0)) / 10000
+        : 0;
+      const netAreaM2 = Math.max(0, totalAreaM2 - openingAreaM2);
+      const multiplier = wallTypeMultiplier[wall.type] ?? 1;
+      return total + netAreaM2 * WALL_BASE_RATE_PER_M2 * multiplier;
+    }, 0);
+  }, [wallSpecs]);
+
   const validatePreliminarSections = (): string | null => {
     const hasDatos = clientName.trim() !== "" || location.trim() !== "" || installDate !== "";
     const hasMedidas =
@@ -550,6 +603,29 @@ export default function CotizadorPreliminarPage() {
       (Number.parseFloat(fondo) || 0) > 0;
     if (!hasDatos) return "Completa al menos un campo de Datos del proyecto (cliente, ubicacion o fecha).";
     if (!hasMedidas) return "Completa al menos una medida (largo, alto o fondo mayor a 0).";
+    for (let index = 0; index < wallSpecs.length; index += 1) {
+      const wall = wallSpecs[index];
+      if (wall.totalWidthCm <= 0 || wall.totalHeightCm <= 0) {
+        return `La pared ${index + 1} requiere largo y alto total en cm.`;
+      }
+      if (wall.type !== "pared_lisa") {
+        const openingWidth = wall.openingWidthCm ?? 0;
+        const openingHeight = wall.openingHeightCm ?? 0;
+        const topGap = wall.topGapToCeilingCm ?? 0;
+        const leftSpan = wall.leftSpanCm ?? 0;
+        const rightSpan = wall.rightSpanCm ?? 0;
+
+        if (openingWidth <= 0 || openingHeight <= 0) {
+          return `La pared ${index + 1} requiere medidas del hueco (ancho y alto).`;
+        }
+        if (topGap <= 0) {
+          return `La pared ${index + 1} requiere el alto desde el hueco al techo.`;
+        }
+        if (leftSpan <= 0 || rightSpan <= 0) {
+          return `La pared ${index + 1} requiere ancho lateral izquierdo y derecho.`;
+        }
+      }
+    }
     return null;
   };
 
@@ -566,6 +642,8 @@ export default function CotizadorPreliminarPage() {
       cubierta: cubierta?.name ?? "Sin definir",
       frente: frente?.name ?? "Sin definir",
       herraje: herraje?.name ?? "Sin definir",
+      wallSpecs,
+      wallCostEstimate: wallCost,
     };
   };
 
@@ -577,7 +655,7 @@ export default function CotizadorPreliminarPage() {
       return null;
     }
     const newPreliminar = buildPreliminarDataFromForm();
-    const stored = window.localStorage.getItem(kanbanStorageKey);
+    const stored = runtimeStore.getItem(kanbanStorageKey);
     if (!stored) return null;
     try {
       const tasks = JSON.parse(stored) as KanbanTask[];
@@ -597,7 +675,7 @@ export default function CotizadorPreliminarPage() {
           status: task.status,
         };
       });
-      window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasks));
+      runtimeStore.setItem(kanbanStorageKey, JSON.stringify(updatedTasks));
       if (codigoProyecto) {
         const projectKey = `${seguimientoProjectStoragePrefix}${codigoProyecto}`;
         const seguimientoProject = {
@@ -606,7 +684,7 @@ export default function CotizadorPreliminarPage() {
           isProspect: true,
           preliminarCotizaciones,
         };
-        window.localStorage.setItem(projectKey, JSON.stringify(seguimientoProject));
+        runtimeStore.setItem(projectKey, JSON.stringify(seguimientoProject));
       }
       return { codigoProyecto, updatedTasks };
     } catch {
@@ -621,19 +699,27 @@ export default function CotizadorPreliminarPage() {
     const result = savePreliminarAndGetNextTasks();
     if (!result) return;
     const newPreliminar = buildPreliminarDataFromForm();
-    const updatedTasksWithStage = result.updatedTasks.map((task) =>
+    const updatedTasksWithFinishedState = result.updatedTasks.map((task) =>
       task.id === activeCitaTaskId
-        ? { ...task, stage: "disenos" as const, status: "pendiente" as const }
+        ? {
+            ...task,
+            stage: "citas" as const,
+            status: "completada" as const,
+            priority: "alta" as const,
+            citaStarted: true,
+            citaFinished: true,
+          }
         : task,
     );
-    window.localStorage.setItem(kanbanStorageKey, JSON.stringify(updatedTasksWithStage));
-    window.localStorage.removeItem(activeCitaTaskStorageKey);
+    runtimeStore.setItem(kanbanStorageKey, JSON.stringify(updatedTasksWithFinishedState));
+    runtimeStore.setItem(finishedCitaTaskStorageKey, activeCitaTaskId);
+    runtimeStore.removeItem(activeCitaTaskStorageKey);
     downloadPreliminarPdf(
       newPreliminar,
       `cotizacion-preliminar-${(newPreliminar.projectType || "proyecto").replace(/\s+/g, "-")}-${(clientName || "cliente").replace(/\s+/g, "-")}.pdf`,
     );
-    const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey);
-    window.localStorage.removeItem(citaReturnUrlStorageKey);
+    const returnUrl = runtimeStore.getItem(citaReturnUrlStorageKey);
+    runtimeStore.removeItem(citaReturnUrlStorageKey);
     router.push(returnUrl || "/dashboard/empleado");
   };
 
@@ -657,6 +743,7 @@ export default function CotizadorPreliminarPage() {
     setSelectedFrente(materialCatalog.frentes[0].id);
     setSelectedHerraje(materialCatalog.herrajes[0].id);
     setSelectedScenario("esencial");
+    setWallSpecs([createEmptyWallSpec()]);
   };
 
   const metrics = useMemo(() => {
@@ -673,7 +760,7 @@ export default function CotizadorPreliminarPage() {
     const frenteMultiplier = frente?.multiplier ?? 1;
     const herrajeMultiplier = herraje?.multiplier ?? 1;
     const multiplier = cubiertaMultiplier * frenteMultiplier * herrajeMultiplier;
-    const subtotal = base * multiplier;
+    const subtotal = base * multiplier + wallCost;
     const iva = subtotal * 0.16;
     const total = subtotal + iva;
     const min = subtotal * 0.92;
@@ -689,7 +776,7 @@ export default function CotizadorPreliminarPage() {
       total,
       rangeLabel: `${formatCurrency(min)} - ${formatCurrency(max)}`,
     };
-  }, [alto, fondo, largo, selectedCubierta, selectedFrente, selectedHerraje]);
+  }, [alto, fondo, largo, selectedCubierta, selectedFrente, selectedHerraje, wallCost]);
 
   const selectedSummary = useMemo(() => {
     const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
@@ -747,6 +834,14 @@ export default function CotizadorPreliminarPage() {
   const handleGeneratePdf = () => {
     const data = buildPreliminarDataFromForm();
     downloadPreliminarPdf(data, "cotizacion-preliminar.pdf");
+  };
+
+  const updateWallSpec = (wallId: string, updater: (wall: PreliminarWallSpec) => PreliminarWallSpec) => {
+    setWallSpecs((prev) => prev.map((wall) => (wall.id === wallId ? updater(wall) : wall)));
+  };
+
+  const removeWallSpec = (wallId: string) => {
+    setWallSpecs((prev) => (prev.length > 1 ? prev.filter((wall) => wall.id !== wallId) : prev));
   };
 
   const SectionCard = ({ children }: { children: React.ReactNode }) => (
@@ -1002,6 +1097,184 @@ export default function CotizadorPreliminarPage() {
         </SectionCard>
 
         <SectionCard>
+          <div className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
+                  Tipos de paredes (cm)
+                </p>
+                <p className="mt-2 text-sm text-secondary">
+                  Captura paredes lisas o con huecos (ventana, puerta o mixta) con medidas detalladas.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWallSpecs((prev) => [...prev, createEmptyWallSpec()])}
+                className="rounded-2xl border border-primary/20 bg-white px-4 py-2 text-xs font-semibold text-primary"
+              >
+                Agregar pared
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {wallSpecs.map((wall, index) => {
+                const needsOpening = wall.type !== "pared_lisa";
+                const openingLabel =
+                  wall.type === "pared_con_ventana"
+                    ? "ventana"
+                    : wall.type === "pared_con_puerta"
+                      ? "puerta"
+                      : "hueco";
+                return (
+                  <div key={wall.id} className="rounded-2xl border border-primary/10 bg-white/90 p-4">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-primary">Pared #{index + 1}</p>
+                      <button
+                        type="button"
+                        onClick={() => removeWallSpec(wall.id)}
+                        disabled={wallSpecs.length <= 1}
+                        className="rounded-full border border-primary/10 px-3 py-1 text-[11px] font-semibold text-secondary disabled:opacity-40"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                        Tipo de pared
+                        <select
+                          value={wall.type}
+                          onChange={(event) =>
+                            updateWallSpec(wall.id, (current) => ({
+                              ...current,
+                              type: event.target.value as PreliminarWallType,
+                            }))
+                          }
+                          className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                        >
+                          {Object.entries(wallTypeLabel).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                        Largo total (cm)
+                        <input
+                          value={wall.totalWidthCm || ""}
+                          onChange={(event) =>
+                            updateWallSpec(wall.id, (current) => ({
+                              ...current,
+                              totalWidthCm: Number.parseFloat(event.target.value) || 0,
+                            }))
+                          }
+                          inputMode="decimal"
+                          className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                        />
+                      </label>
+                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                        Alto total (cm)
+                        <input
+                          value={wall.totalHeightCm || ""}
+                          onChange={(event) =>
+                            updateWallSpec(wall.id, (current) => ({
+                              ...current,
+                              totalHeightCm: Number.parseFloat(event.target.value) || 0,
+                            }))
+                          }
+                          inputMode="decimal"
+                          className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                        />
+                      </label>
+                    </div>
+
+                    {needsOpening ? (
+                      <div className="mt-4 grid gap-4 md:grid-cols-3">
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                          Ancho {openingLabel} (cm)
+                          <input
+                            value={wall.openingWidthCm || ""}
+                            onChange={(event) =>
+                              updateWallSpec(wall.id, (current) => ({
+                                ...current,
+                                openingWidthCm: Number.parseFloat(event.target.value) || 0,
+                              }))
+                            }
+                            inputMode="decimal"
+                            className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                          Alto {openingLabel} (cm)
+                          <input
+                            value={wall.openingHeightCm || ""}
+                            onChange={(event) =>
+                              updateWallSpec(wall.id, (current) => ({
+                                ...current,
+                                openingHeightCm: Number.parseFloat(event.target.value) || 0,
+                              }))
+                            }
+                            inputMode="decimal"
+                            className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                          Alto de {openingLabel} al techo (cm)
+                          <input
+                            value={wall.topGapToCeilingCm || ""}
+                            onChange={(event) =>
+                              updateWallSpec(wall.id, (current) => ({
+                                ...current,
+                                topGapToCeilingCm: Number.parseFloat(event.target.value) || 0,
+                              }))
+                            }
+                            inputMode="decimal"
+                            className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                          Lado izquierdo a {openingLabel} (cm)
+                          <input
+                            value={wall.leftSpanCm || ""}
+                            onChange={(event) =>
+                              updateWallSpec(wall.id, (current) => ({
+                                ...current,
+                                leftSpanCm: Number.parseFloat(event.target.value) || 0,
+                              }))
+                            }
+                            inputMode="decimal"
+                            className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                          {openingLabel} a lado derecho (cm)
+                          <input
+                            value={wall.rightSpanCm || ""}
+                            onChange={(event) =>
+                              updateWallSpec(wall.id, (current) => ({
+                                ...current,
+                                rightSpanCm: Number.parseFloat(event.target.value) || 0,
+                              }))
+                            }
+                            inputMode="decimal"
+                            className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
+              Costo estimado por paredes: <span className="font-semibold text-primary">{formatCurrency(wallCost)}</span>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard>
           <div className="space-y-8">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
@@ -1114,7 +1387,7 @@ export default function CotizadorPreliminarPage() {
                         {formatCurrency(min)} - {formatCurrency(max)}
                       </div>
                       <p className="text-xs text-secondary">
-                        Basado en medidas generales y selecci?n del showroom.
+                        Basado en medidas generales, paredes y seleccion del showroom.
                       </p>
                     </div>
                   </button>
@@ -1148,6 +1421,12 @@ export default function CotizadorPreliminarPage() {
                 Estimaci?n preliminar
               </p>
               <div className="mt-4 space-y-4">
+                <div>
+                  <p className="text-xs text-secondary">Paredes</p>
+                  <p className="text-4xl font-bold text-[#8B1C1C]">
+                    {formatCurrency(wallCost * selectedScenarioMultiplier)}
+                  </p>
+                </div>
                 <div>
                   <p className="text-xs text-secondary">Subtotal</p>
                   <p className="text-4xl font-bold text-[#8B1C1C]">

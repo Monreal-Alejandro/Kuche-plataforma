@@ -23,7 +23,23 @@ export interface ArchivoTarea {
 export type EtapaTarea = "citas" | "disenos" | "cotizacion" | "contrato";
 export type EstadoTarea = "pendiente" | "completada";
 export type PrioridadTarea = "alta" | "media" | "baja";
-export type SeguimientoTarea = "pendiente" | "confirmado" | "descartado";
+export type SeguimientoTarea = "pendiente" | "confirmado" | "inactivo";
+export type SourceTypeTarea = "cita" | "diseno" | null;
+
+export interface CitaTarea {
+  fechaAgendada?: string;
+  nombreCliente?: string;
+  correoCliente?: string;
+  telefonoCliente?: string;
+  ubicacion?: string;
+  informacionAdicional?: string;
+}
+
+export interface VisitaTarea {
+  fechaProgramada?: string;
+  aprobadaPorAdmin?: boolean;
+  aprobadaPorCliente?: boolean;
+}
 
 export interface PreliminarCotizacionTarea {
   client: string;
@@ -43,12 +59,12 @@ export interface CotizacionFormalTarea extends PreliminarCotizacionTarea {
 
 export interface Tarea {
   _id: string;
-  titulo: string;
+  titulo?: string;
   etapa: EtapaTarea;
   estado: EstadoTarea;
   asignadoA: string | string[];   // ID del usuario o IDs cuando hay múltiples responsables
   asignadoANombre: string | string[]; // Nombre(s) del usuario (populado por backend)
-  proyecto: string;               // ID del proyecto
+  proyecto?: string;              // ID del proyecto
   nombreProyecto: string;         // Nombre del proyecto (populado por backend)
   notas?: string;
   prioridad?: PrioridadTarea;
@@ -66,17 +82,23 @@ export interface Tarea {
   preliminarCotizaciones?: PreliminarCotizacionTarea[];
   cotizacionesFormales?: CotizacionFormalTarea[];
   codigoProyecto?: string;
+  sourceType?: SourceTypeTarea;
+  sourceId?: string | null;
+  sourceCitaId?: string;
+  sourceDisenoId?: string;
+  cita?: CitaTarea;
+  visita?: VisitaTarea;
   archivos?: ArchivoTarea[];
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface CrearTareaData {
-  titulo: string;
+  titulo?: string;
   etapa: EtapaTarea;
   estado?: EstadoTarea;
   asignadoA: string | string[];  // ID del usuario o usuarios
-  proyecto: string;   // ID del proyecto
+  proyecto?: string;  // ID del proyecto
   nombreProyecto?: string;
   notas?: string;
   prioridad?: PrioridadTarea;
@@ -94,6 +116,10 @@ export interface CrearTareaData {
   preliminarCotizaciones?: PreliminarCotizacionTarea[];
   cotizacionesFormales?: CotizacionFormalTarea[];
   codigoProyecto?: string;
+  sourceType?: SourceTypeTarea;
+  sourceId?: string;
+  cita?: CitaTarea;
+  visita?: VisitaTarea;
 }
 
 export interface ActualizarTareaData {
@@ -118,6 +144,10 @@ export interface ActualizarTareaData {
   preliminarCotizaciones?: PreliminarCotizacionTarea[];
   cotizacionesFormales?: CotizacionFormalTarea[];
   codigoProyecto?: string;
+  sourceType?: SourceTypeTarea;
+  sourceId?: string;
+  cita?: CitaTarea;
+  visita?: VisitaTarea;
 }
 
 export interface FiltrosTareas {
@@ -227,13 +257,31 @@ export const cambiarEstado = async (
  */
 export const agregarArchivos = async (
   id: string,
-  archivos: Array<{ nombre: string; tipo: string; url: string }>
+  archivos: Array<{ nombre: string; tipo: string; url?: string }>
 ): Promise<ApiResponse<Tarea>> => {
-  const response = await axiosInstance.post<ApiResponse<Tarea>>(
-    `/api/tareas/${id}/archivos`,
-    { archivos }
-  );
-  return response.data;
+  const archivosSanitizados = archivos.map((archivo) => {
+    const payloadBase = {
+      nombre: archivo.nombre,
+      tipo: archivo.tipo,
+    };
+    const url = archivo.url?.trim();
+    return url ? { ...payloadBase, url } : payloadBase;
+  });
+
+  try {
+    const response = await axiosInstance.post<ApiResponse<Tarea>>(
+      `/api/tareas/${id}/archivos`,
+      { archivos: archivosSanitizados }
+    );
+    return response.data;
+  } catch (error) {
+    const maybeAxios = error as { response?: { status?: number; data?: unknown } };
+    if (maybeAxios.response?.status === 400) {
+      console.error("[agregarArchivos] 400 payload:", { id, archivos: archivosSanitizados });
+      console.error("[agregarArchivos] 400 response:", maybeAxios.response.data);
+    }
+    throw error;
+  }
 };
 
 /**

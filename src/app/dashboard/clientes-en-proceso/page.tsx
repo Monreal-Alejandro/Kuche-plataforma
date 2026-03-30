@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, User, FileText, Eye, Download } from "lucide-react";
-import { kanbanStorageKey, kanbanColumns, getPreliminarList, getCotizacionesFormalesList, type KanbanTask } from "@/lib/kanban";
+import { getCotizacionesFormalesList, getPreliminarList, type KanbanTask } from "@/lib/kanban";
 import { openPreliminarPdfInNewTab, downloadPreliminarPdf, openFormalPdfInNewTab, downloadFormalPdf } from "@/lib/pdf-preliminar";
+import { fetchAdminWorkflowTasksSequentially } from "@/lib/admin-workflow";
 
 const CURRENT_USER = "Valeria";
 
@@ -18,7 +19,7 @@ const stageLabel: Record<string, string> = {
 
 function getTasksInProgress(tasks: KanbanTask[], filterByUser: string | null): KanbanTask[] {
   const inProgress = tasks.filter((task) => {
-    if (task.stage === "contrato" && (task.followUpStatus === "confirmado" || task.followUpStatus === "descartado")) {
+    if (task.stage === "contrato" && (task.followUpStatus === "confirmado" || task.followUpStatus === "inactivo")) {
       return false;
     }
     return true;
@@ -36,15 +37,17 @@ export default function ClientesEnProcesoPage() {
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(kanbanStorageKey);
-      const parsed = stored ? (JSON.parse(stored) as KanbanTask[]) : [];
-      setTasks(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setTasks([]);
-    }
-    setIsHydrated(true);
+    const load = async () => {
+      try {
+        const response = await fetchAdminWorkflowTasksSequentially();
+        setTasks(response.tasks);
+      } catch {
+        setTasks([]);
+      } finally {
+        setIsHydrated(true);
+      }
+    };
+    void load();
   }, []);
 
   const inProgress = getTasksInProgress(tasks, CURRENT_USER);

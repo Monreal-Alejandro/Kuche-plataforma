@@ -177,8 +177,8 @@ export default function AdminPage() {
   const attentionItems = useMemo(() => {
     const pendingAgenda = appointments
       .filter((appointment) => appointment.status === "Pendiente" || !appointment.assignedTo)
-      .map((appointment) => ({
-        id: `agenda-${appointment.client ?? "sin-cliente"}-${appointment.time ?? ""}`,
+      .map((appointment, index) => ({
+        id: `agenda-${appointment.client ?? "sin-cliente"}-${appointment.date ?? "sin-fecha"}-${appointment.time ?? "sin-hora"}-${appointment.assignedTo ?? "sin-asignar"}-${index}`,
         label: `🚨 Cita sin asignar: ${appointment.client ?? "Cliente sin nombre"}`,
         href: "/admin/agenda",
       }));
@@ -188,8 +188,8 @@ export default function AdminPage() {
         const status = task.status ?? task.column ?? "";
         return task.type?.toLowerCase() === "diseño" && status === "pendiente";
       })
-      .map((task) => ({
-        id: `design-${task.title ?? "sin-titulo"}`,
+      .map((task, index) => ({
+        id: `design-${task.title ?? "sin-titulo"}-${task.status ?? "sin-estado"}-${index}`,
         label: `🎨 Diseño listo para aprobar: ${task.title ?? "Proyecto sin título"}`,
         href: "/admin/disenos",
       }));
@@ -245,9 +245,9 @@ export default function AdminPage() {
       accent: "bg-emerald-100 text-emerald-700",
     },
     {
-      title: "Clientes descartados",
+      title: "Proyectos inactivos",
       value: isHydrated ? discardedClients.toString() : "—",
-      href: "/admin/clientes-descartados",
+      href: "/admin/proyectos-inactivos",
       icon: XCircle,
       accent: "bg-gray-200 text-gray-600",
     },
@@ -261,6 +261,29 @@ export default function AdminPage() {
             {greeting}, Admin
           </h1>
           <p className="mt-2 text-sm text-gray-500">{dateLabel}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled
+            className="rounded-full border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-500 shadow-sm opacity-70"
+          >
+            Sincronizar tablero (próximamente)
+          </button>
+          <button
+            type="button"
+            disabled
+            className="rounded-full border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-500 shadow-sm opacity-70"
+          >
+            Crear tarea rápida (próximamente)
+          </button>
+          <button
+            type="button"
+            disabled
+            className="rounded-full border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-500 shadow-sm opacity-70"
+          >
+            Exportar resumen (próximamente)
+          </button>
         </div>
       </div>
 
@@ -297,8 +320,19 @@ export default function AdminPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Logística</p>
-          <h3 className="mt-2 text-xl font-semibold text-gray-900">Agenda de Hoy</h3>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-secondary">Logística</p>
+              <h3 className="mt-2 text-xl font-semibold text-gray-900">Agenda de Hoy</h3>
+            </div>
+            <button
+              type="button"
+              disabled
+              className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-500 opacity-70"
+            >
+              Ver agenda completa
+            </button>
+          </div>
           {todayAppointments.length > 0 ? (
             <div className="mt-6 space-y-4">
               {todayAppointments.map((appointment) => {
@@ -336,8 +370,19 @@ export default function AdminPage() {
         </div>
 
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cuellos de botella</p>
-          <h3 className="mt-2 text-xl font-semibold text-gray-900">Requiere tu atención</h3>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cuellos de botella</p>
+              <h3 className="mt-2 text-xl font-semibold text-gray-900">Requiere tu atención</h3>
+            </div>
+            <button
+              type="button"
+              disabled
+              className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-500 opacity-70"
+            >
+              Ver reporte completo
+            </button>
+          </div>
           <div className="mt-6">
             {attentionItems.length > 0 ? (
               attentionItems.map((item) => (

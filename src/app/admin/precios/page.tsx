@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
+import { Download, Plus, RefreshCw, Save, Search, Trash2, Upload } from "lucide-react";
 
 import {
-  CATEGORIAS_CATALOGO,
-  SECCIONES_MATERIALES,
   UNIDADES_MEDIDA,
   actualizarHerraje,
   actualizarMaterial,
@@ -15,10 +13,8 @@ import {
   eliminarMaterial,
   obtenerHerrajes,
   obtenerMateriales,
-  type CategoriaCatalogo,
   type Herraje,
   type Material,
-  type SeccionMaterial,
   type UnidadMedida,
 } from "@/lib/axios/catalogosApi";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -26,15 +22,10 @@ import { useFocusTrap } from "@/hooks/useFocusTrap";
 type CatalogItem = {
   _id: string;
   nombre: string;
-  descripcion?: string;
   unidadMedida: UnidadMedida;
-  categoria: CategoriaCatalogo;
-  seccion?: SeccionMaterial;
-  proveedor?: string;
+  categoria: string;
   idCotizador?: string;
-  disponible: boolean;
   precioUnitario?: number;
-  precioPorMetro?: number;
   kind: "material" | "herraje";
 };
 
@@ -87,15 +78,10 @@ const mapMaterial = (item: Material): CatalogItem => {
   return {
     _id: safeId(raw),
     nombre: (typeof raw.nombre === "string" ? raw.nombre : "") || "Sin nombre",
-    descripcion: typeof raw.descripcion === "string" ? raw.descripcion : undefined,
     unidadMedida: (raw.unidadMedida as UnidadMedida) ?? "m",
-    categoria: (raw.categoria as CategoriaCatalogo) ?? "Madera",
-    seccion: raw.seccion as SeccionMaterial | undefined,
-    proveedor: typeof raw.proveedor === "string" ? raw.proveedor : undefined,
+    categoria: (typeof raw.categoria === "string" ? raw.categoria : undefined) ?? "Madera",
     idCotizador: typeof raw.idCotizador === "string" ? raw.idCotizador : undefined,
-    disponible: typeof raw.disponible === "boolean" ? raw.disponible : true,
     precioUnitario: safeNumber(raw.precioUnitario, raw.precio, raw.precioMetroLineal),
-    precioPorMetro: safeNumber(raw.precioPorMetro),
     kind: "material",
   };
 };
@@ -105,20 +91,18 @@ const mapHerraje = (item: Herraje): CatalogItem => {
   return {
     _id: safeId(raw),
     nombre: (typeof raw.nombre === "string" ? raw.nombre : "") || "Sin nombre",
-    descripcion: typeof raw.descripcion === "string" ? raw.descripcion : undefined,
     unidadMedida: (raw.unidadMedida as UnidadMedida) ?? "unidad",
-    categoria: (raw.categoria as CategoriaCatalogo) ?? "Herrajes",
-    seccion: raw.seccion as SeccionMaterial | undefined,
-    proveedor: typeof raw.proveedor === "string" ? raw.proveedor : undefined,
+    categoria: (typeof raw.categoria === "string" ? raw.categoria : undefined) ?? "Herrajes",
     idCotizador: typeof raw.idCotizador === "string" ? raw.idCotizador : undefined,
-    disponible: typeof raw.disponible === "boolean" ? raw.disponible : true,
     precioUnitario: safeNumber(raw.precioUnitario, raw.precio, raw.precioMetroLineal),
-    precioPorMetro: safeNumber(raw.precioPorMetro),
     kind: "herraje",
   };
 };
 
 const buildItemKey = (item: Pick<CatalogItem, "kind" | "_id">) => `${item.kind}:${item._id}`;
+
+const inferKindFromCategory = (categoria: string): "material" | "herraje" =>
+  categoria.trim().toLowerCase() === "herrajes" ? "herraje" : "material";
 
 const currencyFormatter = new Intl.NumberFormat("es-MX", {
   style: "currency",
@@ -133,31 +117,20 @@ export default function PreciosPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [hasPendingChanges, setHasPendingChanges] = useState(false);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newKind, setNewKind] = useState<"material" | "herraje">("material");
-  const [newNombre, setNewNombre] = useState("");
-  const [newDescripcion, setNewDescripcion] = useState("");
-  const [newUnidad, setNewUnidad] = useState<UnidadMedida>("m");
-  const [newCategoria, setNewCategoria] = useState<CategoriaCatalogo>("Madera");
-  const [newSeccion, setNewSeccion] = useState<SeccionMaterial | "">("");
-  const [newProveedor, setNewProveedor] = useState("");
   const [newIdCotizador, setNewIdCotizador] = useState("");
+  const [newNombre, setNewNombre] = useState("");
+  const [newUnidad, setNewUnidad] = useState<UnidadMedida>("m");
+  const [newCategoria, setNewCategoria] = useState("");
   const [newPrecioUnitario, setNewPrecioUnitario] = useState("");
-  const [newPrecioPorMetro, setNewPrecioPorMetro] = useState("");
-  const [newDisponible, setNewDisponible] = useState(true);
   const [addError, setAddError] = useState("");
 
   const modalRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const initialItemsRef = useRef<Map<string, CatalogItem>>(new Map());
   useFocusTrap(isAddModalOpen, modalRef);
-
-  useEffect(() => {
-    if (newKind === "herraje") {
-      setNewCategoria("Herrajes");
-      setNewUnidad("unidad");
-      setNewSeccion("");
-    }
-  }, [newKind]);
 
   useEffect(() => {
     if (!isAddModalOpen) return;
@@ -192,7 +165,10 @@ export default function PreciosPage() {
         if (!dedupedItemsMap.has(itemKey)) dedupedItemsMap.set(itemKey, item);
       }
 
-      setItems(Array.from(dedupedItemsMap.values()));
+      const loadedItems = Array.from(dedupedItemsMap.values());
+      setItems(loadedItems);
+      initialItemsRef.current = new Map(loadedItems.map((item) => [buildItemKey(item), item]));
+      setHasPendingChanges(false);
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "No se pudo cargar el catálogo");
     } finally {
@@ -222,66 +198,215 @@ export default function PreciosPage() {
     });
   }, [items, searchQuery, selectedCategory]);
 
-  const validatePrice = (precioUnitario?: number, precioPorMetro?: number) => {
-    if (typeof precioUnitario !== "number" && typeof precioPorMetro !== "number") {
-      return "Debes capturar precio unitario o precio por metro.";
+  const validatePrice = (precioUnitario?: number) => {
+    if (typeof precioUnitario !== "number") {
+      return "Debes capturar precio unitario.";
     }
-    if (
-      (typeof precioUnitario === "number" && precioUnitario < 0) ||
-      (typeof precioPorMetro === "number" && precioPorMetro < 0)
-    ) {
+    if (typeof precioUnitario === "number" && precioUnitario < 0) {
       return "Los precios deben ser mayores o iguales a 0.";
     }
     return null;
   };
 
-  const handleSaveItem = async (item: CatalogItem) => {
-    const priceError = validatePrice(item.precioUnitario, item.precioPorMetro);
-    if (priceError) {
-      setError(priceError);
+  const parseCsvLine = (line: string) => {
+    const values: string[] = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index];
+      if (char === '"') {
+        if (inQuotes && line[index + 1] === '"') {
+          current += '"';
+          index += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === "," && !inQuotes) {
+        values.push(current);
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+
+    values.push(current);
+    return values.map((value) => value.trim().replace(/^"|"$/g, ""));
+  };
+
+  const escapeCsvValue = (value: string) =>
+    /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+
+  const handleExportCsv = () => {
+    const header = ["id", "label", "category", "unit", "unitPrice"];
+    const rows = items.map((item) => [
+      item.idCotizador || item._id,
+      item.nombre,
+      item.categoria,
+      item.unidadMedida,
+      (item.precioUnitario ?? 0).toString(),
+    ]);
+
+    const csv = [header, ...rows]
+      .map((row) => row.map((value) => escapeCsvValue(value)).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "kuche_catalogo_precios.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportCsv = (file: File) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const text = typeof reader.result === "string" ? reader.result : "";
+      if (!text) return;
+
+      const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      if (lines.length <= 1) return;
+
+      const [, ...dataLines] = lines;
+
+      const parsedRows = dataLines
+        .map((line) => {
+          const [id, label, category, unit, unitPrice] = parseCsvLine(line);
+          const parsedPrice = Number.parseFloat(unitPrice ?? "");
+          if (!id || !label || !category || !unit || Number.isNaN(parsedPrice)) return null;
+          return {
+            id: id.trim(),
+            label: label.trim(),
+            category: category.trim(),
+            unit: unit.trim() as UnidadMedida,
+            unitPrice: parsedPrice,
+          };
+        })
+        .filter((row): row is { id: string; label: string; category: string; unit: UnidadMedida; unitPrice: number } => row !== null);
+
+      if (parsedRows.length === 0) {
+        setError("El CSV no contiene filas validas.");
+        return;
+      }
+
+      const existingById = new Map(
+        items
+          .filter((item) => Boolean(item.idCotizador))
+          .map((item) => [item.idCotizador!.toLowerCase(), item]),
+      );
+
+      const mergedItems = parsedRows.map((row) => {
+        const existing = existingById.get(row.id.toLowerCase());
+        if (existing) {
+          return {
+            ...existing,
+            nombre: row.label,
+            categoria: row.category,
+            unidadMedida: row.unit,
+            precioUnitario: row.unitPrice,
+            idCotizador: row.id,
+          } satisfies CatalogItem;
+        }
+
+        const kind = inferKindFromCategory(row.category);
+        return {
+          _id: `tmp-csv-${Math.random().toString(36).slice(2, 10)}`,
+          nombre: row.label,
+          categoria: row.category,
+          unidadMedida: row.unit,
+          precioUnitario: row.unitPrice,
+          idCotizador: row.id,
+          kind,
+        } satisfies CatalogItem;
+      });
+
+      setItems(mergedItems);
+      setHasPendingChanges(true);
+      setError(null);
+    };
+
+    reader.readAsText(file);
+  };
+
+  const didItemChange = (item: CatalogItem, initial: CatalogItem) =>
+    item.nombre !== initial.nombre ||
+    (item.idCotizador || "") !== (initial.idCotizador || "") ||
+    item.categoria !== initial.categoria ||
+    item.unidadMedida !== initial.unidadMedida ||
+    (item.precioUnitario ?? 0) !== (initial.precioUnitario ?? 0);
+
+  const handleSaveChanges = async () => {
+    setError(null);
+    const initialMap = initialItemsRef.current;
+
+    const changedItems = items.filter((item) => {
+      const initial = initialMap.get(buildItemKey(item));
+      if (!initial) return true;
+      return didItemChange(item, initial);
+    });
+
+    if (changedItems.length === 0) {
+      setHasPendingChanges(false);
       return;
     }
 
-    setSavingId(buildItemKey(item));
+    setSavingId("bulk");
     try {
-      const commonPayload = {
-        nombre: item.nombre.trim(),
-        descripcion: item.descripcion?.trim() || undefined,
-        proveedor: item.proveedor?.trim() || undefined,
-        idCotizador: item.idCotizador?.trim() || undefined,
-        disponible: item.disponible,
-        precioUnitario: item.precioUnitario,
-        precioPorMetro: item.precioPorMetro,
-      };
+      for (const item of changedItems) {
+        const priceError = validatePrice(item.precioUnitario);
+        if (priceError) {
+          throw new Error(`Error en ${item.nombre}: ${priceError}`);
+        }
 
-      const response =
-        item.kind === "material"
-          ? await actualizarMaterial(item._id, {
-              ...commonPayload,
-              unidadMedida: item.unidadMedida,
-              categoria: item.categoria,
-              seccion: item.seccion,
-            })
-          : await actualizarHerraje(item._id, {
-              ...commonPayload,
-              unidadMedida: "unidad",
-              categoria: "Herrajes",
-            });
+        const payload = {
+          nombre: item.nombre.trim(),
+          idCotizador: item.idCotizador?.trim() || undefined,
+          precioUnitario: item.precioUnitario,
+          unidadMedida: item.unidadMedida,
+          categoria: item.categoria as any,
+          disponible: true,
+        };
 
-      if (!response.success) {
-        throw new Error(formatApiErrorMessage(response as any, "No se pudo guardar el elemento"));
+        if (item._id.startsWith("tmp-csv-")) {
+          const createResponse =
+            item.kind === "material" ? await crearMaterial(payload) : await crearHerraje(payload);
+          if (!createResponse.success) {
+            throw new Error(formatApiErrorMessage(createResponse as any, `No se pudo crear ${item.nombre}`));
+          }
+          continue;
+        }
+
+        const updateResponse =
+          item.kind === "material"
+            ? await actualizarMaterial(item._id, payload)
+            : await actualizarHerraje(item._id, payload);
+        if (!updateResponse.success) {
+          throw new Error(formatApiErrorMessage(updateResponse as any, `No se pudo actualizar ${item.nombre}`));
+        }
       }
+
       await loadCatalogs();
     } catch (currentError) {
-      setError(currentError instanceof Error ? currentError.message : "No se pudo guardar el elemento");
+      setError(currentError instanceof Error ? currentError.message : "No se pudieron guardar los cambios");
     } finally {
       setSavingId(null);
     }
   };
 
   const handleDeleteItem = async (item: CatalogItem) => {
+    if (!window.confirm(`Se eliminara \"${item.nombre}\". Deseas continuar?`)) return;
     setSavingId(buildItemKey(item));
     try {
+      if (item._id.startsWith("tmp-csv-")) {
+        setItems((current) => current.filter((row) => buildItemKey(row) !== buildItemKey(item)));
+        setHasPendingChanges(true);
+        return;
+      }
       const response = item.kind === "material" ? await eliminarMaterial(item._id) : await eliminarHerraje(item._id);
       if (!response.success) {
         throw new Error(formatApiErrorMessage(response as any, "No se pudo eliminar el elemento"));
@@ -295,31 +420,27 @@ export default function PreciosPage() {
   };
 
   const resetCreateForm = () => {
-    setNewKind("material");
-    setNewNombre("");
-    setNewDescripcion("");
-    setNewUnidad("m");
-    setNewCategoria("Madera");
-    setNewSeccion("");
-    setNewProveedor("");
     setNewIdCotizador("");
+    setNewNombre("");
+    setNewUnidad("m");
+    setNewCategoria("");
     setNewPrecioUnitario("");
-    setNewPrecioPorMetro("");
-    setNewDisponible(true);
     setAddError("");
   };
 
   const handleCreateItem = async () => {
+    const idCotizador = newIdCotizador.trim();
     const nombre = newNombre.trim();
+    const categoria = newCategoria.trim();
+    const unidadMedida = newUnidad;
     const precioUnitario = toNumberOrUndefined(newPrecioUnitario);
-    const precioPorMetro = toNumberOrUndefined(newPrecioPorMetro);
 
-    if (!nombre) {
-      setAddError("El nombre es requerido.");
+    if (!idCotizador || !nombre || !categoria || !unidadMedida) {
+      setAddError("Completa todos los campos del formulario.");
       return;
     }
 
-    const priceError = validatePrice(precioUnitario, precioPorMetro);
+    const priceError = validatePrice(precioUnitario);
     if (priceError) {
       setAddError(priceError);
       return;
@@ -327,29 +448,18 @@ export default function PreciosPage() {
 
     setSavingId("create");
     try {
-      const commonPayload = {
+      const kind = inferKindFromCategory(categoria);
+      const payload = {
         nombre,
-        descripcion: newDescripcion.trim() || undefined,
-        proveedor: newProveedor.trim() || undefined,
-        idCotizador: newIdCotizador.trim() || undefined,
+        idCotizador,
         precioUnitario,
-        precioPorMetro,
-        disponible: newDisponible,
+        unidadMedida,
+        categoria: categoria as any,
+        disponible: true,
       };
 
       const response =
-        newKind === "material"
-          ? await crearMaterial({
-              ...commonPayload,
-              unidadMedida: newUnidad,
-              categoria: newCategoria,
-              seccion: newSeccion || undefined,
-            })
-          : await crearHerraje({
-              ...commonPayload,
-              unidadMedida: "unidad",
-              categoria: "Herrajes",
-            });
+        kind === "material" ? await crearMaterial(payload) : await crearHerraje(payload);
 
       if (!response.success) {
         throw new Error(formatApiErrorMessage(response as any, "No se pudo crear el elemento"));
@@ -370,9 +480,23 @@ export default function PreciosPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Catálogo y Precios</h1>
-         
+          <p className="mt-2 text-sm text-gray-500">
+            Actualiza los costos base. Los cambios afectarán las nuevas cotizaciones.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              handleImportCsv(file);
+              event.currentTarget.value = "";
+            }}
+          />
           <button
             type="button"
             onClick={() => void loadCatalogs()}
@@ -380,6 +504,22 @@ export default function PreciosPage() {
           >
             <RefreshCw className="h-4 w-4" />
             Recargar
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-100"
+          >
+            <Upload className="h-4 w-4" />
+            Importar CSV
+          </button>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-100"
+          >
+            <Download className="h-4 w-4" />
+            Exportar CSV
           </button>
           <button
             type="button"
@@ -391,6 +531,15 @@ export default function PreciosPage() {
           >
             <Plus className="h-4 w-4" />
             Nuevo material
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSaveChanges()}
+            disabled={savingId === "bulk" || !hasPendingChanges}
+            className={`inline-flex items-center gap-2 rounded-2xl bg-[#8B1C1C] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${hasPendingChanges ? "animate-pulse" : ""}`}
+          >
+            <Save className="h-4 w-4" />
+            {savingId === "bulk" ? "Guardando..." : "Guardar cambios"}
           </button>
         </div>
       </div>
@@ -424,14 +573,19 @@ export default function PreciosPage() {
         </div>
       ) : null}
 
+      {hasPendingChanges ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+          Tienes cambios sin guardar.
+        </div>
+      ) : null}
+
       <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white p-1 shadow-sm">
-        <div className="grid grid-cols-[2fr_1fr_0.7fr_0.9fr_0.8fr_0.9fr] gap-2 px-6 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">
+        <div className="grid grid-cols-[2.6fr_1fr_0.7fr_1fr_0.5fr] gap-2 px-6 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">
           <span>Material</span>
           <span>Categoría</span>
           <span>Unidad</span>
           <span className="text-right">Precio unitario</span>
-          <span className="text-center">Disponible</span>
-          <span className="text-right">Acciones</span>
+          <span className="text-center">Acciones</span>
         </div>
         <div className="divide-y divide-gray-100">
           {isLoading ? (
@@ -442,18 +596,19 @@ export default function PreciosPage() {
             filteredItems.map((item) => (
               <div
                 key={buildItemKey(item)}
-                className="grid grid-cols-[2fr_1fr_0.7fr_0.9fr_0.8fr_0.9fr] items-center gap-2 px-6 py-4"
+                className="grid grid-cols-[2.6fr_1fr_0.7fr_1fr_0.5fr] items-center gap-2 px-6 py-4"
               >
                 <div>
                   <input
                     value={item.nombre}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setItems((current) =>
                         current.map((row) =>
                           buildItemKey(row) === buildItemKey(item) ? { ...row, nombre: event.target.value } : row,
                         ),
-                      )
-                    }
+                      );
+                      setHasPendingChanges(true);
+                    }}
                     className="w-full bg-transparent text-sm font-semibold text-gray-900 outline-none"
                   />
                   <p className="text-xs text-gray-400">{item.idCotizador || item._id}</p>
@@ -466,50 +621,29 @@ export default function PreciosPage() {
                     min="0"
                     step="0.01"
                     value={item.precioUnitario ?? ""}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setItems((current) =>
                         current.map((row) =>
                           buildItemKey(row) === buildItemKey(item)
                             ? { ...row, precioUnitario: toNumberOrUndefined(event.target.value) }
                             : row,
                         ),
-                      )
-                    }
+                      );
+                      setHasPendingChanges(true);
+                    }}
                     className="w-24 justify-self-end border-b border-transparent bg-transparent text-right text-sm font-semibold text-gray-900 transition-colors hover:border-gray-300 focus:border-[#8B1C1C] focus:outline-none"
                   />
                   <p className="text-xs text-gray-400">{currencyFormatter.format(item.precioUnitario ?? 0)}</p>
                 </div>
-                <div className="text-center">
-                  <input
-                    type="checkbox"
-                    checked={item.disponible}
-                    onChange={(event) =>
-                      setItems((current) =>
-                        current.map((row) =>
-                          buildItemKey(row) === buildItemKey(item) ? { ...row, disponible: event.target.checked } : row,
-                        ),
-                      )
-                    }
-                  />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveItem(item)}
-                    disabled={savingId === buildItemKey(item)}
-                    className="inline-flex items-center gap-1 rounded-xl bg-[#8B1C1C] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                  >
-                    <Save className="h-3.5 w-3.5" />
-                    Guardar
-                  </button>
+                <div className="flex justify-center">
                   <button
                     type="button"
                     onClick={() => void handleDeleteItem(item)}
                     disabled={savingId === buildItemKey(item)}
-                    className="inline-flex items-center gap-1 rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 disabled:opacity-50"
+                    className="inline-flex items-center justify-center rounded-xl border border-rose-200 p-2 text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+                    title="Eliminar material"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    Eliminar
                   </button>
                 </div>
               </div>
@@ -523,7 +657,7 @@ export default function PreciosPage() {
           <div
             ref={modalRef}
             tabIndex={-1}
-            className="w-full max-w-3xl rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
+            className="w-full max-w-lg rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
           >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Agregar nuevo material</h3>
@@ -537,38 +671,36 @@ export default function PreciosPage() {
             </div>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <label className="text-xs font-semibold text-gray-500">
-                Tipo
-                <select
-                  value={newKind}
-                  onChange={(event) => setNewKind(event.target.value as "material" | "herraje")}
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                >
-                  <option value="material">Material</option>
-                  <option value="herraje">Herraje</option>
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-gray-500">
-                Nombre
-                <input
-                  value={newNombre}
-                  onChange={(event) => setNewNombre(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                />
-              </label>
-
-              <label className="text-xs font-semibold text-gray-500">
-                idCotizador
+                ID único
                 <input
                   value={newIdCotizador}
                   onChange={(event) => setNewIdCotizador(event.target.value)}
+                  placeholder="ej. herr_bisagra_premium"
                   className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
                 />
               </label>
               <label className="text-xs font-semibold text-gray-500">
-                Proveedor
+                Categoría
+                <select
+                  value={newCategoria}
+                  onChange={(event) => setNewCategoria(event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
+                >
+                  <option value="">Selecciona categoría</option>
+                  {categories.filter((category) => category !== "Todas").map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="text-xs font-semibold text-gray-500 sm:col-span-2">
+                Nombre del material
                 <input
-                  value={newProveedor}
-                  onChange={(event) => setNewProveedor(event.target.value)}
+                  value={newNombre}
+                  onChange={(event) => setNewNombre(event.target.value)}
+                  placeholder="ej. Bisagra premium"
                   className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
                 />
               </label>
@@ -577,9 +709,8 @@ export default function PreciosPage() {
                 Unidad
                 <select
                   value={newUnidad}
-                  disabled={newKind === "herraje"}
                   onChange={(event) => setNewUnidad(event.target.value as UnidadMedida)}
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none disabled:bg-gray-100"
+                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
                 >
                   {UNIDADES_MEDIDA.map((unidad) => (
                     <option key={unidad} value={unidad}>
@@ -587,44 +718,6 @@ export default function PreciosPage() {
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="text-xs font-semibold text-gray-500">
-                Categoría
-                <select
-                  value={newCategoria}
-                  disabled={newKind === "herraje"}
-                  onChange={(event) => setNewCategoria(event.target.value as CategoriaCatalogo)}
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none disabled:bg-gray-100"
-                >
-                  {CATEGORIAS_CATALOGO.map((categoria) => (
-                    <option key={categoria} value={categoria}>
-                      {categoria}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="text-xs font-semibold text-gray-500">
-                Sección
-                <select
-                  value={newSeccion}
-                  disabled={newKind === "herraje"}
-                  onChange={(event) => setNewSeccion(event.target.value as SeccionMaterial | "")}
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none disabled:bg-gray-100"
-                >
-                  <option value="">Sin sección</option>
-                  {SECCIONES_MATERIALES.map((seccion) => (
-                    <option key={seccion} value={seccion}>
-                      {seccion}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-gray-500">
-                Disponible
-                <div className="mt-3">
-                  <input type="checkbox" checked={newDisponible} onChange={(event) => setNewDisponible(event.target.checked)} />
-                </div>
               </label>
 
               <label className="text-xs font-semibold text-gray-500">
@@ -636,26 +729,6 @@ export default function PreciosPage() {
                   min="0"
                   step="0.01"
                   className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                />
-              </label>
-              <label className="text-xs font-semibold text-gray-500">
-                Precio por metro
-                <input
-                  value={newPrecioPorMetro}
-                  onChange={(event) => setNewPrecioPorMetro(event.target.value)}
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
-                />
-              </label>
-
-              <label className="text-xs font-semibold text-gray-500 sm:col-span-2">
-                Descripción
-                <textarea
-                  value={newDescripcion}
-                  onChange={(event) => setNewDescripcion(event.target.value)}
-                  className="mt-2 min-h-[90px] w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
                 />
               </label>
             </div>

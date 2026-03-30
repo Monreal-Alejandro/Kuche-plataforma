@@ -87,7 +87,34 @@ export function AdminWorkflowProvider({ children }: { children: React.ReactNode 
 
   const updateTask = useCallback(
     async (task: AdminWorkflowTask, patch: WorkflowTaskPatch) => {
-      const mergedTask = { ...task, ...patch };
+      const patchKeys = Object.keys(patch);
+      const isFollowUpOnlyPatch =
+        patchKeys.length > 0 &&
+        patchKeys.every((key) => key === "followUpStatus" || key === "status" || key === "followUpEnteredAt");
+
+      const mergedTask: AdminWorkflowTask = {
+        ...task,
+        ...patch,
+        visita: {
+          fechaProgramada:
+            patch.visita?.fechaProgramada ??
+            patch.visitScheduledAt ??
+            task.visita?.fechaProgramada ??
+            task.visitScheduledAt,
+          aprobadaPorAdmin:
+            patch.visita?.aprobadaPorAdmin ??
+            patch.designApprovedByAdmin ??
+            task.visita?.aprobadaPorAdmin ??
+            task.designApprovedByAdmin ??
+            false,
+          aprobadaPorCliente:
+            patch.visita?.aprobadaPorCliente ??
+            patch.designApprovedByClient ??
+            task.visita?.aprobadaPorCliente ??
+            task.designApprovedByClient ??
+            false,
+        },
+      };
 
       if (task.backendSource === "cita") {
         if (mergedTask.stage !== "citas") {
@@ -95,14 +122,31 @@ export function AdminWorkflowProvider({ children }: { children: React.ReactNode 
           return;
         }
 
+        // For citas, prefer the edited title when present so it becomes cita.informacionAdicional.
+        const titleFromPatch = typeof patch.title === "string" ? patch.title.trim() : "";
+        const notesFromPatch = typeof patch.notes === "string" ? patch.notes.trim() : "";
+        const citaInfo =
+          titleFromPatch ||
+          notesFromPatch ||
+          mergedTask.notes?.trim() ||
+          mergedTask.title?.trim() ||
+          "";
+
+        const estadoCita =
+          mergedTask.status === "completada" || mergedTask.citaFinished
+            ? "completada"
+            : mergedTask.citaStarted || (mergedTask.assignedToIds?.length ?? 0) > 0
+              ? "en_proceso"
+              : "programada";
+
         const response = await actualizarTarjetaCita(task.sourceId, {
           cita: {
             nombreCliente: mergedTask.project,
-            informacionAdicional: mergedTask.title,
+            informacionAdicional: citaInfo,
             ubicacion: mergedTask.location,
           },
           ingenieroId: mergedTask.assignedToIds?.[0],
-          estado: mergedTask.status === "completada" ? "completada" : mergedTask.assignedToIds?.length ? "en_proceso" : "programada",
+          estado: estadoCita,
         });
 
         if (!response.success) {
@@ -112,8 +156,34 @@ export function AdminWorkflowProvider({ children }: { children: React.ReactNode 
         return;
       }
 
+      // Algunos backends ignoran followUpStatus cuando llega en un payload "full".
+      // Para confirmar/inactivar/reactivar, enviamos payload minimo y estable.
+      if (isFollowUpOnlyPatch) {
+        const minimalPayload: Record<string, unknown> = {};
+        if (typeof patch.followUpStatus === "string") minimalPayload.followUpStatus = patch.followUpStatus;
+        if (typeof patch.status === "string") minimalPayload.estado = patch.status;
+        if (typeof patch.followUpEnteredAt === "number") {
+          minimalPayload.followUpEnteredAt = patch.followUpEnteredAt;
+        }
+
+        const response = await actualizarTarjetaTarea(task.sourceId, minimalPayload);
+        if (!response.success) {
+          throw new Error(response.message || "No se pudo actualizar seguimiento de la tarea");
+        }
+        await refresh();
+        return;
+      }
+
       const payload = buildTaskUpdatePayload(mergedTask);
+      console.log("[AdminWorkflowContext] updateTask payload:", {
+        taskId: task.id,
+        sourceId: task.sourceId,
+        backendSource: task.backendSource,
+        patch,
+        payload,
+      });
       const response = await actualizarTarjetaTarea(task.sourceId, payload);
+      console.log("[AdminWorkflowContext] updateTask response:", response);
       if (!response.success) {
         throw new Error(response.message || "No se pudo actualizar la tarea");
       }

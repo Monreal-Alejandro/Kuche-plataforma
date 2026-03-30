@@ -189,16 +189,7 @@ export default function SeguimientoPage() {
     : currentProject.cotizacionFormalImage;
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storageKey = `kuche_project_${baseMockProject.codigo}`;
-    try {
-      const stored = window.localStorage.getItem(storageKey);
-      if (!stored) {
-        window.localStorage.setItem(storageKey, JSON.stringify(baseMockProject));
-      }
-    } catch {
-      // ignore storage errors
-    }
+    // Sin dependencia de localStorage: el proyecto base se carga en memoria.
   }, []);
 
   return (
@@ -226,25 +217,14 @@ export default function SeguimientoPage() {
                       setCodeError("Ingresa un código de proyecto.");
                       return;
                     }
-                    if (typeof window === "undefined") {
-                      setCodeError("No se pudo validar el código en este dispositivo.");
+                    const codeKey = codigo.trim();
+                    if (codeKey !== baseMockProject.codigo) {
+                      setCodeError("No encontramos un proyecto con ese código.");
                       return;
                     }
-                    const codeKey = codigo.trim();
-                    const storageKey = `kuche_project_${codeKey}`;
-                    try {
-                      const stored = window.localStorage.getItem(storageKey);
-                      if (!stored) {
-                        setCodeError("No encontramos un proyecto con ese código.");
-                        return;
-                      }
-                      const parsed = JSON.parse(stored) as Record<string, unknown>;
-                      setProject({ ...baseMockProject, ...parsed } as SeguimientoProject);
-                      setHasAccess(true);
-                      setCodeError(null);
-                    } catch {
-                      setCodeError("Hubo un problema al leer tu proyecto. Intenta de nuevo.");
-                    }
+                    setProject(baseMockProject);
+                    setHasAccess(true);
+                    setCodeError(null);
                   }}
                 >
                   <label className="mt-6 block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">

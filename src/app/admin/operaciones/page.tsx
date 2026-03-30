@@ -3,27 +3,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  Calendar,
-  Calculator,
-  FileText,
-  Loader2,
-  MapPin,
-  PencilLine,
-  RefreshCw,
-  Trash2,
-  UserPlus,
-} from "lucide-react";
+import { UserPlus, Calculator, FileText, MapPin, Calendar, Loader2, CheckCircle2, Clock, PencilLine } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useAdminWorkflow } from "@/contexts/AdminWorkflowContext";
 import {
-  getAssignedLabel,
-  type AdminWorkflowTask,
-} from "@/lib/admin-workflow";
-import { listarEmpleados, type Usuario } from "@/lib/axios/usuariosApi";
-import { kanbanColumns, type TaskPriority, type TaskStage, type TaskStatus } from "@/lib/kanban";
+  activeCitaTaskStorageKey,
+  activeCotizacionFormalTaskStorageKey,
+  citaReturnUrlStorageKey,
+  finishedCitaTaskStorageKey,
+  kanbanColumns,
+  kanbanStorageKey,
+  type TaskStage,
+  type TaskPriority,
+  type TaskStatus,
+} from "@/lib/kanban";
+import { runtimeStore } from "@/lib/runtime-store";
+import { crearUsuario, listarEmpleados, listarUsuarios, type Usuario } from "@/lib/axios/usuariosApi";
+import type { AdminWorkflowTask } from "@/lib/admin-workflow";
+import { VisitScheduleModal } from "@/components/admin/VisitScheduleModal";
 
 const stageStyles: Record<TaskStage, { border: string; badge: string }> = {
   citas: { border: "border-sky-500", badge: "bg-sky-50 text-sky-600" },
@@ -38,39 +37,9 @@ const priorityStyles: Record<TaskPriority, string> = {
   baja: "bg-emerald-100 text-emerald-700",
 };
 
-const statusStyles: Record<TaskStatus, string> = {
-  pendiente: "bg-rose-50 text-rose-600",
-  completada: "bg-emerald-50 text-emerald-600",
-};
-
-type TaskDraft = {
-  title: string;
-  project: string;
-  assignedToId: string;
-  notes: string;
-  priority: TaskPriority;
-  dueDate: string;
-  location: string;
-  mapsUrl: string;
-  stage: TaskStage;
-  status: TaskStatus;
-  designApprovedByAdmin: boolean;
-  followUpStatus: AdminWorkflowTask["followUpStatus"];
-};
-
-const emptyDraft: TaskDraft = {
-  title: "",
-  project: "",
-  assignedToId: "",
-  notes: "",
-  priority: "media",
-  dueDate: "",
-  location: "",
-  mapsUrl: "",
-  stage: "citas",
-  status: "pendiente",
-  designApprovedByAdmin: false,
-  followUpStatus: "pendiente",
+const statusStyles: Record<"pendiente" | "completada", string> = {
+  pendiente: "bg-sky-50 text-sky-600",
+  completada: "bg-emerald-50 text-emerald-700",
 };
 
 const formatDate = (date?: string) => {
@@ -78,17 +47,61 @@ const formatDate = (date?: string) => {
   return new Date(date).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
 };
 
-const formatTime = (isoDate?: string) => {
-  if (!isoDate) return null;
-  try {
-    return new Intl.DateTimeFormat("es-MX", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(new Date(isoDate));
-  } catch {
-    return null;
-  }
+const pad = (value: number) => value.toString().padStart(2, "0");
+
+const toLocalSlot = (isoDateTime?: string) => {
+  if (!isoDateTime) return null;
+  const date = new Date(isoDateTime);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const formatDateTime = (isoDateTime?: string) => {
+  if (!isoDateTime) return "Sin agenda";
+  const date = new Date(isoDateTime);
+  if (Number.isNaN(date.getTime())) return "Sin agenda";
+  return date.toLocaleString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const FOLLOW_UP_WARNING_DAYS = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const getFollowUpDays = (enteredAt?: number, createdAt?: number, now = Date.now()) => {
+  const reference = enteredAt ?? createdAt;
+  if (!reference) return 0;
+  return Math.max(0, Math.floor((now - reference) / DAY_MS));
+};
+
+type TaskDraft = {
+  title: string;
+  project: string;
+  assignedToIds: string[];
+  notes: string;
+  priority: TaskPriority;
+  dueDate: string;
+  location: string;
+  mapsUrl: string;
+  stage: TaskStage;
+  status: TaskStatus;
+};
+
+const emptyDraft: TaskDraft = {
+  title: "",
+  project: "",
+  assignedToIds: [],
+  notes: "",
+  priority: "media",
+  dueDate: "",
+  location: "",
+  mapsUrl: "",
+  stage: "citas",
+  status: "pendiente",
 };
 
 const getInitials = (name: string) =>
@@ -100,63 +113,344 @@ const getInitials = (name: string) =>
     .join("")
     .toUpperCase();
 
+const prettyJson = (value: unknown) => {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "No se pudo serializar a JSON";
+  }
+};
+
 export default function OperacionesPage() {
   const router = useRouter();
-  const { refresh, moveTask, updateTask, createTask, deleteTask } = useAdminWorkflow();
-  const [tasks, setTasks] = useState<AdminWorkflowTask[]>([]);
+  const { tasks, isLoading, refresh, moveTask, updateTask, createTask } = useAdminWorkflow();
+  
   const [employees, setEmployees] = useState<Usuario[]>([]);
   const [selectedEmployeeFilter, setSelectedEmployeeFilter] = useState<string>("Todos");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [assignError, setAssignError] = useState("");
+  const [teamError, setTeamError] = useState("");
+  const [newMemberName, setNewMemberName] = useState("");
+  const [newMemberEmail, setNewMemberEmail] = useState("");
+  const [newMemberRole, setNewMemberRole] = useState<Usuario["rol"]>("empleado");
+  const [newMemberPassword, setNewMemberPassword] = useState("");
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyDraft);
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [newTaskProject, setNewTaskProject] = useState("");
   const [newTaskStage, setNewTaskStage] = useState<TaskStage>("citas");
-  const [newTaskAssignedTo, setNewTaskAssignedTo] = useState("");
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("media");
-  const [newTaskDueDate, setNewTaskDueDate] = useState("");
-  const [newTaskLocation, setNewTaskLocation] = useState("");
-  const [newTaskMapsUrl, setNewTaskMapsUrl] = useState("");
-  const [modalError, setModalError] = useState<string | null>(null);
+  const [newTaskAssignedToIds, setNewTaskAssignedToIds] = useState<string[]>([]);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [visitModalTaskId, setVisitModalTaskId] = useState<string | null>(null);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyDraft);
+  const [taskModalError, setTaskModalError] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [isApplyingFinishedCita, setIsApplyingFinishedCita] = useState(false);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  const assignModalRef = useRef<HTMLDivElement | null>(null);
+  const teamModalRef = useRef<HTMLDivElement | null>(null);
   const taskModalRef = useRef<HTMLDivElement | null>(null);
-  const createModalRef = useRef<HTMLDivElement | null>(null);
 
+  useEscapeClose(isAssignModalOpen, () => setIsAssignModalOpen(false));
+  useEscapeClose(isTeamModalOpen, () => setIsTeamModalOpen(false));
   useEscapeClose(isTaskModalOpen, () => setIsTaskModalOpen(false));
-  useEscapeClose(isCreateModalOpen, () => setIsCreateModalOpen(false));
+  useFocusTrap(isAssignModalOpen, assignModalRef);
+  useFocusTrap(isTeamModalOpen, teamModalRef);
   useFocusTrap(isTaskModalOpen, taskModalRef);
-  useFocusTrap(isCreateModalOpen, createModalRef);
 
-  const loadData = async () => {
-    setIsLoading(true);
-    setError(null);
+  const loadEmployees = async () => {
+    const usersResponse = await listarUsuarios().catch(() => null);
+    const employeesResponse = await listarEmpleados().catch(() => null);
 
-    try {
-      const employeesResponse = await listarEmpleados();
-      if (employeesResponse.success && employeesResponse.data) {
-        setEmployees(employeesResponse.data);
-      }
+    const source =
+      usersResponse?.success && usersResponse.data
+        ? usersResponse.data
+        : employeesResponse?.success && employeesResponse.data
+          ? employeesResponse.data
+          : [];
 
-      const loadedTasks = await refresh();
-      setTasks(loadedTasks);
-    } catch (currentError) {
-      setError(currentError instanceof Error ? currentError.message : "No se pudieron cargar las operaciones");
-    } finally {
-      setIsLoading(false);
+    const activeUsers = source.filter((user) => user.activo !== false);
+    setEmployees(activeUsers);
+
+    if (activeUsers.length > 0) {
+      console.log("[Operaciones] users for assignment JSON:\n", prettyJson(activeUsers));
     }
   };
 
   useEffect(() => {
-    void loadData();
-  }, []);
+    void refresh();
+    void loadEmployees();
+  }, [refresh]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setClockNow(Date.now());
+      void refresh();
+    }, 60_000);
+
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  useEffect(() => {
+    console.log("[Operaciones] tasks JSON:\n", prettyJson(tasks));
+  }, [tasks]);
+
+  useEffect(() => {
+    const finishedTaskId = runtimeStore.getItem(finishedCitaTaskStorageKey);
+    if (!finishedTaskId || isApplyingFinishedCita) return;
+
+    const task = tasks.find((currentTask) => currentTask.id === finishedTaskId);
+    if (!task) return;
+
+    const alreadyFinished =
+      task.status === "completada" &&
+      task.citaFinished === true &&
+      (task.priority ?? "media") === "alta";
+
+    if (alreadyFinished) {
+      runtimeStore.removeItem(finishedCitaTaskStorageKey);
+      return;
+    }
+
+    setIsApplyingFinishedCita(true);
+    void (async () => {
+      try {
+        await updateTask(task, {
+          citaStarted: true,
+          citaFinished: true,
+          status: "completada",
+          priority: "alta",
+        });
+      } catch (error) {
+        console.error("[Operaciones] Error al sincronizar cierre de cita desde cotizador:", error);
+      } finally {
+        runtimeStore.removeItem(finishedCitaTaskStorageKey);
+        setIsApplyingFinishedCita(false);
+      }
+    })();
+  }, [isApplyingFinishedCita, tasks, updateTask]);
+
+  const handleAssignPending = async () => {
+    const project = newTaskProject.trim();
+    if (!project) {
+      setAssignError("Ingresa un proyecto o cliente.");
+      return;
+    }
+    try {
+      setIsSaving(true);
+      await createTask({
+        titulo: project,
+        etapa: newTaskStage,
+        estado: "pendiente",
+        asignadoA: newTaskAssignedToIds,
+        proyecto: project,
+        nombreProyecto: project,
+        prioridad: newTaskPriority,
+        codigoProyecto: `OP-${Date.now()}`,
+      });
+      setAssignError("");
+      setIsAssignModalOpen(false);
+      setNewTaskProject("");
+      setNewTaskStage("citas");
+      setNewTaskPriority("media");
+      setNewTaskAssignedToIds([]);
+    } catch (error) {
+      setAssignError(error instanceof Error ? error.message : "Error al asignar");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleTaskAction = async (task: AdminWorkflowTask, action: string) => {
+    try {
+      setIsSaving(true);
+      setActionFeedback(null);
+
+      if (action === "start-cita") {
+        await updateTask(task, { citaStarted: true, status: "pendiente" });
+        runtimeStore.setItem(kanbanStorageKey, JSON.stringify(tasks));
+        runtimeStore.setItem(activeCitaTaskStorageKey, task.id);
+        runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
+        router.push("/dashboard/cotizador-preliminar");
+      }
+      if (action === "finish-cita") {
+        await updateTask(task, { citaFinished: true, status: "completada", priority: "alta" });
+      }
+      if (action === "approve-design-admin") {
+        await updateTask(task, { designApprovedByAdmin: true });
+        setVisitModalTaskId(task.id);
+      }
+      if (action === "approve-design-client") {
+        await updateTask(task, {
+          designApprovedByClient: true,
+          stage: "cotizacion",
+          status: "pendiente",
+          citaStarted: false,
+          citaFinished: false,
+        });
+      }
+      if (action === "start-cotizacion") {
+        await updateTask(task, { citaStarted: true, citaFinished: false, status: "pendiente" });
+        runtimeStore.setItem(activeCotizacionFormalTaskStorageKey, task.id);
+        runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
+        router.push("/dashboard/cotizador");
+      }
+      if (action === "finish-cotizacion") {
+        await updateTask(task, { citaFinished: true, status: "completada", priority: "alta" });
+      }
+      if (action === "pass-to-seguimiento") {
+        await updateTask(task, {
+          stage: "contrato",
+          status: "pendiente",
+          followUpStatus: "pendiente",
+          followUpEnteredAt: Date.now(),
+          citaStarted: false,
+          citaFinished: false,
+        });
+      }
+      if (action === "confirm-client") {
+        await updateTask(task, { followUpStatus: "confirmado", status: "completada" });
+        const reloaded = await refresh();
+        const updated = reloaded.find((item) => item.id === task.id);
+        if (updated?.followUpStatus !== "confirmado") {
+          setActionFeedback("El backend no guardo 'confirmado'. Revisa el contrato del endpoint PATCH /api/tareas/:id.");
+        } else {
+          setActionFeedback("Cliente confirmado correctamente.");
+        }
+      }
+      if (action === "discard-client") {
+        await updateTask(task, { followUpStatus: "inactivo", status: "completada" });
+        const reloaded = await refresh();
+        const updated = reloaded.find((item) => item.id === task.id);
+        if (updated?.followUpStatus !== "inactivo") {
+          setActionFeedback("El backend no guardo 'inactivo'. Revisa el contrato del endpoint PATCH /api/tareas/:id.");
+        } else {
+          setActionFeedback("Proyecto marcado como inactivo correctamente.");
+        }
+      }
+      if (action === "reactivate-client") {
+        await updateTask(task, {
+          followUpStatus: "pendiente",
+          status: "pendiente",
+          followUpEnteredAt: Date.now(),
+        });
+        setActionFeedback("Seguimiento reactivado.");
+      }
+    } catch (error) {
+      console.error("Error de acción de tarjeta:", error);
+      setActionFeedback(error instanceof Error ? error.message : "No se pudo completar la accion.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAddMember = async () => {
+    const nombre = newMemberName.trim();
+    const correo = newMemberEmail.trim();
+    const password = newMemberPassword.trim();
+
+    if (!nombre || !correo) {
+      setTeamError("Nombre y correo son obligatorios.");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+      setTeamError("Ingresa un correo valido.");
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setTeamError("");
+
+      const response = await crearUsuario({
+        nombre,
+        correo,
+        rol: newMemberRole,
+        password: password || undefined,
+      });
+
+      if (!response.success) {
+        throw new Error(response.message || "No se pudo crear el integrante");
+      }
+
+      setNewMemberName("");
+      setNewMemberEmail("");
+      setNewMemberRole("empleado");
+      setNewMemberPassword("");
+      await loadEmployees();
+    } catch (error) {
+      setTeamError(error instanceof Error ? error.message : "No se pudo crear el integrante");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openAssignModal = () => {
+    setAssignError("");
+    setNewTaskProject("");
+    setNewTaskStage("citas");
+    setNewTaskPriority("media");
+    setNewTaskAssignedToIds([]);
+    setIsAssignModalOpen(true);
+  };
+
+  const openTeamModal = () => {
+    setTeamError("");
+    setNewMemberName("");
+    setNewMemberEmail("");
+    setNewMemberRole("empleado");
+    setNewMemberPassword("");
+    setIsTeamModalOpen(true);
+  };
+
+  const filteredTasks = useMemo(() => {
+    if (selectedEmployeeFilter === "Todos") return tasks;
+    return tasks.filter((task) =>
+      task.assignedToIds.includes(selectedEmployeeFilter)
+    );
+  }, [selectedEmployeeFilter, tasks]);
+
+  const columns = kanbanColumns.map((column) => ({
+    ...column,
+    tasks: filteredTasks.filter((task) => task.stage === column.id),
+  }));
 
   const activeTask = useMemo(
     () => tasks.find((task) => task.id === activeTaskId) ?? null,
     [activeTaskId, tasks],
   );
+
+  const visitModalTask = useMemo(
+    () => tasks.find((task) => task.id === visitModalTaskId) ?? null,
+    [tasks, visitModalTaskId],
+  );
+
+  const occupiedVisitSlots = useMemo(
+    () =>
+      tasks
+        .filter((task) => task.id !== visitModalTaskId)
+        .map((task) => toLocalSlot(task.visitScheduledAt ?? task.scheduledAt ?? task.cita?.fechaAgendada))
+        .filter((slot): slot is string => Boolean(slot)),
+    [tasks, visitModalTaskId],
+  );
+
+  const handleSaveVisitForTask = async (task: AdminWorkflowTask, isoDateTime: string) => {
+    try {
+      setIsSaving(true);
+      await updateTask(task, {
+        designApprovedByAdmin: true,
+        visitScheduledAt: isoDateTime,
+      });
+      setVisitModalTaskId(null);
+    } catch (error) {
+      console.error("Error al agendar visita:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!activeTask) {
@@ -164,9 +458,9 @@ export default function OperacionesPage() {
       return;
     }
     setTaskDraft({
-      title: activeTask.title,
-      project: activeTask.project,
-      assignedToId: activeTask.assignedToIds[0] ?? "",
+      title: activeTask.title || "",
+      project: activeTask.project || "",
+      assignedToIds: activeTask.assignedToIds ?? [],
       notes: activeTask.notes ?? "",
       priority: activeTask.priority ?? "media",
       dueDate: activeTask.dueDate ?? "",
@@ -174,87 +468,13 @@ export default function OperacionesPage() {
       mapsUrl: activeTask.mapsUrl ?? "",
       stage: activeTask.stage,
       status: activeTask.status,
-      designApprovedByAdmin: Boolean(activeTask.designApprovedByAdmin),
-      followUpStatus: activeTask.followUpStatus ?? "pendiente",
     });
   }, [activeTask]);
 
-  const filteredTasks = useMemo(() => {
-    if (selectedEmployeeFilter === "Todos") return tasks;
-    return tasks.filter((task) =>
-      task.assignedToIds.includes(selectedEmployeeFilter) ||
-      task.assignedTo.some((name) => employees.find((employee) => employee._id === selectedEmployeeFilter)?.nombre === name),
-    );
-  }, [employees, selectedEmployeeFilter, tasks]);
-
   const openTaskModal = (taskId: string) => {
+    setTaskModalError(null);
     setActiveTaskId(taskId);
-    setModalError(null);
     setIsTaskModalOpen(true);
-  };
-
-  const openCreateModal = () => {
-    setModalError(null);
-    setNewTaskProject("");
-    setNewTaskStage("citas");
-    setNewTaskAssignedTo(employees[0]?._id ?? "");
-    setNewTaskPriority("media");
-    setNewTaskDueDate("");
-    setNewTaskLocation("");
-    setNewTaskMapsUrl("");
-    setIsCreateModalOpen(true);
-  };
-
-  const moveTaskToStage = async (task: AdminWorkflowTask, stage: TaskStage) => {
-    await moveTask(task, stage);
-  };
-
-  const handleDrop = async (stage: TaskStage) => {
-    if (!draggedTaskId) return;
-    const task = tasks.find((currentTask) => currentTask.id === draggedTaskId);
-    setDraggedTaskId(null);
-    if (!task || task.stage === stage) return;
-
-    try {
-      setIsSaving(true);
-      await moveTaskToStage(task, stage);
-      await loadData();
-    } catch (currentError) {
-      setError(currentError instanceof Error ? currentError.message : "No se pudo mover la tarea");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCreateTask = async () => {
-    const project = newTaskProject.trim();
-    if (!project) {
-      setModalError("Completa proyecto o cliente.");
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      await createTask({
-        titulo: project,
-        proyecto: project,
-        nombreProyecto: project,
-        etapa: newTaskStage,
-        estado: "pendiente",
-        asignadoA: newTaskAssignedTo ? [newTaskAssignedTo] : [],
-        prioridad: newTaskPriority,
-        fechaLimite: newTaskDueDate || undefined,
-        ubicacion: newTaskLocation.trim() || undefined,
-        mapsUrl: newTaskMapsUrl.trim() || undefined,
-        codigoProyecto: `K-${Date.now()}`,
-      });
-      setIsCreateModalOpen(false);
-      await loadData();
-    } catch (currentError) {
-      setModalError(currentError instanceof Error ? currentError.message : "No se pudo crear la tarea");
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   const handleSaveTask = async () => {
@@ -272,41 +492,38 @@ export default function OperacionesPage() {
         mapsUrl: taskDraft.mapsUrl.trim() || undefined,
         stage: taskDraft.stage,
         status: taskDraft.status,
-        assignedToIds: taskDraft.assignedToId ? [taskDraft.assignedToId] : [],
-        assignedTo: taskDraft.assignedToId
-          ? [employees.find((employee) => employee._id === taskDraft.assignedToId)?.nombre ?? "Sin asignar"]
-          : ["Sin asignar"],
-        designApprovedByAdmin: taskDraft.designApprovedByAdmin,
-        followUpStatus: taskDraft.followUpStatus,
+        assignedToIds: taskDraft.assignedToIds,
+        assignedTo:
+          taskDraft.assignedToIds.length > 0
+            ? taskDraft.assignedToIds
+                .map((employeeId) => employees.find((employee) => employee._id === employeeId)?.nombre)
+                .filter((name): name is string => Boolean(name && name.trim().length > 0))
+            : ["Sin asignar"],
       });
+      setTaskModalError(null);
       setIsTaskModalOpen(false);
-      await loadData();
-    } catch (currentError) {
-      setModalError(currentError instanceof Error ? currentError.message : "No se pudo guardar la tarea");
+    } catch (error) {
+      setTaskModalError(error instanceof Error ? error.message : "No se pudo guardar la tarea");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleDeleteTask = async () => {
-    if (!activeTask) return;
+  const handleDrop = async (stage: TaskStage) => {
+    if (!draggedTaskId) return;
+    const task = tasks.find((t) => t.id === draggedTaskId);
+    setDraggedTaskId(null);
+    if (!task || task.stage === stage) return;
 
     try {
       setIsSaving(true);
-      await deleteTask(activeTask);
-      setIsTaskModalOpen(false);
-      await loadData();
-    } catch (currentError) {
-      setModalError(currentError instanceof Error ? currentError.message : "No se pudo eliminar la tarea");
+      await moveTask(task, stage);
+    } catch (error) {
+      console.error("Error al mover tarea:", error);
     } finally {
       setIsSaving(false);
     }
   };
-
-  const columns = kanbanColumns.map((column) => ({
-    ...column,
-    tasks: filteredTasks.filter((task) => task.stage === column.id),
-  }));
 
   return (
     <div className="space-y-6">
@@ -316,55 +533,53 @@ export default function OperacionesPage() {
             Operaciones y taller
           </p>
           <h1 className="mt-2 text-2xl font-semibold text-gray-900">
-            Control de tareas y asignaciones
+            Control de tareas y citas
           </h1>
           <p className="mt-2 text-sm text-secondary">
-            Toda la información del tablero se consume y persiste en backend.
+            Flujo: Citas → Diseño → Cotización formal → Seguimiento.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <select
             value={selectedEmployeeFilter}
-            onChange={(event) => setSelectedEmployeeFilter(event.target.value)}
+            onChange={(e) => setSelectedEmployeeFilter(e.target.value)}
             className="rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm font-medium text-secondary shadow-sm outline-none"
           >
             <option value="Todos">Ver todo</option>
-            {employees.map((employee) => (
-              <option key={employee._id} value={employee._id}>
-                {employee.nombre}
+            {employees.map((emp) => (
+              <option key={emp._id} value={emp._id}>
+                {emp.nombre}
               </option>
             ))}
           </select>
           <button
             type="button"
-            onClick={() => void loadData()}
+            onClick={openTeamModal}
             className="flex items-center gap-2 rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm font-semibold text-secondary shadow-sm transition hover:bg-primary/5"
           >
-            <RefreshCw className="h-4 w-4" />
-            Recargar
+            <UserPlus className="h-4 w-4" />
+            Integrantes
           </button>
           <button
             type="button"
-            onClick={openCreateModal}
-            className="flex items-center gap-2 rounded-2xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+            onClick={openAssignModal}
+            className="rounded-2xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
           >
-            <UserPlus className="h-4 w-4" />
             Asignar pendiente
           </button>
         </div>
       </div>
 
-      {error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          {error}
-        </div>
-      ) : null}
-
       {isLoading ? (
-        <div className="flex items-center gap-3 rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="flex items-center gap-3 rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md"
+        >
           <Loader2 className="h-4 w-4 animate-spin" />
           Cargando tablero...
-        </div>
+        </motion.section>
       ) : (
         <motion.section
           initial={{ opacity: 0, y: 16 }}
@@ -375,7 +590,7 @@ export default function OperacionesPage() {
           {columns.map((column) => (
             <div
               key={column.id}
-              onDragOver={(event) => event.preventDefault()}
+              onDragOver={(e) => e.preventDefault()}
               onDrop={() => void handleDrop(column.id)}
               className={`rounded-3xl border bg-white/80 p-4 shadow-lg backdrop-blur-md ${stageStyles[column.id].border}`}
             >
@@ -396,57 +611,249 @@ export default function OperacionesPage() {
                   </div>
                 ) : (
                   column.tasks.map((task) => (
-                    <button
+                    <div
                       key={task.id}
-                      type="button"
                       draggable
                       onDragStart={() => setDraggedTaskId(task.id)}
                       onClick={() => openTaskModal(task.id)}
-                      className="w-full rounded-2xl border border-primary/10 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                      className={`flex min-h-[220px] flex-col rounded-2xl border border-primary/10 bg-white px-4 py-4 text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${stageStyles[task.stage].border ? `border-l-4 ${stageStyles[task.stage].border}` : ""}`}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900">{task.project}</p>
-                          <p className="mt-1 text-xs text-secondary">{task.title}</p>
-                        </div>
-                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${priorityStyles[task.priority ?? "media"]}`}>
-                          {task.priority ?? "media"}
-                        </span>
+                      {/** Contador de seguimiento: a los 3 dias muestra aviso de contacto. */}
+                      {(() => {
+                        const followUpDays = getFollowUpDays(task.followUpEnteredAt, task.createdAt, clockNow);
+                        const remainingDays = Math.max(0, FOLLOW_UP_WARNING_DAYS - followUpDays);
+                        const isFollowUpWarning =
+                          task.stage === "contrato" &&
+                          task.followUpStatus === "pendiente" &&
+                          followUpDays >= FOLLOW_UP_WARNING_DAYS;
+
+                        return (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {task.stage === "contrato" && task.followUpStatus === "pendiente" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-700">
+                            <Clock className="h-3 w-3" />
+                            {isFollowUpWarning
+                              ? `Dar seguimiento (${followUpDays} dia${followUpDays === 1 ? "" : "s"})`
+                              : `Seguimiento en ${remainingDays} dia${remainingDays === 1 ? "" : "s"}`}
+                          </span>
+                        ) : (
+                          <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${statusStyles[task.status]}`}>
+                            {task.status === "completada" ? "Completada" : "Pendiente"}
+                          </span>
+                        )}
+                        {task.stage === "contrato" && task.followUpStatus === "confirmado" ? (
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-700">
+                            Cliente confirmado
+                          </span>
+                        ) : null}
+                        {task.stage === "contrato" && task.followUpStatus === "inactivo" ? (
+                          <span className="inline-flex rounded-full bg-gray-200 px-2 py-1 text-[10px] font-semibold text-gray-700">
+                            Proyecto inactivo
+                          </span>
+                        ) : null}
+                        {task.stage !== "contrato" ? (
+                          <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${priorityStyles[task.priority ?? "media"]}`}>
+                            {(task.priority ?? "media").charAt(0).toUpperCase() + (task.priority ?? "media").slice(1)}
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-secondary">
-                        <span className={`rounded-full px-2.5 py-1 font-semibold ${statusStyles[task.status]}`}>
-                          {task.status}
-                        </span>
-                        <span>Asignado: {getAssignedLabel(task)}</span>
-                      </div>
-                      {task.scheduledAt ? (
-                        <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-[11px] text-secondary">
-                          <p className="flex items-center gap-1.5">
-                            <Calendar className="h-3 w-3" />
-                            <span>Fecha: {formatDate(task.scheduledAt.slice(0, 10))}</span>
+                        );
+                      })()}
+
+                      <div className="mt-3 flex flex-1 flex-col">
+                        <div className="min-h-[3.75rem] max-h-[3.75rem]">
+                          <p className="line-clamp-2 break-words text-base font-semibold leading-6 text-gray-900" title={task.project}>
+                            {task.project}
                           </p>
-                          {formatTime(task.scheduledAt) ? (
-                            <p className="mt-1 pl-[18px]">Hora: {formatTime(task.scheduledAt)}</p>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {(task.location || (task.dueDate && !task.scheduledAt)) ? (
-                        <div className="mt-3 space-y-1 text-[11px] text-secondary">
-                          {task.location ? (
-                            <p className="flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
+                          {task.location || task.mapsUrl ? (
+                            <p className="mt-1 line-clamp-1 break-words text-xs leading-4 text-secondary">
                               {task.location}
+                              {task.mapsUrl ? (
+                                <>
+                                  {task.location ? " · " : ""}
+                                  <a href={task.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline">Ver en Maps</a>
+                                </>
+                              ) : null}
                             </p>
                           ) : null}
-                          {task.dueDate && !task.scheduledAt ? (
-                            <p className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {formatDate(task.dueDate)}
+                          {task.title && task.title !== task.project ? (
+                            <p className="mt-1 line-clamp-1 break-words text-xs leading-4 text-secondary" title={task.title}>
+                              {task.title}
                             </p>
                           ) : null}
                         </div>
+
+                        <div className="mt-3 min-h-[1.75rem]">
+                          <div className="flex flex-wrap gap-2">
+                            {task.stage === "citas" && task.status === "pendiente" && !task.citaStarted ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleTaskAction(task, "start-cita");
+                                }}
+                                className="inline-flex items-center rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-white"
+                                disabled={isSaving}
+                              >
+                                Iniciar cita
+                              </button>
+                            ) : null}
+                            {task.stage === "citas" && task.citaStarted && !task.citaFinished ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleTaskAction(task, "finish-cita");
+                                }}
+                                className="inline-flex items-center rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white"
+                                disabled={isSaving}
+                              >
+                                Terminar cita
+                              </button>
+                            ) : null}
+                            {task.stage === "citas" && task.status === "completada" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Cita completada
+                              </span>
+                            ) : null}
+
+                            {task.stage === "disenos" && !task.designApprovedByAdmin ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleTaskAction(task, "approve-design-admin");
+                                }}
+                                className="inline-flex items-center rounded-full bg-violet-600 px-3 py-1 text-[11px] font-semibold text-white"
+                                disabled={isSaving}
+                              >
+                                Aprobar admin
+                              </button>
+                            ) : null}
+                            {task.stage === "disenos" && task.designApprovedByAdmin && !task.designApprovedByClient ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setVisitModalTaskId(task.id);
+                                }}
+                                className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                  task.visitScheduledAt ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                                }`}
+                                disabled={isSaving}
+                              >
+                                {task.visitScheduledAt ? `Visita: ${formatDateTime(task.visitScheduledAt)}` : "Falta agendar visita"}
+                              </button>
+                            ) : null}
+                            {task.stage === "disenos" && task.designApprovedByAdmin && !task.designApprovedByClient ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleTaskAction(task, "approve-design-client");
+                                }}
+                                className="inline-flex items-center rounded-full bg-violet-700 px-3 py-1 text-[11px] font-semibold text-white"
+                                disabled={isSaving}
+                              >
+                                Aprobar cliente
+                              </button>
+                            ) : null}
+
+                            {task.stage === "cotizacion" && !task.citaStarted ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleTaskAction(task, "start-cotizacion");
+                                }}
+                                className="inline-flex items-center rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-white"
+                                disabled={isSaving}
+                              >
+                                Iniciar cotizacion
+                              </button>
+                            ) : null}
+                            {task.stage === "cotizacion" && task.citaStarted && !task.citaFinished ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleTaskAction(task, "finish-cotizacion");
+                                }}
+                                className="inline-flex items-center rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white"
+                                disabled={isSaving}
+                              >
+                                Terminar cotizacion
+                              </button>
+                            ) : null}
+                            {task.stage === "cotizacion" && task.citaStarted && task.citaFinished ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleTaskAction(task, "pass-to-seguimiento");
+                                }}
+                                className="inline-flex items-center rounded-full bg-emerald-700 px-3 py-1 text-[11px] font-semibold text-white"
+                                disabled={isSaving}
+                              >
+                                Pasar a seguimiento
+                              </button>
+                            ) : null}
+
+                            {task.stage === "contrato" ? (
+                              <div className="grid w-full grid-cols-1 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleTaskAction(task, "confirm-client");
+                                  }}
+                                  className="w-full rounded-2xl bg-emerald-600 px-3 py-2 text-[11px] font-semibold text-white"
+                                  disabled={isSaving}
+                                >
+                                  Confirmar cliente
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleTaskAction(task, "discard-client");
+                                  }}
+                                  className="w-full rounded-2xl bg-rose-600 px-3 py-2 text-[11px] font-semibold text-white"
+                                  disabled={isSaving}
+                                >
+                                  Marcar inactivo
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleTaskAction(task, "reactivate-client");
+                                  }}
+                                  className="w-full rounded-2xl border border-amber-300 bg-white px-3 py-2 text-[11px] font-semibold text-amber-800"
+                                  disabled={isSaving}
+                                >
+                                  Reactivar seguimiento
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      {task.location ? (
+                        <div className="mt-3 flex items-center gap-1.5 rounded-2xl bg-slate-50 px-3 py-2 text-[11px] text-secondary">
+                          <MapPin className="h-3 w-3" />
+                          <span>{task.location}</span>
+                        </div>
                       ) : null}
-                    </button>
+                      {task.dueDate ? (
+                        <div className="mt-3 flex items-center gap-1.5 rounded-2xl bg-slate-50 px-3 py-2 text-[11px] text-secondary">
+                          <Calendar className="h-3 w-3" />
+                          <span>{formatDate(task.dueDate)}</span>
+                        </div>
+                      ) : null}
+                    </div>
                   ))
                 )}
               </div>
@@ -455,6 +862,12 @@ export default function OperacionesPage() {
         </motion.section>
       )}
 
+      {actionFeedback ? (
+        <div className="rounded-2xl border border-primary/20 bg-white/90 px-4 py-3 text-sm text-primary shadow-sm">
+          {actionFeedback}
+        </div>
+      ) : null}
+
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
           <div className="flex items-start gap-4">
@@ -462,10 +875,10 @@ export default function OperacionesPage() {
               <Calculator className="h-6 w-6 text-primary" />
             </div>
             <div className="flex-1">
-              <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotización</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotizacion</p>
               <h3 className="mt-1 text-xl font-semibold">Cotizador Pro</h3>
               <p className="mt-2 text-sm text-secondary">
-                Genera estimaciones detalladas con desglose técnico completo para taller y cliente.
+                Genera estimaciones detalladas con desglose tecnico completo para el taller.
               </p>
               <button
                 type="button"
@@ -484,10 +897,10 @@ export default function OperacionesPage() {
               <FileText className="h-6 w-6 text-accent" />
             </div>
             <div className="flex-1">
-              <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotización</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cotizacion</p>
               <h3 className="mt-1 text-xl font-semibold">Cotizador Preliminar</h3>
               <p className="mt-2 text-sm text-secondary">
-                Crea una estimación rápida para prospectos antes de formalizar el proyecto.
+                Crea una estimacion rapida para prospectos antes de formalizar el proyecto.
               </p>
               <button
                 type="button"
@@ -501,123 +914,233 @@ export default function OperacionesPage() {
         </div>
       </div>
 
-      {isCreateModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <VisitScheduleModal
+        isOpen={Boolean(visitModalTask)}
+        taskLabel={visitModalTask?.project ?? "Proyecto"}
+        initialIso={visitModalTask?.visitScheduledAt}
+        occupiedSlots={occupiedVisitSlots}
+        isSaving={isSaving}
+        onClose={() => setVisitModalTaskId(null)}
+        onConfirm={async (isoDateTime) => {
+          if (!visitModalTask) return;
+          await handleSaveVisitForTask(visitModalTask, isoDateTime);
+        }}
+      />
+
+      {isAssignModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setIsAssignModalOpen(false)}>
           <div
-            ref={createModalRef}
+            ref={assignModalRef}
             tabIndex={-1}
-            className="w-full max-w-lg rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
+            className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-3xl border border-white/70 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex shrink-0 items-center justify-between border-b border-primary/5 px-6 py-4">
               <h3 className="text-lg font-semibold text-gray-900">Asignar pendiente</h3>
               <button
                 type="button"
-                onClick={() => setIsCreateModalOpen(false)}
+                onClick={() => setIsAssignModalOpen(false)}
                 className="rounded-full border border-primary/10 px-3 py-1 text-xs font-semibold text-secondary"
               >
                 Cerrar
               </button>
             </div>
-            <div className="mt-4 space-y-4">
-              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                Proyecto / Cliente
-                <input
-                  value={newTaskProject}
-                  onChange={(event) => setNewTaskProject(event.target.value)}
-                  placeholder="Ej. Residencial Vega"
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                />
-              </label>
-              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                Etapa inicial
-                <select
-                  value={newTaskStage}
-                  onChange={(event) => setNewTaskStage(event.target.value as TaskStage)}
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+              <div className="space-y-4">
+                <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                  Proyecto / Cliente
+                  <input
+                    value={newTaskProject}
+                    onChange={(e) => setNewTaskProject(e.target.value)}
+                    placeholder="Ej. Residencial Vega"
+                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  />
+                </label>
+                <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                  Etapa inicial
+                  <select
+                    value={newTaskStage}
+                    onChange={(e) => setNewTaskStage(e.target.value as TaskStage)}
+                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  >
+                    {kanbanColumns.map((col) => (
+                      <option key={col.id} value={col.id}>
+                        {col.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                  Prioridad
+                  <select
+                    value={newTaskPriority}
+                    onChange={(e) => setNewTaskPriority(e.target.value as TaskPriority)}
+                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  >
+                    <option value="alta">Alta</option>
+                    <option value="media">Media</option>
+                    <option value="baja">Baja</option>
+                  </select>
+                </label>
+
+                <div className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                  Responsables (uno o mas)
+                  <div className="mt-2 max-h-40 space-y-2 overflow-y-auto rounded-2xl border border-primary/10 bg-white p-3">
+                    {employees.length === 0 ? (
+                      <p className="text-[11px] normal-case tracking-normal text-secondary">Sin empleados disponibles.</p>
+                    ) : (
+                      employees.map((employee) => {
+                        const checked = newTaskAssignedToIds.includes(employee._id);
+                        return (
+                          <label key={employee._id} className="flex items-center gap-2 text-xs font-medium normal-case tracking-normal text-gray-800">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setNewTaskAssignedToIds((prev) =>
+                                  checked ? prev.filter((id) => id !== employee._id) : [...prev, employee._id],
+                                )
+                              }
+                              className="h-4 w-4 accent-primary"
+                            />
+                            <span>{employee.nombre}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+              {assignError ? (
+                <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-600">{assignError}</p>
+              ) : null}
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAssignModalOpen(false)}
+                  className="rounded-2xl border border-primary/10 bg-white px-5 py-2 text-xs font-semibold text-secondary"
                 >
-                  {kanbanColumns.map((column) => (
-                    <option key={column.id} value={column.id}>
-                      {column.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                Asignar a
-                <select
-                  value={newTaskAssignedTo}
-                  onChange={(event) => setNewTaskAssignedTo(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAssignPending}
+                  disabled={isSaving}
+                  className="rounded-2xl bg-primary px-5 py-2 text-xs font-semibold text-white disabled:opacity-50"
                 >
-                  <option value="">Sin asignar</option>
-                  {employees.map((employee) => (
-                    <option key={employee._id} value={employee._id}>
-                      {employee.nombre}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                Prioridad
-                <select
-                  value={newTaskPriority}
-                  onChange={(event) => setNewTaskPriority(event.target.value as TaskPriority)}
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                >
-                  <option value="alta">Alta</option>
-                  <option value="media">Media</option>
-                  <option value="baja">Baja</option>
-                </select>
-              </label>
-              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                Fecha límite
-                <input
-                  type="date"
-                  value={newTaskDueDate}
-                  onChange={(event) => setNewTaskDueDate(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                />
-              </label>
-              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                Dirección / Localidad
-                <input
-                  value={newTaskLocation}
-                  onChange={(event) => setNewTaskLocation(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                />
-              </label>
-              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                Enlace de Google Maps
-                <input
-                  type="url"
-                  value={newTaskMapsUrl}
-                  onChange={(event) => setNewTaskMapsUrl(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                />
-              </label>
+                  {isSaving ? "Guardando..." : "Guardar pendiente"}
+                </button>
+              </div>
             </div>
-            {modalError ? (
-              <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-600">
-                {modalError}
-              </p>
+          </div>
+        </div>
+      ) : null}
+
+      {isTeamModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setIsTeamModalOpen(false)}>
+          <div
+            ref={teamModalRef}
+            tabIndex={-1}
+            className="w-full max-w-2xl rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Integrantes del equipo</h3>
+              <button
+                type="button"
+                onClick={() => setIsTeamModalOpen(false)}
+                className="rounded-full border border-primary/10 px-3 py-1 text-xs font-semibold text-secondary"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div>
+                <p className="mb-4 text-sm text-gray-600">Equipo disponible de {employees.length} integrantes:</p>
+                <div className="max-h-64 space-y-2 overflow-y-auto">
+                  {employees.length > 0 ? (
+                    employees.map((emp) => (
+                      <div
+                        key={emp._id}
+                        className="flex items-center justify-between rounded-2xl border border-primary/10 bg-white/50 px-4 py-3"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">{emp.nombre}</p>
+                          <p className="text-xs text-secondary">{emp.correo}</p>
+                        </div>
+                        <span className="text-[11px] font-semibold text-primary uppercase tracking-wide">
+                          {emp.rol}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-secondary py-4 text-center">
+                      Sin integrantes cargados
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-primary/10 bg-white/70 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Agregar integrante</p>
+                <div className="mt-3 space-y-3">
+                  <label className="block text-xs font-semibold text-secondary">
+                    Nombre
+                    <input
+                      value={newMemberName}
+                      onChange={(event) => setNewMemberName(event.target.value)}
+                      placeholder="Ej. Juan Perez"
+                      className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm outline-none"
+                    />
+                  </label>
+                  <label className="block text-xs font-semibold text-secondary">
+                    Correo
+                    <input
+                      type="email"
+                      value={newMemberEmail}
+                      onChange={(event) => setNewMemberEmail(event.target.value)}
+                      placeholder="correo@empresa.com"
+                      className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm outline-none"
+                    />
+                  </label>
+                  <label className="block text-xs font-semibold text-secondary">
+                    Rol
+                    <select
+                      value={newMemberRole}
+                      onChange={(event) => setNewMemberRole(event.target.value as Usuario["rol"])}
+                      className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm outline-none"
+                    >
+                      <option value="empleado">Empleado</option>
+                      <option value="arquitecto">Arquitecto</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </label>
+                  <label className="block text-xs font-semibold text-secondary">
+                    Password (opcional)
+                    <input
+                      type="password"
+                      value={newMemberPassword}
+                      onChange={(event) => setNewMemberPassword(event.target.value)}
+                      placeholder="Solo si backend lo requiere"
+                      className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm outline-none"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleAddMember()}
+                    disabled={isSaving}
+                    className="w-full rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {isSaving ? "Agregando..." : "Agregar integrante"}
+                  </button>
+                </div>
+              </div>
+            </div>
+            {teamError ? (
+              <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-600">{teamError}</p>
             ) : null}
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setIsCreateModalOpen(false)}
-                className="rounded-2xl border border-primary/10 bg-white px-5 py-2 text-xs font-semibold text-secondary"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCreateTask()}
-                disabled={isSaving}
-                className="rounded-2xl bg-primary px-5 py-2 text-xs font-semibold text-white disabled:opacity-50"
-              >
-                Guardar pendiente
-              </button>
-            </div>
           </div>
         </div>
       ) : null}
@@ -641,27 +1164,11 @@ export default function OperacionesPage() {
               className="absolute right-0 top-0 flex h-full w-full max-w-lg flex-col rounded-l-3xl border border-white/40 bg-white/95 shadow-2xl backdrop-blur-md"
               onClick={(event) => event.stopPropagation()}
             >
-              {/* Header fijo */}
               <div className="flex items-start justify-between gap-4 border-b border-primary/10 px-6 py-5">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.3em] text-secondary">
-                    Detalle de tarea
-                  </p>
-                  <h3 className="mt-1 text-xl font-semibold text-gray-900">
-                    {activeTask.project}
-                  </h3>
+                  <p className="text-xs uppercase tracking-[0.3em] text-secondary">Detalle de tarea</p>
+                  <h3 className="mt-1 text-xl font-semibold text-gray-900">{activeTask.project}</h3>
                   <p className="mt-0.5 text-sm text-secondary">{activeTask.title}</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${stageStyles[activeTask.stage].badge}`}>
-                      {kanbanColumns.find((col) => col.id === activeTask.stage)?.label ?? activeTask.stage}
-                    </span>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[activeTask.status]}`}>
-                      {activeTask.status}
-                    </span>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${priorityStyles[activeTask.priority ?? "media"]}`}>
-                      {activeTask.priority ?? "media"}
-                    </span>
-                  </div>
                 </div>
                 <button
                   type="button"
@@ -672,49 +1179,21 @@ export default function OperacionesPage() {
                 </button>
               </div>
 
-              {/* Contenido con scroll */}
               <div className="flex-1 overflow-y-auto px-6 py-5">
                 <div className="space-y-6">
-
-                  {/* Responsable */}
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Responsable
-                    </p>
-                    <div className="mt-3 flex items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                        {getInitials(
-                          employees.find((emp) => emp._id === taskDraft.assignedToId)?.nombre ??
-                          activeTask.assignedTo[0] ??
-                          "?"
-                        )}
-                      </span>
-                      <select
-                        value={taskDraft.assignedToId}
-                        onChange={(event) => setTaskDraft((prev) => ({ ...prev, assignedToId: event.target.value }))}
-                        className="w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm font-semibold text-gray-900 outline-none"
-                      >
-                        <option value="">Sin asignar</option>
-                        {employees.map((employee) => (
-                          <option key={employee._id} value={employee._id}>
-                            {employee.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Configuración: etapa / estado / prioridad */}
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Configuración
-                    </p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Configuracion</p>
                     <div className="mt-3 grid grid-cols-3 gap-3">
                       <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
                         Etapa
                         <select
                           value={taskDraft.stage}
-                          onChange={(event) => setTaskDraft((prev) => ({ ...prev, stage: event.target.value as TaskStage }))}
+                          onChange={(event) =>
+                            setTaskDraft((prev) => ({
+                              ...prev,
+                              stage: event.target.value as TaskStage,
+                            }))
+                          }
                           className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-xs outline-none"
                         >
                           {kanbanColumns.map((column) => (
@@ -728,7 +1207,12 @@ export default function OperacionesPage() {
                         Estado
                         <select
                           value={taskDraft.status}
-                          onChange={(event) => setTaskDraft((prev) => ({ ...prev, status: event.target.value as TaskStatus }))}
+                          onChange={(event) =>
+                            setTaskDraft((prev) => ({
+                              ...prev,
+                              status: event.target.value as TaskStatus,
+                            }))
+                          }
                           className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-xs outline-none"
                         >
                           <option value="pendiente">Pendiente</option>
@@ -739,7 +1223,12 @@ export default function OperacionesPage() {
                         Prioridad
                         <select
                           value={taskDraft.priority}
-                          onChange={(event) => setTaskDraft((prev) => ({ ...prev, priority: event.target.value as TaskPriority }))}
+                          onChange={(event) =>
+                            setTaskDraft((prev) => ({
+                              ...prev,
+                              priority: event.target.value as TaskPriority,
+                            }))
+                          }
                           className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-xs outline-none"
                         >
                           <option value="alta">Alta</option>
@@ -750,204 +1239,128 @@ export default function OperacionesPage() {
                     </div>
                   </div>
 
-                  {/* Identificación: título + proyecto */}
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Identificación
-                    </p>
-                    <div className="mt-3 space-y-3">
-                      <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
-                        Título
-                        <input
-                          value={taskDraft.title}
-                          onChange={(event) => setTaskDraft((prev) => ({ ...prev, title: event.target.value }))}
-                          className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                        />
-                      </label>
-                      <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
-                        Proyecto / Cliente
-                        <input
-                          value={taskDraft.project}
-                          onChange={(event) => setTaskDraft((prev) => ({ ...prev, project: event.target.value }))}
-                          className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                        />
-                      </label>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Responsable</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {taskDraft.assignedToIds.map((employeeId) => {
+                        const employeeName = employees.find((emp) => emp._id === employeeId)?.nombre ?? employeeId;
+                        return (
+                          <span key={employeeId} className="inline-flex items-center gap-2 rounded-full border border-primary/10 bg-white px-3 py-1.5 text-sm">
+                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                              {getInitials(employeeName)}
+                            </span>
+                            {employeeName}
+                          </span>
+                        );
+                      })}
+                      {taskDraft.assignedToIds.length === 0 ? (
+                        <p className="text-xs text-secondary">Sin asignar</p>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-2xl border border-primary/10 bg-white p-3">
+                      {employees.map((employee) => {
+                        const checked = taskDraft.assignedToIds.includes(employee._id);
+                        return (
+                          <label key={employee._id} className="flex items-center gap-2 text-xs font-medium text-gray-800">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setTaskDraft((prev) => ({
+                                  ...prev,
+                                  assignedToIds: checked
+                                    ? prev.assignedToIds.filter((id) => id !== employee._id)
+                                    : [...prev.assignedToIds, employee._id],
+                                }))
+                              }
+                              className="h-4 w-4 accent-primary"
+                            />
+                            <span>{employee.nombre}</span>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* Agenda */}
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Agenda
-                    </p>
-                    <div className="mt-3 space-y-3">
-                      <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
-                        Fecha límite
-                        <input
-                          type="date"
-                          value={taskDraft.dueDate}
-                          onChange={(event) => setTaskDraft((prev) => ({ ...prev, dueDate: event.target.value }))}
-                          className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                        />
-                      </label>
-                      <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
-                        Dirección / Localidad
-                        <input
-                          value={taskDraft.location}
-                          onChange={(event) => setTaskDraft((prev) => ({ ...prev, location: event.target.value }))}
-                          placeholder="Ej. Col. Roma Norte, CDMX"
-                          className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                        />
-                      </label>
-                      <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
-                        Enlace Google Maps
-                        <input
-                          type="url"
-                          value={taskDraft.mapsUrl}
-                          onChange={(event) => setTaskDraft((prev) => ({ ...prev, mapsUrl: event.target.value }))}
-                          placeholder="https://maps.google.com/..."
-                          className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                        />
-                      </label>
-                    </div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Titulo
+                    <input
+                      value={taskDraft.title}
+                      onChange={(event) => setTaskDraft((prev) => ({ ...prev, title: event.target.value }))}
+                      className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                    />
+                  </label>
+
+                  <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Proyecto / Cliente
+                    <input
+                      value={taskDraft.project}
+                      onChange={(event) => setTaskDraft((prev) => ({ ...prev, project: event.target.value }))}
+                      className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                    />
+                  </label>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                      Fecha limite
+                      <input
+                        type="date"
+                        value={taskDraft.dueDate}
+                        onChange={(event) => setTaskDraft((prev) => ({ ...prev, dueDate: event.target.value }))}
+                        className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                      />
+                    </label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                      Direccion / Localidad
+                      <input
+                        value={taskDraft.location}
+                        onChange={(event) => setTaskDraft((prev) => ({ ...prev, location: event.target.value }))}
+                        className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                      />
+                    </label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                      Enlace Google Maps
+                      <input
+                        type="url"
+                        value={taskDraft.mapsUrl}
+                        onChange={(event) => setTaskDraft((prev) => ({ ...prev, mapsUrl: event.target.value }))}
+                        className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                      />
+                    </label>
                   </div>
 
-                  {/* Aprobación de diseño (solo en etapa disenos) */}
-                  {taskDraft.stage === "disenos" ? (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                        Diseño
-                      </p>
-                      <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-2xl bg-violet-50 px-4 py-4 text-sm text-violet-800">
-                        <input
-                          type="checkbox"
-                          checked={taskDraft.designApprovedByAdmin}
-                          onChange={(event) =>
-                            setTaskDraft((prev) => ({ ...prev, designApprovedByAdmin: event.target.checked }))
-                          }
-                          className="h-4 w-4 accent-violet-600"
-                        />
-                        <div>
-                          <p className="font-semibold">Diseño aprobado</p>
-                          <p className="text-xs text-violet-600">Aprobación interna por administración</p>
-                        </div>
-                      </label>
-                    </div>
-                  ) : null}
-
-                  {/* Seguimiento comercial (solo en etapa contrato) */}
-                  {taskDraft.stage === "contrato" ? (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                        Seguimiento comercial
-                      </p>
-                      <div className="mt-3 flex items-center gap-2 rounded-2xl bg-amber-50 px-4 py-3">
-                        <span className="text-xs font-semibold text-amber-700">Estado actual:</span>
-                        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 capitalize">
-                          {taskDraft.followUpStatus ?? "pendiente"}
-                        </span>
-                      </div>
-                      <div className="mt-3 flex flex-col gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setTaskDraft((prev) => ({ ...prev, followUpStatus: "confirmado", status: "completada" }))}
-                          className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                        >
-                          ✓ Confirmar cliente
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTaskDraft((prev) => ({ ...prev, followUpStatus: "descartado", status: "completada" }))}
-                          className="w-full rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-700"
-                        >
-                          ✕ Descartar cliente
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTaskDraft((prev) => ({ ...prev, followUpStatus: "pendiente", status: "pendiente" }))}
-                          className="w-full rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-50"
-                        >
-                          ↺ Reactivar seguimiento
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {/* Notas */}
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Notas internas
-                    </p>
+                  <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Notas
                     <textarea
                       value={taskDraft.notes}
                       onChange={(event) => setTaskDraft((prev) => ({ ...prev, notes: event.target.value }))}
-                      placeholder="Agrega detalles, avances o instrucciones para el equipo."
-                      className="mt-3 min-h-[120px] w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                      className="mt-1.5 min-h-[120px] w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                     />
-                  </div>
-
-                  {/* Archivos adjuntos (solo lectura desde backend) */}
-                  {(activeTask.files ?? []).length > 0 ? (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                        Archivos adjuntos
-                      </p>
-                      <div className="mt-3 space-y-2">
-                        {(activeTask.files ?? []).map((file) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center justify-between rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm"
-                          >
-                            <span className="truncate">{file.name}</span>
-                            <span className="ml-3 shrink-0 text-xs uppercase text-secondary">{file.type}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
+                  </label>
                 </div>
               </div>
 
-              {/* Footer con acciones fijo al fondo */}
               <div className="border-t border-primary/10 px-6 py-4">
-                {modalError ? (
-                  <p className="mb-3 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-600">
-                    {modalError}
-                  </p>
+                {taskModalError ? (
+                  <p className="mb-3 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-600">{taskModalError}</p>
                 ) : null}
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex justify-end gap-2">
                   <button
                     type="button"
-                    onClick={() => void handleDeleteTask()}
-                    disabled={isSaving}
-                    className="flex items-center gap-2 rounded-2xl border border-rose-200 px-4 py-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+                    onClick={() => setIsTaskModalOpen(false)}
+                    className="rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-xs font-semibold text-secondary transition hover:bg-primary/5"
                   >
-                    <Trash2 className="h-4 w-4" />
-                    Eliminar
+                    Cancelar
                   </button>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsTaskModalOpen(false)}
-                      className="rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-xs font-semibold text-secondary transition hover:bg-primary/5"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleSaveTask()}
-                      disabled={isSaving}
-                      className="flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                    >
-                      {isSaving ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <PencilLine className="h-3.5 w-3.5" />
-                      )}
-                      Guardar
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveTask()}
+                    disabled={isSaving}
+                    className="flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                  >
+                    <PencilLine className="h-3.5 w-3.5" />
+                    Guardar
+                  </button>
                 </div>
               </div>
             </motion.aside>

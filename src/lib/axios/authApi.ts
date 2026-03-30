@@ -4,6 +4,7 @@
  */
 
 import axiosInstance, { ApiResponse } from './axiosConfig';
+import { runtimeStore } from '@/lib/runtime-store';
 
 // Tipos de datos para autenticación
 export interface LoginCredentials {
@@ -40,8 +41,8 @@ export const login = async (credentials: LoginCredentials): Promise<ApiResponse<
   // Si el login es exitoso, guardar token y usuario
   if (response.data.success && 'data' in response.data) {
     const { token, user } = response.data.data;
-    localStorage.setItem('authToken', token);
-    localStorage.setItem('user', JSON.stringify(user));
+    runtimeStore.setItem('authToken', token);
+    runtimeStore.setItem('user', JSON.stringify(user));
   }
   
   return response.data;
@@ -56,8 +57,8 @@ export const register = async (data: RegisterData): Promise<ApiResponse<AuthResp
   // Si el registro es exitoso, guardar token y usuario
   if (response.data.success && 'data' in response.data) {
     const { token, user } = response.data.data;
-    localStorage.setItem('authToken', token);
-    localStorage.setItem('user', JSON.stringify(user));
+    runtimeStore.setItem('authToken', token);
+    runtimeStore.setItem('user', JSON.stringify(user));
   }
   
   return response.data;
@@ -71,8 +72,8 @@ export const logout = async (): Promise<void> => {
     await axiosInstance.post('/api/auth/logout');
   } finally {
     // Limpiar datos locales independientemente del resultado
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
+    runtimeStore.removeItem('authToken');
+    runtimeStore.removeItem('user');
   }
 };
 
@@ -88,15 +89,15 @@ export const getCurrentUser = async (): Promise<ApiResponse<User>> => {
  * Verificar si el usuario está autenticado
  */
 export const isAuthenticated = (): boolean => {
-  const token = localStorage.getItem('authToken');
+  const token = runtimeStore.getItem('authToken');
   return !!token;
 };
 
 /**
- * Obtener usuario del localStorage
+ * Obtener usuario del almacenamiento en memoria
  */
 export const getUserFromStorage = (): User | null => {
-  const userStr = localStorage.getItem('user');
+  const userStr = runtimeStore.getItem('user');
   if (!userStr) return null;
   
   try {

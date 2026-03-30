@@ -1,7 +1,7 @@
 export type TaskStage = "citas" | "disenos" | "cotizacion" | "contrato";
 export type TaskStatus = "pendiente" | "completada";
 export type TaskPriority = "alta" | "media" | "baja";
-export type FollowUpStatus = "pendiente" | "confirmado" | "descartado";
+export type FollowUpStatus = "pendiente" | "confirmado" | "inactivo";
 
 export type TaskFile = {
   id: string;
@@ -12,6 +12,20 @@ export type TaskFile = {
 };
 
 /** Datos del cotizador preliminar guardados en la tarjeta del cliente (para regenerar PDF). */
+export type PreliminarWallType = "pared_lisa" | "pared_con_ventana" | "pared_con_puerta" | "pared_mixta";
+
+export type PreliminarWallSpec = {
+  id: string;
+  type: PreliminarWallType;
+  totalWidthCm: number;
+  totalHeightCm: number;
+  openingWidthCm?: number;
+  openingHeightCm?: number;
+  topGapToCeilingCm?: number;
+  leftSpanCm?: number;
+  rightSpanCm?: number;
+};
+
 export type PreliminarData = {
   client: string;
   projectType: string;
@@ -21,12 +35,16 @@ export type PreliminarData = {
   cubierta: string;
   frente: string;
   herraje: string;
+  wallSpecs?: PreliminarWallSpec[];
+  wallCostEstimate?: number;
 };
 
 /** Datos del cotizador formal guardados en la tarjeta del cliente. */
 export type CotizacionFormalData = PreliminarData & {
   /** Clave en IndexedDB donde está guardado el PDF formal (evita exceder cuota de localStorage). */
   formalPdfKey?: string;
+  /** Clave en IndexedDB para la hoja de taller asociada. */
+  workshopPdfKey?: string;
   /** @deprecated PDF en data URL; ya no se persiste en la tarea (usa formalPdfKey + IndexedDB). */
   pdfDataUrl?: string;
 };
@@ -50,7 +68,7 @@ export type KanbanTask = {
   createdAt?: number;
   /** Para tareas en seguimiento: fecha en que entró a la columna de seguimiento */
   followUpEnteredAt?: number;
-  /** Estado del seguimiento: pendiente, confirmado o descartado */
+  /** Estado del seguimiento: pendiente, confirmado o inactivo */
   followUpStatus?: FollowUpStatus;
   /** Citas/Cotización: si se inició la cita */
   citaStarted?: boolean;
@@ -60,6 +78,8 @@ export type KanbanTask = {
   designApprovedByAdmin?: boolean;
   /** Diseños: si el cliente aprobó el diseño */
   designApprovedByClient?: boolean;
+  /** Diseños: fecha y hora de visita programada tras aprobar diseño (ISO string). */
+  visitScheduledAt?: string;
   /** Datos de la cotización preliminar (cita); para ver/descargar PDF en Clientes en proceso */
   preliminarData?: PreliminarData;
   /** Datos de la cotización formal; para ver/descargar PDF en Clientes en proceso */
@@ -101,6 +121,7 @@ export const initialKanbanTasks: KanbanTask[] = [];
 export const kanbanStorageKey = "kuche-kanban-tasks";
 export const activeCitaTaskStorageKey = "kuche-active-cita-task";
 export const citaReturnUrlStorageKey = "kuche-cita-return-url";
+export const finishedCitaTaskStorageKey = "kuche-finished-cita-task";
 export const activeCotizacionFormalTaskStorageKey = "kuche-active-cotizacion-formal-task";
 
 /** Prefijo para guardar datos de seguimiento por código: kuche_project_${codigoProyecto} */

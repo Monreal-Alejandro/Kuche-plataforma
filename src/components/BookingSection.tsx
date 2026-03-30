@@ -6,6 +6,14 @@ import { crearCita, obtenerDisponibilidadDia, type CitaCreate } from "@/lib/axio
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
+const prettyJson = (value: unknown) => {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "No se pudo serializar a JSON";
+  }
+};
+
 export default function BookingSection() {
   const weekDays = ["L", "M", "M", "J", "V", "S", "D"];
   const monthNames = [
@@ -68,35 +76,14 @@ export default function BookingSection() {
     return `${year}-${month}-${day}`;
   };
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem("kuche_appointments");
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as Record<string, number>;
-      if (parsed && typeof parsed === "object") {
-        setAppointmentsByDate(parsed);
-      }
-    } catch {
-      // ignore parse errors
-    }
-  }, []);
-
   const registerAppointment = (date: Date) => {
-    if (typeof window === "undefined") return;
     const key = getDateKey(date);
     setAppointmentsByDate((prev) => {
       const currentCount = prev[key] ?? 0;
-      const next = {
+      return {
         ...prev,
         [key]: currentCount + 1,
       };
-      try {
-        window.localStorage.setItem("kuche_appointments", JSON.stringify(next));
-      } catch {
-        // ignore storage errors
-      }
-      return next;
     });
   };
 
@@ -261,9 +248,11 @@ export default function BookingSection() {
         informacionAdicional: `Horario solicitado: ${selectedTime}`,
       };
 
+      console.log("[BookingSection] citaData JSON (payload):\n", prettyJson(citaData));
+
       const response = await crearCita(citaData, captchaToken);
 
-      console.log("Respuesta del servidor:", response);
+      console.log("[BookingSection] crearCita response JSON:\n", prettyJson(response));
 
       // Verificar si la respuesta indica éxito
       const isSuccess = 
@@ -286,6 +275,7 @@ export default function BookingSection() {
       }
     } catch (error) {
       console.error("Error al crear la cita:", error);
+      console.error("[BookingSection] error JSON:", prettyJson(error));
       setErrorMessage(
         "Ocurrió un error al procesar tu solicitud. Por favor, intenta de nuevo."
       );

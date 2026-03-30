@@ -16,6 +16,13 @@ export interface Usuario {
   updatedAt?: string;
 }
 
+export interface CrearUsuarioPayload {
+  nombre: string;
+  correo: string;
+  rol: 'admin' | 'arquitecto' | 'empleado';
+  password?: string;
+}
+
 /**
  * Listar todos los usuarios activos
  */
@@ -37,5 +44,13 @@ export const listarEmpleados = async (): Promise<ApiResponse<Usuario[]>> => {
  */
 export const obtenerUsuario = async (id: string): Promise<ApiResponse<Usuario>> => {
   const response = await axiosInstance.get<ApiResponse<Usuario>>(`/api/usuarios/${id}`);
+  return response.data;
+};
+
+/**
+ * Crear nuevo usuario/empleado para asignaciones operativas
+ */
+export const crearUsuario = async (payload: CrearUsuarioPayload): Promise<ApiResponse<Usuario>> => {
+  const response = await axiosInstance.post<ApiResponse<Usuario>>('/api/usuarios', payload);
   return response.data;
 };
