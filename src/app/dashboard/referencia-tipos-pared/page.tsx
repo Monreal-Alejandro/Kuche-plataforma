@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { getWallMeasureFieldDefs, WALL_ITEMS, wallTypeImageSrc } from "@/lib/levantamiento-catalog";
-import WallTypeImage from "@/components/levantamiento/WallTypeImage";
+import { getWallMeasureFieldDefs, WALL_ITEMS } from "@/lib/levantamiento-catalog";
+import { WallTypeIcon } from "@/components/levantamiento/WallTypeIcons";
 
 export default function ReferenciaTiposParedPage() {
   return (
@@ -10,12 +10,9 @@ export default function ReferenciaTiposParedPage() {
           <p className="text-xs uppercase tracking-[0.3em] text-secondary">Levantamiento</p>
           <h1 className="mt-2 text-3xl font-semibold">Referencias visuales · Tipos de pared</h1>
           <p className="mt-3 max-w-2xl text-sm text-secondary">
-            Catálogo interno para alinear fotos o diagramas con cada tipo. Coloca en{" "}
-            <code className="rounded bg-primary/5 px-1.5 py-0.5 text-xs">public/images/levantamiento/paredes/</code> un
-            archivo por <span className="font-medium text-primary">id</span> (o el nombre mapeado en catálogo), por
-            ejemplo <code className="rounded bg-primary/5 px-1.5 py-0.5 text-xs">pared-recta.jpg</code>. Si el archivo
-            no existe, el formulario usa la textura de respaldo hasta que subas la imagen definitiva. En el
-            levantamiento detallado, cada tipo pide un juego distinto de medidas en metros (ver listado por tarjeta).
+            Iconos 2D SVG compartidos con el levantamiento detallado: mismo <span className="font-medium text-primary">viewBox</span>{" "}
+            y geometría que las cotas (A, B, C…). Cada tipo pide un juego distinto de medidas en metros (ver listado
+            por tarjeta).
           </p>
           <Link
             href="/dashboard/Levantamiento-detallado"
@@ -34,13 +31,9 @@ export default function ReferenciaTiposParedPage() {
               className="overflow-hidden rounded-3xl border border-white/60 bg-white/80 shadow-lg backdrop-blur-md"
             >
               <div className="relative aspect-[4/3] bg-primary/5">
-                <WallTypeImage item={item} />
+                <WallTypeIcon wallId={item.id} className="h-full w-full" />
               </div>
               <div className="space-y-2 p-5">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">Archivo esperado</p>
-                <code className="block break-all rounded-xl bg-primary/5 px-3 py-2 text-xs text-primary">
-                  public/images/levantamiento/paredes/{item.id}.jpg
-                </code>
                 <p className="text-sm font-semibold text-primary">{item.label}</p>
                 <p className="text-xs text-secondary">
                   <span className="font-medium text-primary">id:</span> {item.id}
@@ -56,10 +49,6 @@ export default function ReferenciaTiposParedPage() {
                     ))}
                   </ul>
                 </div>
-                <p className="text-[11px] text-secondary">
-                  URL servida:{" "}
-                  <span className="break-all font-mono text-primary/80">{wallTypeImageSrc(item.id)}</span>
-                </p>
               </div>
             </article>
             );

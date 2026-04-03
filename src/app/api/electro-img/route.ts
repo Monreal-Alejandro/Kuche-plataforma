@@ -62,7 +62,8 @@ export async function GET(request: Request) {
       .jpeg({ quality: 88, mozjpeg: true })
       .toBuffer();
 
-    return new NextResponse(out, {
+    // NextResponse espera BodyInit; Buffer no es compatible con TS en runtime web.
+    return new NextResponse(new Uint8Array(out), {
       headers: {
         "Content-Type": "image/jpeg",
         "Cache-Control": "public, max-age=86400",

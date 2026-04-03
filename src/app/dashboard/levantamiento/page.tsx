@@ -6,6 +6,7 @@ import { CheckCircle2, Ruler, Sparkles } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { WallIconRecta, WallIconVentana } from "@/components/levantamiento/WallTypeIcons";
 
 const stepTitles = [
   "Cliente",
@@ -187,25 +188,38 @@ export default function LevantamientoPage() {
               <div className="rounded-3xl border border-primary/10 bg-white p-6">
                 <div className="flex items-center gap-2 text-sm font-semibold text-secondary">
                   <Ruler className="h-4 w-4" />
-                  ¿Qué es un metro lineal?
+                  Referencia rápida (alzado 2D)
                 </div>
-                <div className="mt-4 rounded-2xl bg-primary/5 p-4">
-                  <svg
-                    viewBox="0 0 200 100"
-                    className="h-28 w-full text-primary/70"
-                    aria-hidden="true"
-                  >
-                    <line x1="10" y1="70" x2="190" y2="70" stroke="currentColor" strokeWidth="4" />
-                    <line x1="10" y1="60" x2="10" y2="80" stroke="currentColor" strokeWidth="4" />
-                    <line x1="190" y1="60" x2="190" y2="80" stroke="currentColor" strokeWidth="4" />
-                    <text x="100" y="45" textAnchor="middle" fontSize="16" fill="currentColor">
-                      Largo de la pared
-                    </text>
-                  </svg>
-                  <p className="mt-2 text-xs text-secondary">
-                    Medimos el largo total de los muros donde irán los muebles.
-                  </p>
+                <p className="mt-2 text-xs text-secondary">
+                  Iconos minimalistas con el mismo sistema que el levantamiento detallado: largo en la base del muro, altura en el borde derecho.
+                </p>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-primary/10 bg-primary/5 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                      Pared recta (corrida)
+                    </p>
+                    <div className="mt-2 aspect-[4/3] w-full rounded-xl bg-white p-3">
+                      <WallIconRecta className="h-full w-full text-primary/80" />
+                    </div>
+                    <p className="mt-2 text-[11px] leading-snug text-secondary">
+                      Rectángulo de muro en elevación: el tramo horizontal inferior suele ser el largo corrido que registrarás en metros.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-primary/10 bg-primary/5 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                      Pared con ventana
+                    </p>
+                    <div className="mt-2 aspect-[4/3] w-full rounded-xl bg-white p-3">
+                      <WallIconVentana className="h-full w-full text-primary/80" />
+                    </div>
+                    <p className="mt-2 text-[11px] leading-snug text-secondary">
+                      El hueco interior representa el vano; en el levantamiento detallado las letras A–E se alinean a largo de muro, vano y antepecho.
+                    </p>
+                  </div>
                 </div>
+                <p className="mt-4 text-xs text-secondary">
+                  Medimos el largo total de los muros donde irán los muebles (metros lineales del recorrido).
+                </p>
               </div>
             </motion.div>
           ) : null}

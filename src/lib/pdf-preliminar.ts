@@ -1,13 +1,22 @@
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+
 import type { CotizacionFormalData, PreliminarData } from "@/lib/kanban";
-import type { LevantamientoDetalle, MedidasCampos } from "@/lib/levantamiento-catalog";
+import type { LevantamientoDetalle, MedidasCampos, WallMeasureFieldDef } from "@/lib/levantamiento-catalog";
 import {
   APPLIANCE_ITEMS,
-  formatWallMeasuresForPdf,
-  levantamientoDetalleScopeMultiplier,
+  applianceAppearsInPdf,
+  applianceOtroAppearsInPdf,
+  getWallMeasureFieldDefs,
+  isWallSlotKey,
   LIGHTING_ITEMS,
+  lightingAppearsInPdf,
+  lightingOtroAppearsInPdf,
   medidasCamposTieneValor,
   normalizeLevantamientoDetalle,
+  wallSlotKey,
   WALL_ITEMS,
+  wallMeasureLetter,
   wallMeasuresTieneValor,
 } from "@/lib/levantamiento-catalog";
 import { getFormalPdf } from "@/lib/formal-pdf-storage";
@@ -15,10 +24,396 @@ import { getFormalPdf } from "@/lib/formal-pdf-storage";
 /** Tiempo antes de revocar el object URL (la pestaña nueva debe terminar de cargar). */
 const PDF_OBJECT_URL_TAB_MS = 120_000;
 
-/**
- * Abre un PDF en pestaña nueva. Los data URL largos desde IndexedDB suelen abrir en blanco con window.open directo;
- * convertimos a Blob + object URL. No usar noopener con blob: en algunos navegadores deja la pestaña vacía.
- */
+const BRAND_RED: [number, number, number] = [139, 28, 28]; // #8B1C1C
+const TEXT_DARK: [number, number, number] = [51, 51, 51]; // #333333
+const TEXT_MID: [number, number, number] = [102, 102, 102]; // #666666
+const LINE_SOFT: [number, number, number] = [225, 225, 225];
+
+type PtBox = { x: number; y: number; w: number; h: number };
+
+function safeText(v: unknown, fallback = "N/A"): string {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s ? s : fallback;
+}
+
+function fmtMedidas(m: MedidasCampos | undefined): string {
+  if (!m) return "N/A";
+  const a = safeText(m.ancho, "-");
+  const al = safeText(m.alto, "-");
+  const f = safeText(m.fondo, "-");
+  return `${a} x ${al} x ${f} m`;
+}
+
+function drawHLine(doc: jsPDF, x1: number, x2: number, y: number) {
+  doc.setDrawColor(...LINE_SOFT);
+  doc.setLineWidth(0.6);
+  doc.line(x1, y, x2, y);
+}
+
+function setText(doc: jsPDF, rgb: [number, number, number], size: number, style: "normal" | "bold" = "normal") {
+  doc.setTextColor(...rgb);
+  doc.setFont("helvetica", style);
+  doc.setFontSize(size);
+}
+
+function blockTitle(doc: jsPDF, text: string, x: number, y: number) {
+  setText(doc, TEXT_DARK, 11, "bold");
+  doc.text(text, x, y);
+}
+
+function labelValue(doc: jsPDF, label: string, value: string, x: number, y: number, w: number) {
+  setText(doc, TEXT_MID, 8, "normal");
+  doc.text(label.toUpperCase(), x, y);
+  setText(doc, TEXT_DARK, 10, "normal");
+  doc.text(value, x, y + 14, { maxWidth: w });
+}
+
+function addHeader(doc: jsPDF, title: string, subtitle?: string) {
+  const pageW = doc.internal.pageSize.getWidth();
+  const marginX = 48;
+  doc.setFillColor(...BRAND_RED);
+  doc.rect(0, 0, pageW, 74, "F");
+  setText(doc, [255, 255, 255], 20, "bold");
+  doc.text(title, marginX, 44);
+  if (subtitle) {
+    setText(doc, [255, 255, 255], 10, "normal");
+    doc.text(subtitle, marginX, 62);
+  }
+}
+
+function sectionHeading(doc: jsPDF, text: string, x: number, y: number) {
+  setText(doc, BRAND_RED, 12, "bold");
+  doc.text(text, x, y);
+  drawHLine(doc, x, doc.internal.pageSize.getWidth() - x, y + 8);
+}
+
+function ensureSpace(doc: jsPDF, y: number, needed: number, onNewPage: () => void): number {
+  const pageH = doc.internal.pageSize.getHeight();
+  const bottom = 52;
+  if (y + needed <= pageH - bottom) return y;
+  doc.addPage();
+  onNewPage();
+  return 96; // below header
+}
+
+function wallRowsForTable(wallId: string, measures: Record<string, string>): Array<[string, string, string]> {
+  const defs = getWallMeasureFieldDefs(wallId);
+  return defs.map((d, i) => [wallMeasureLetter(i), d.label, safeText(measures[d.key], "-")]);
+}
+
+function commentsLabelForKey(key: string): string {
+  switch (key) {
+    case "a":
+      return "Notas de Accesos y Datos";
+    case "b":
+      return "Notas de Muros";
+    case "c":
+      return "Notas de Electrodomesticos";
+    case "d":
+      return "Notas de Materiales / Acabados";
+    case "e":
+      return "Notas de Iluminacion";
+    default:
+      return "Notas";
+  }
+}
+
+function addCoverAndSummary(doc: jsPDF, data: PreliminarData, lev?: LevantamientoDetalle) {
+  addHeader(doc, "Levantamiento Detallado y Estimacion Preliminar", "KUCHE - Documento no vinculante");
+
+  const marginX = 48;
+  const pageW = doc.internal.pageSize.getWidth();
+  const y0 = 96;
+
+  // 2 columnas de datos del proyecto
+  blockTitle(doc, "Datos del proyecto", marginX, y0);
+  const colGap = 24;
+  const colW = (pageW - marginX * 2 - colGap) / 2;
+  const leftX = marginX;
+  const rightX = marginX + colW + colGap;
+
+  const typeProyecto = safeText(data.projectType);
+  const conIsla = lev?.conIsla === "si" ? "Con isla" : lev?.conIsla === "no" ? "Sin isla" : "Sin definir";
+
+  labelValue(doc, "Cliente", safeText(data.client, "Sin definir"), leftX, y0 + 18, colW);
+  labelValue(doc, "Ubicacion", safeText(data.location, "Sin definir"), leftX, y0 + 54, colW);
+  labelValue(doc, "Fecha", safeText(data.date, "Sin definir"), rightX, y0 + 18, colW);
+  labelValue(doc, "Tipo de proyecto", `${typeProyecto} (${conIsla})`, rightX, y0 + 54, colW);
+
+  drawHLine(doc, marginX, pageW - marginX, y0 + 92);
+
+  // Materiales seleccionados
+  const yMat = y0 + 112;
+  blockTitle(doc, "Materiales seleccionados", marginX, yMat);
+  const matBox: PtBox = { x: marginX, y: yMat + 12, w: pageW - marginX * 2, h: 78 };
+  doc.setFillColor(248, 248, 248);
+  doc.rect(matBox.x, matBox.y, matBox.w, matBox.h, "F");
+  labelValue(doc, "Cubierta", safeText(data.cubierta, "Sin definir"), matBox.x + 14, matBox.y + 18, (matBox.w - 28) / 3);
+  labelValue(doc, "Frente", safeText(data.frente, "Sin definir"), matBox.x + 14 + (matBox.w / 3), matBox.y + 18, (matBox.w - 28) / 3);
+  labelValue(doc, "Herrajes", safeText(data.herraje, "Sin definir"), matBox.x + 14 + (matBox.w * 2) / 3, matBox.y + 18, (matBox.w - 28) / 3);
+
+  // Precio
+  const yPrice = yMat + 112;
+  blockTitle(doc, "Estimacion", marginX, yPrice);
+  doc.setFillColor(...BRAND_RED);
+  doc.rect(marginX, yPrice + 12, pageW - marginX * 2, 64, "F");
+  setText(doc, [255, 255, 255], 10, "normal");
+  doc.text("Rango estimado de inversion", marginX + 14, yPrice + 34);
+  setText(doc, [255, 255, 255], 22, "bold");
+  doc.text(safeText(data.rangeLabel, "Sin definir"), marginX + 14, yPrice + 60);
+
+  // Nota
+  setText(doc, TEXT_MID, 9, "normal");
+  doc.text(
+    "Este documento es una estimacion preliminar. El costo final puede variar segun medidas exactas, condiciones de sitio y definicion final de acabados.",
+    marginX,
+    yPrice + 96,
+    { maxWidth: pageW - marginX * 2 },
+  );
+}
+
+function addFichaTecnica(doc: jsPDF, data: PreliminarData, lev?: LevantamientoDetalle) {
+  const marginX = 48;
+  const pageW = doc.internal.pageSize.getWidth();
+
+  doc.addPage();
+  addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion");
+
+  let y = 108;
+
+  // Medidas generales (si existen en wallOtro u otros, mostramos algo util)
+  sectionHeading(doc, "Medidas generales", marginX, y);
+  y += 24;
+
+  const general = lev?.wallOtro;
+  setText(doc, TEXT_DARK, 10, "normal");
+  doc.text(
+    `Referencia (si aplica): ${general?.descripcion?.trim() ? general.descripcion.trim() : "Sin definir"}`,
+    marginX,
+    y,
+    { maxWidth: pageW - marginX * 2 },
+  );
+  y += 18;
+  setText(doc, TEXT_MID, 9, "normal");
+  doc.text(`Medidas (Otro muro): ${general ? fmtMedidas(general) : "N/A"}`, marginX, y);
+  y += 20;
+
+  // Muros
+  y = ensureSpace(doc, y, 40, () => addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion"));
+  sectionHeading(doc, "Muros", marginX, y);
+  y += 18;
+
+  if (!lev) {
+    setText(doc, TEXT_MID, 10, "normal");
+    doc.text("Sin levantamiento detallado capturado.", marginX, y);
+    return;
+  }
+
+  const slotWallKeys = Object.keys(lev.wallMeasures)
+    .filter(isWallSlotKey)
+    .sort((a, b) => Number(a.slice(5)) - Number(b.slice(5)));
+
+  const wallsWithValuesCatalog = WALL_ITEMS.filter((w) => {
+    const m = lev.wallMeasures[w.id];
+    return m && wallMeasuresTieneValor(m);
+  });
+
+  const useSlotLayout = slotWallKeys.length > 0 || lev.wallSlotCount > 0;
+
+  const slotRowsForPdf: Array<{ title: string; typeId: string; measures: Record<string, string>; label: string }> =
+    [];
+  if (useSlotLayout) {
+    const n = Math.max(
+      lev.wallSlotCount,
+      slotWallKeys.length ? Math.max(...slotWallKeys.map((k) => Number(k.slice(5)))) + 1 : 0,
+    );
+    for (let i = 0; i < n; i++) {
+      const key = wallSlotKey(i);
+      const measures = lev.wallMeasures[key];
+      if (!measures || !wallMeasuresTieneValor(measures)) continue;
+      const typeId = (measures["__typeId"] ?? "").trim();
+      if (!typeId) continue;
+      const cat = WALL_ITEMS.find((w) => w.id === typeId);
+      slotRowsForPdf.push({
+        title: `Pared ${i + 1}`,
+        typeId,
+        measures,
+        label: cat?.label ?? typeId,
+      });
+    }
+  }
+
+  if (
+    (useSlotLayout ? slotRowsForPdf.length : wallsWithValuesCatalog.length) === 0 &&
+    !(lev.wallOtro.descripcion.trim() || medidasCamposTieneValor(lev.wallOtro))
+  ) {
+    setText(doc, TEXT_MID, 10, "normal");
+    doc.text("No se registraron medidas de muros.", marginX, y);
+    y += 18;
+  } else {
+    const rows = useSlotLayout
+      ? slotRowsForPdf.map((r) => ({ kind: "slot" as const, ...r }))
+      : wallsWithValuesCatalog.map((w) => ({
+          kind: "cat" as const,
+          title: w.label,
+          typeId: w.id,
+          measures: lev.wallMeasures[w.id] ?? {},
+          label: w.label,
+        }));
+
+    for (const row of rows) {
+      y = ensureSpace(doc, y, 120, () => addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion"));
+      setText(doc, TEXT_DARK, 11, "bold");
+      doc.text(row.kind === "slot" ? `${row.title} - ${row.label}` : row.label, marginX, y);
+      setText(doc, TEXT_MID, 9, "normal");
+      doc.text(`ID: ${row.typeId}`, marginX + 280, y);
+      y += 10;
+
+      const measures = row.measures;
+      autoTable(doc, {
+        startY: y + 8,
+        margin: { left: marginX, right: marginX },
+        theme: "plain",
+        head: [["Ref.", "Medida", "Valor (m)"]],
+        body: wallRowsForTable(row.typeId, measures),
+        styles: { font: "helvetica", fontSize: 9, textColor: TEXT_DARK, cellPadding: { top: 6, right: 6, bottom: 6, left: 0 } },
+        headStyles: { fontStyle: "bold", textColor: TEXT_MID },
+        columnStyles: {
+          0: { cellWidth: 40, textColor: BRAND_RED, fontStyle: "bold" },
+          1: { cellWidth: 320 },
+          2: { halign: "right" as const },
+        },
+        didDrawCell: (d) => {
+          if (d.section === "body") {
+            doc.setDrawColor(...LINE_SOFT);
+            doc.setLineWidth(0.6);
+            doc.line(d.cell.x, d.cell.y + d.cell.height, d.cell.x + d.cell.width + (d.row.cells[2]?.width ?? 0) + 360, d.cell.y + d.cell.height);
+          }
+        },
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 20;
+    }
+
+    if (lev.wallOtro.descripcion.trim() || medidasCamposTieneValor(lev.wallOtro)) {
+      y = ensureSpace(doc, y, 70, () => addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion"));
+      setText(doc, TEXT_DARK, 11, "bold");
+      doc.text("Otro muro / situacion especial", marginX, y);
+      y += 14;
+      setText(doc, TEXT_MID, 9, "normal");
+      doc.text(`Descripcion: ${safeText(lev.wallOtro.descripcion, "(sin descripcion)")}`, marginX, y, {
+        maxWidth: pageW - marginX * 2,
+      });
+      y += 14;
+      setText(doc, TEXT_MID, 9, "normal");
+      doc.text(`Medidas: ${fmtMedidas(lev.wallOtro)}`, marginX, y);
+      y += 18;
+    }
+  }
+
+  // Electrodomesticos e Iluminacion
+  y = ensureSpace(doc, y, 60, () => addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion"));
+  sectionHeading(doc, "Electrodomesticos e iluminacion", marginX, y);
+  y += 18;
+
+  const appliances = APPLIANCE_ITEMS.filter((a) => applianceAppearsInPdf(lev, a.id));
+  const lights = LIGHTING_ITEMS.filter((l) => lightingAppearsInPdf(lev, l.id));
+
+  const rows: Array<[string, string, string, string]> = [];
+  for (const a of appliances) {
+    const m = lev.applianceMeasures[a.id];
+    rows.push([`Electro - ${a.label}`, safeText(m?.ancho, "-"), safeText(m?.alto, "-"), safeText(m?.fondo, "-")]);
+  }
+  if (applianceOtroAppearsInPdf(lev)) {
+    rows.push([`Electro - Otro: ${safeText(lev.applianceOtro.descripcion, "(sin descripcion)")}`, safeText(lev.applianceOtro.ancho, "-"), safeText(lev.applianceOtro.alto, "-"), safeText(lev.applianceOtro.fondo, "-")]);
+  }
+  for (const l of lights) {
+    const m = lev.lightingMeasures[l.id];
+    rows.push([`Luz - ${l.label}`, safeText(m?.ancho, "-"), safeText(m?.alto, "-"), safeText(m?.fondo, "-")]);
+  }
+  if (lightingOtroAppearsInPdf(lev)) {
+    rows.push([`Luz - Otro: ${safeText(lev.lightingOtro.descripcion, "(sin descripcion)")}`, safeText(lev.lightingOtro.ancho, "-"), safeText(lev.lightingOtro.alto, "-"), safeText(lev.lightingOtro.fondo, "-")]);
+  }
+
+  if (rows.length === 0) {
+    setText(doc, TEXT_MID, 10, "normal");
+    doc.text("No se registraron electrodomesticos ni iluminacion.", marginX, y);
+    return;
+  }
+
+  autoTable(doc, {
+    startY: y + 10,
+    margin: { left: marginX, right: marginX },
+    theme: "plain",
+    head: [["Elemento", "Ancho", "Alto", "Fondo"]],
+    body: rows,
+    styles: { font: "helvetica", fontSize: 9, textColor: TEXT_DARK, cellPadding: { top: 6, right: 6, bottom: 6, left: 0 } },
+    headStyles: { fontStyle: "bold", textColor: TEXT_MID },
+    columnStyles: {
+      0: { cellWidth: 330 },
+      1: { halign: "right" as const, cellWidth: 70 },
+      2: { halign: "right" as const, cellWidth: 70 },
+      3: { halign: "right" as const, cellWidth: 70 },
+    },
+    didDrawCell: (d) => {
+      if (d.section === "body") {
+        doc.setDrawColor(...LINE_SOFT);
+        doc.setLineWidth(0.6);
+        doc.line(d.table.settings.margin.left, d.cell.y + d.cell.height, pageW - d.table.settings.margin.right, d.cell.y + d.cell.height);
+      }
+    },
+  });
+}
+
+function addObservaciones(doc: jsPDF, lev?: LevantamientoDetalle) {
+  const marginX = 48;
+  const pageW = doc.internal.pageSize.getWidth();
+
+  doc.addPage();
+  addHeader(doc, "Observaciones de sitio", "Notas capturadas en el levantamiento");
+
+  let y = 110;
+  if (!lev) {
+    setText(doc, TEXT_MID, 10, "normal");
+    doc.text("Sin observaciones capturadas.", marginX, y);
+    return;
+  }
+
+  const entries = (Object.entries(lev.sectionComments ?? {}) as Array<[string, string]>)
+    .map(([k, v]) => [k, (v ?? "").trim()] as const)
+    .filter(([, v]) => Boolean(v));
+
+  if (entries.length === 0) {
+    setText(doc, TEXT_MID, 10, "normal");
+    doc.text("Sin observaciones capturadas.", marginX, y);
+    return;
+  }
+
+  for (const [k, v] of entries) {
+    y = ensureSpace(doc, y, 120, () => addHeader(doc, "Observaciones de sitio", "Notas capturadas en el levantamiento"));
+    sectionHeading(doc, commentsLabelForKey(k), marginX, y);
+    y += 22;
+    setText(doc, TEXT_DARK, 10, "normal");
+    doc.text(v, marginX, y, { maxWidth: pageW - marginX * 2 });
+    y += 20 + Math.min(80, Math.ceil((v.length / 90) * 12));
+  }
+}
+
+function buildPreliminarJsPdf(data: PreliminarData): jsPDF {
+  const doc = new jsPDF({ unit: "pt", format: "letter" });
+  const lev = data.levantamiento ? normalizeLevantamientoDetalle(data.levantamiento) : undefined;
+  addCoverAndSummary(doc, data, lev);
+  addFichaTecnica(doc, data, lev);
+  addObservaciones(doc, lev);
+  return doc;
+}
+
+/** Genera el PDF preliminar (como Uint8Array) a partir de los datos guardados. */
+export function buildPreliminarPdf(data: PreliminarData): Uint8Array {
+  const doc = buildPreliminarJsPdf(data);
+  const ab = doc.output("arraybuffer");
+  return new Uint8Array(ab);
+}
+
 function openStoredPdfInNewTab(stored: string): void {
   void (async () => {
     if (!stored) return;
@@ -46,301 +441,10 @@ function openStoredPdfInNewTab(stored: string): void {
   })();
 }
 
-const escapePdfText = (value: string) =>
-  value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-
-const sanitizePdfText = (value: string) =>
-  escapePdfText(value.normalize("NFD").replace(/\p{Diacritic}/gu, ""));
-
-function formatoMedidas(m: MedidasCampos): string {
-  const a = (m.ancho ?? "").trim() || "-";
-  const al = (m.alto ?? "").trim() || "-";
-  const f = (m.fondo ?? "").trim() || "-";
-  return `${a} x ${al} x ${f} m`;
-}
-
-function wrapLineas(texto: string, maxChars: number): string[] {
-  const limpio = texto.replace(/\s+/g, " ").trim();
-  if (!limpio) return [];
-  const palabras = limpio.split(" ");
-  const lineas: string[] = [];
-  let actual = "";
-  for (const p of palabras) {
-    const siguiente = actual ? `${actual} ${p}` : p;
-    if (siguiente.length > maxChars && actual) {
-      lineas.push(actual);
-      actual = p;
-    } else {
-      actual = siguiente;
-    }
-  }
-  if (actual) lineas.push(actual);
-  return lineas;
-}
-
-function levantamientoTieneContenido(lev: LevantamientoDetalle): boolean {
-  const com = lev.sectionComments;
-  if (com.a?.trim() || com.b?.trim() || com.c?.trim() || com.d?.trim() || com.e?.trim()) return true;
-  if (lev.wallOtro.descripcion.trim() || medidasCamposTieneValor(lev.wallOtro)) return true;
-  if (lev.applianceOtro.descripcion.trim() || medidasCamposTieneValor(lev.applianceOtro)) return true;
-  if (lev.lightingOtro.descripcion.trim() || medidasCamposTieneValor(lev.lightingOtro)) return true;
-  for (const m of Object.values(lev.wallMeasures)) {
-    if (wallMeasuresTieneValor(m)) return true;
-  }
-  for (const m of Object.values(lev.applianceMeasures)) {
-    if (medidasCamposTieneValor(m)) return true;
-  }
-  for (const m of Object.values(lev.lightingMeasures)) {
-    if (medidasCamposTieneValor(m)) return true;
-  }
-  return false;
-}
-
-/** Varias páginas de anexo sin cortar bloques al llegar al borde inferior. */
-function buildLevantamientoPdfPageStreams(lev: LevantamientoDetalle): string[] {
-  const drawText = (x: number, y: number, size: number, color: string, text: string) =>
-    `BT\n/F1 ${size} Tf\n${color} rg\n${x} ${y} Td\n(${sanitizePdfText(text)}) Tj\nET`;
-
-  const BOTTOM = 52;
-  const TOP = 750;
-  const pages: string[] = [];
-  let lineas: string[] = [];
-  let y = TOP;
-
-  const flushPage = () => {
-    if (lineas.length > 0) {
-      pages.push(lineas.join("\n"));
-      lineas = [];
-    }
-    y = TOP;
-  };
-
-  const ensureSpace = (neededFromBaseline: number) => {
-    if (y < BOTTOM + neededFromBaseline) flushPage();
-  };
-
-  const pushTitulo = (t: string) => {
-    ensureSpace(28);
-    lineas.push(drawText(48, y, 12, "0.15 0.15 0.15", t));
-    y -= 16;
-  };
-
-  const pushParrafo = (texto: string, size = 9) => {
-    for (const ln of wrapLineas(texto, 92)) {
-      ensureSpace(14);
-      lineas.push(drawText(48, y, size, "0.35 0.35 0.35", ln));
-      y -= 11;
-    }
-  };
-
-  pushTitulo("Levantamiento detallado (anexo)");
-  pushParrafo(
-    "Comentarios por seccion (A–E), medidas de paredes por tipo, electrodomesticos e iluminacion registrados en la plataforma. Unidades en metros.",
-  );
-  y -= 6;
-
-  const com = lev.sectionComments;
-  const bloques: [string, string | undefined][] = [
-    ["Seccion A · Contexto del sitio", com.a],
-    ["Seccion B · Paredes (notas)", com.b],
-    ["Seccion C · Electrodomesticos (notas)", com.c],
-    ["Seccion D · Showroom / acabados (notas)", com.d],
-    ["Seccion E · Iluminacion (notas)", com.e],
-  ];
-  for (const [titulo, txt] of bloques) {
-    if (!txt?.trim()) continue;
-    pushTitulo(`Comentarios — ${titulo}`);
-    pushParrafo(txt.trim(), 9);
-    y -= 6;
-  }
-
-  pushTitulo("Seccion B · Paredes (medidas por tipo)");
-  for (const item of WALL_ITEMS) {
-    const m = lev.wallMeasures[item.id];
-    if (!m || !wallMeasuresTieneValor(m)) continue;
-    const line = formatWallMeasuresForPdf(item.id, m);
-    if (line) pushParrafo(`${item.label}: ${line}`, 9);
-  }
-  if (lev.wallOtro.descripcion.trim() || medidasCamposTieneValor(lev.wallOtro)) {
-    pushParrafo(
-      `Otro muro: ${lev.wallOtro.descripcion.trim() || "(sin descripcion)"} — ${formatoMedidas(lev.wallOtro)}`,
-      9,
-    );
-  }
-
-  y -= 6;
-  pushTitulo("Seccion C · Electrodomesticos (medidas)");
-  for (const item of APPLIANCE_ITEMS) {
-    const m = lev.applianceMeasures[item.id];
-    if (!m || !medidasCamposTieneValor(m)) continue;
-    const pref = item.categoria ? `[${item.categoria}] ` : "";
-    pushParrafo(`${pref}${item.label}: ${formatoMedidas(m)}`, 9);
-  }
-  if (lev.applianceOtro.descripcion.trim() || medidasCamposTieneValor(lev.applianceOtro)) {
-    pushParrafo(
-      `Otro electrodomestico: ${lev.applianceOtro.descripcion.trim() || "(sin descripcion)"} — ${formatoMedidas(lev.applianceOtro)}`,
-      9,
-    );
-  }
-
-  y -= 6;
-  pushTitulo("Seccion E · Iluminacion (medidas)");
-  for (const item of LIGHTING_ITEMS) {
-    const m = lev.lightingMeasures[item.id];
-    if (!m || !medidasCamposTieneValor(m)) continue;
-    pushParrafo(`${item.label}: ${formatoMedidas(m)}`, 9);
-  }
-  if (lev.lightingOtro.descripcion.trim() || medidasCamposTieneValor(lev.lightingOtro)) {
-    pushParrafo(
-      `Otro luminario: ${lev.lightingOtro.descripcion.trim() || "(sin descripcion)"} — ${formatoMedidas(lev.lightingOtro)}`,
-      9,
-    );
-  }
-
-  flushPage();
-  if (pages.length === 0) {
-    pushTitulo("Levantamiento detallado (anexo)");
-    pushParrafo("(Sin lineas adicionales exportables.)");
-    flushPage();
-  }
-  const total = pages.length;
-  return pages.map((stream, i) => {
-    const footer = drawText(
-      300,
-      40,
-      8,
-      "0.5 0.5 0.5",
-      `Anexo levantamiento · Pagina ${i + 1} de ${total}`,
-    );
-    return `${stream}\n${footer}`;
-  });
-}
-
-function buildPdfFromStreams(pageContents: string[]): string {
-  const n = pageContents.length;
-  const fontId = 3;
-  const pageObjectIds: number[] = [];
-  const contentObjectIds: number[] = [];
-  let nextId = 4;
-  for (let i = 0; i < n; i++) {
-    pageObjectIds.push(nextId++);
-    contentObjectIds.push(nextId++);
-  }
-
-  const objects: string[] = [
-    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
-    `2 0 obj\n<< /Type /Pages /Count ${n} /Kids [ ${pageObjectIds.map((id) => `${id} 0 R`).join(" ")} ] >>\nendobj`,
-    `${fontId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj`,
-  ];
-
-  for (let i = 0; i < n; i++) {
-    const pid = pageObjectIds[i];
-    const cid = contentObjectIds[i];
-    const content = pageContents[i];
-    objects.push(
-      `${pid} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${cid} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>\nendobj`,
-    );
-    objects.push(
-      `${cid} 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj`,
-    );
-  }
-
-  return finalizePdf(objects);
-}
-
-function finalizePdf(objects: string[]): string {
-  let offset = 0;
-  const offsets = objects.map((obj) => {
-    const current = offset;
-    offset += obj.length + 2;
-    return current;
-  });
-
-  const xrefEntries = offsets
-    .map((entry) => entry.toString().padStart(10, "0") + " 00000 n ")
-    .join("\n");
-
-  const xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${xrefEntries}`;
-  const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${
-    offset + xref.length + 2
-  }\n%%EOF`;
-  return `%PDF-1.4\n${objects.join("\n\n")}\n${xref}\n${trailer}`;
-}
-
-/** Genera el PDF de cotización preliminar a partir de los datos guardados. */
-export function buildPreliminarPdf(data: PreliminarData): string {
-  const drawRect = (x: number, y: number, w: number, h: number, color: string) =>
-    `q\n${color} rg\n${x} ${y} ${w} ${h} re\nf\nQ`;
-
-  const drawText = (x: number, y: number, size: number, color: string, text: string) =>
-    `BT\n/F1 ${size} Tf\n${color} rg\n${x} ${y} Td\n(${sanitizePdfText(text)}) Tj\nET`;
-
-  const lev = data.levantamiento ? normalizeLevantamientoDetalle(data.levantamiento) : undefined;
-  const scopeMult =
-    lev && levantamientoTieneContenido(lev) ? levantamientoDetalleScopeMultiplier(lev) : 1;
-
-  const coverLines: string[] = [
-    drawRect(0, 732, 612, 60, "0.55 0.11 0.11"),
-    drawText(48, 755, 18, "1 1 1", "Levantamiento Detallado"),
-    drawText(48, 738, 10, "1 1 1", "Kuche | Estimacion no vinculante"),
-    drawText(48, 700, 11, "0.15 0.15 0.15", "Resumen ejecutivo"),
-    drawRect(40, 610, 532, 90, "0.96 0.96 0.96"),
-    drawText(60, 670, 10, "0.45 0.45 0.45", "Rango estimado"),
-    drawText(60, 642, 20, "0.55 0.11 0.11", data.rangeLabel),
-    drawText(60, 618, 9, "0.35 0.35 0.35", "Sujeto a visita tecnica y definicion final."),
-  ];
-  if (scopeMult > 1.001) {
-    const pct = Math.round((scopeMult - 1) * 100);
-    coverLines.push(
-      drawText(
-        60,
-        598,
-        8,
-        "0.42 0.42 0.42",
-        `El rango refleja aprox. +${pct}% por volumen de informacion del levantamiento (heuristica; no son partidas).`,
-      ),
-    );
-  }
-  coverLines.push(
-    drawText(48, 575, 11, "0.15 0.15 0.15", "Datos del proyecto"),
-    drawText(48, 555, 10, "0.35 0.35 0.35", `Cliente: ${data.client || "Sin nombre"}`),
-    drawText(48, 538, 10, "0.35 0.35 0.35", `Tipo: ${data.projectType}`),
-    drawText(48, 521, 10, "0.35 0.35 0.35", `Ubicacion: ${data.location || "Por definir"}`),
-    drawText(48, 504, 10, "0.35 0.35 0.35", `Tiempo de entrega (semanas aprox.): ${data.date || "Por definir"}`),
-    drawText(330, 575, 11, "0.15 0.15 0.15", "Materiales seleccionados"),
-    drawText(330, 555, 10, "0.35 0.35 0.35", `Cubierta: ${data.cubierta}`),
-    drawText(330, 538, 10, "0.35 0.35 0.35", `Frente: ${data.frente}`),
-    drawText(330, 521, 10, "0.35 0.35 0.35", `Herraje: ${data.herraje}`),
-    drawRect(40, 470, 532, 1, "0.85 0.85 0.85"),
-    drawText(
-      48,
-      445,
-      9,
-      "0.4 0.4 0.4",
-      "Este documento es preliminar. Los costos finales pueden variar segun medidas,",
-    ),
-    drawText(
-      48,
-      432,
-      9,
-      "0.4 0.4 0.4",
-      "materiales y complejidad del proyecto. Valido como guia inicial.",
-    ),
-  );
-
-  const content = coverLines.join("\n");
-
-  if (lev && levantamientoTieneContenido(lev)) {
-    const annexPages = buildLevantamientoPdfPageStreams(lev);
-    return buildPdfFromStreams([content, ...annexPages]);
-  }
-  return buildPdfFromStreams([content]);
-}
-
 /** Abre el PDF en una nueva pestaña. */
 export function openPreliminarPdfInNewTab(data: PreliminarData): void {
-  const pdf = buildPreliminarPdf(data);
-  const blob = new Blob([pdf], { type: "application/pdf" });
+  const bytes = buildPreliminarPdf(data);
+  const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const win = window.open(url, "_blank");
   if (!win) {
@@ -352,8 +456,8 @@ export function openPreliminarPdfInNewTab(data: PreliminarData): void {
 
 /** Descarga el PDF con nombre sugerido. */
 export function downloadPreliminarPdf(data: PreliminarData, filename?: string): void {
-  const pdf = buildPreliminarPdf(data);
-  const blob = new Blob([pdf], { type: "application/pdf" });
+  const bytes = buildPreliminarPdf(data);
+  const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -363,15 +467,9 @@ export function downloadPreliminarPdf(data: PreliminarData, filename?: string): 
 }
 
 /** Data URL del PDF preliminar (para guardar en IndexedDB y enlazar al seguimiento). */
-export function buildPreliminarPdfDataUrl(data: PreliminarData): Promise<string> {
-  const pdf = buildPreliminarPdf(data);
-  const blob = new Blob([pdf], { type: "application/pdf" });
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+export async function buildPreliminarPdfDataUrl(data: PreliminarData): Promise<string> {
+  const doc = buildPreliminarJsPdf(data);
+  return doc.output("datauristring");
 }
 
 /** Abre un PDF guardado en IndexedDB por clave (formal, taller o levantamiento-seguimiento). */
