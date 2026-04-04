@@ -23,7 +23,7 @@ import {
   type CotizacionFormalData,
 } from "@/lib/kanban";
 import { buildWorkshopPdfDataUrl, type WorkshopPdfBuildInput } from "@/lib/cotizacion-workshop-pdf";
-import { createFormalPdfKey, createWorkshopPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
+import { createFormalWorkshopPdfKeys, saveFormalPdf } from "@/lib/formal-pdf-storage";
 import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
 import { generatePublicProjectCode } from "@/lib/project-code";
 import {
@@ -1139,8 +1139,7 @@ export default function CotizadorPage() {
         return 0;
       }
     })();
-    const formalPdfKey = createFormalPdfKey(taskId, existingCount);
-    const workshopPdfKey = createWorkshopPdfKey(taskId, existingCount);
+    const { formalPdfKey, workshopPdfKey } = createFormalWorkshopPdfKeys(taskId, existingCount);
     try {
       await saveFormalPdf(formalPdfKey, dataUrl);
       await saveFormalPdf(workshopPdfKey, workshopUrl);
@@ -1207,8 +1206,7 @@ export default function CotizadorPage() {
         return 0;
       }
     })();
-    const formalPdfKey = createFormalPdfKey(taskId, existingCount);
-    const workshopPdfKey = createWorkshopPdfKey(taskId, existingCount);
+    const { formalPdfKey, workshopPdfKey } = createFormalWorkshopPdfKeys(taskId, existingCount);
     try {
       await saveFormalPdf(formalPdfKey, dataUrl);
       await saveFormalPdf(workshopPdfKey, workshopUrl);

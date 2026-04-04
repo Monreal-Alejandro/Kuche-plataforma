@@ -131,7 +131,7 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "altura-techo",
       label: "Altura hasta techo",
-      verifyHint: "Cota B: altura total del muro (piso → techo).",
+      verifyHint: "Cota B: altura total del muro (piso a techo).",
     },
     {
       key: "ancho-vano",
@@ -145,7 +145,7 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     },
     {
       key: "antepecho",
-      label: "Antepecho (piso → parte baja del hueco)",
+      label: "Antepecho (piso - parte baja del hueco)",
       verifyHint: "Cota E: desde piso hasta inicio inferior del hueco.",
     },
     {
@@ -163,7 +163,7 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "altura-techo",
       label: "Altura hasta techo",
-      verifyHint: "Cota B: altura total del muro (piso → techo).",
+      verifyHint: "Cota B: altura total del muro (piso a techo).",
     },
     {
       key: "ancho-vano",
@@ -209,7 +209,7 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     },
     {
       key: "antepecho",
-      label: "Antepecho (piso → parte baja del hueco)",
+      label: "Antepecho (piso - parte baja del hueco)",
       verifyHint: "Cota F: antepecho hasta el inicio del vano.",
     },
     {
@@ -1098,6 +1098,9 @@ export type ConIslaRespuesta = "" | "si" | "no";
 export type LevantamientoDetalle = {
   /** Solo aplica de forma relevante a cocina; en otros tipos puede quedar vacío. */
   conIsla?: ConIslaRespuesta;
+  /** Medidas generales del espacio (m), formulario preliminar / PDF. */
+  largo?: string;
+  alto?: string;
   sectionComments: Partial<Record<"a" | "b" | "c" | "d" | "e", string>>;
   /** Cantidad de paredes del flujo dinámico (wall-0 … wall-N-1). 0 = sin definir. */
   wallSlotCount: number;
@@ -1323,8 +1326,13 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
     lightingOtroInDocument = true;
   }
 
+  const largoGen = typeof r.largo === "string" ? r.largo : undefined;
+  const altoGen = typeof r.alto === "string" ? r.alto : undefined;
+
   return {
     conIsla,
+    largo: largoGen,
+    alto: altoGen,
     sectionComments,
     wallSlotCount,
     wallMeasures: normalizeWallMeasuresPayload(r.wallMeasures),

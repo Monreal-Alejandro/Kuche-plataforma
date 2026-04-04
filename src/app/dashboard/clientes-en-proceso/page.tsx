@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, User, FileText, Eye, Download } from "lucide-react";
@@ -13,6 +13,9 @@ import {
   openWorkshopPdfInNewTab,
   downloadWorkshopPdf,
 } from "@/lib/pdf-preliminar";
+import { hasWorkshopPdfActions } from "@/lib/formal-pdf-storage";
+import { splitIntoColumns } from "@/lib/split-into-columns";
+import { useClientCardColumns } from "@/hooks/useClientCardColumns";
 
 const CURRENT_USER = "Valeria";
 
@@ -55,6 +58,12 @@ export default function ClientesEnProcesoPage() {
   }, []);
 
   const inProgress = getTasksInProgress(tasks, CURRENT_USER);
+  const columnCount = useClientCardColumns(2);
+  const taskColumns = useMemo(() => {
+    if (inProgress.length === 0) return [];
+    const n = Math.min(columnCount, inProgress.length);
+    return splitIntoColumns(inProgress, n);
+  }, [inProgress, columnCount]);
 
   if (!isHydrated) {
     return (
@@ -110,18 +119,20 @@ export default function ClientesEnProcesoPage() {
               <p className="mt-2 text-sm text-secondary">Cuando tengas tareas asignadas apareceran aqui.</p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {inProgress.map((task) => (
+            <div className="flex flex-col gap-4 md:flex-row md:items-start">
+              {taskColumns.map((col, colIdx) => (
+                <div key={colIdx} className="flex min-w-0 flex-1 flex-col gap-4">
+                  {col.map((task) => (
                 <div
                   key={task.id}
-                  className="rounded-3xl border border-primary/10 bg-white p-6 shadow-sm"
+                  className="min-w-0 rounded-3xl border border-primary/10 bg-white p-6 shadow-sm"
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">{task.project}</h3>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="break-words text-lg font-semibold text-gray-900">{task.project}</h3>
                       <p className="mt-1 text-sm text-secondary">{task.title}</p>
                       {task.codigoProyecto ? (
-                        <p className="mt-2 text-[11px] text-secondary">
+                        <p className="mt-2 break-all text-[11px] text-secondary">
                           Código:{" "}
                           <span className="font-semibold text-primary">{task.codigoProyecto}</span>
                         </p>
@@ -209,7 +220,7 @@ export default function ClientesEnProcesoPage() {
                                   <Download className="h-3 w-3" />
                                   Descargar
                                 </button>
-                                {data.workshopPdfKey ? (
+                                {hasWorkshopPdfActions(data) ? (
                                   <>
                                     <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-violet-600/80">
                                       Taller
@@ -247,6 +258,8 @@ export default function ClientesEnProcesoPage() {
                       <p className="text-xs text-secondary">Sin PDFs generados aun.</p>
                     ) : null}
                   </div>
+                </div>
+                  ))}
                 </div>
               ))}
             </div>

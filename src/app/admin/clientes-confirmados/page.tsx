@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, CheckCircle2, User, FileText, Calendar, FolderOpen, Eye, Download } from "lucide-react";
@@ -12,6 +12,7 @@ import {
   getCotizacionesFormalesList,
   type KanbanTask,
 } from "@/lib/kanban";
+import { ConfirmedClientContractFields } from "@/components/admin/ConfirmedClientContractFields";
 import {
   openPreliminarPdfInNewTab,
   downloadPreliminarPdf,
@@ -20,6 +21,9 @@ import {
   openWorkshopPdfInNewTab,
   downloadWorkshopPdf,
 } from "@/lib/pdf-preliminar";
+import { hasWorkshopPdfActions } from "@/lib/formal-pdf-storage";
+import { splitIntoColumns } from "@/lib/split-into-columns";
+import { useClientCardColumns } from "@/hooks/useClientCardColumns";
 
 type TaskFile = {
   id: string;
@@ -46,6 +50,12 @@ const mergeTasks = (storedTasks: KanbanTask[]): KanbanTask[] => {
 export default function ClientesConfirmadosPage() {
   const [clients, setClients] = useState<KanbanTask[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const columnCount = useClientCardColumns(3);
+  const clientColumns = useMemo(() => {
+    if (clients.length === 0) return [];
+    const n = Math.min(columnCount, clients.length);
+    return splitIntoColumns(clients, n);
+  }, [clients, columnCount]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(kanbanStorageKey);
@@ -68,6 +78,10 @@ export default function ClientesConfirmadosPage() {
     setClients(confirmed);
     setIsHydrated(true);
   }, []);
+
+  const handleConfirmedTaskUpdate = (updated: KanbanTask) => {
+    setClients((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+  };
 
   if (!isHydrated) {
     return (
@@ -132,37 +146,43 @@ export default function ClientesConfirmadosPage() {
               </p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {clients.map((client) => (
+            <div className="flex flex-col gap-4 md:flex-row md:items-start">
+              {clientColumns.map((col, colIdx) => (
+                <div key={colIdx} className="flex min-w-0 flex-1 flex-col gap-4">
+                  {col.map((client) => (
                 <div
                   key={client.id}
-                  className="rounded-3xl border border-primary/10 bg-white p-6 shadow-sm"
+                  className="min-w-0 rounded-3xl border border-primary/10 bg-white p-6 shadow-sm"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-100">
                         <User className="h-6 w-6 text-emerald-600" />
                       </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{client.project}</h3>
+                      <div className="min-w-0">
+                        <h3 className="break-words font-semibold text-gray-900">{client.project}</h3>
                         <p className="text-sm text-secondary">{client.title}</p>
                         {client.codigoProyecto ? (
-                          <p className="mt-2 text-[11px] text-secondary">
+                          <p className="mt-2 break-all text-[11px] text-secondary">
                             Código:{" "}
                             <span className="font-semibold text-primary">{client.codigoProyecto}</span>
                           </p>
                         ) : null}
                       </div>
                     </div>
-                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                    <span className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
                       Confirmado
                     </span>
+                  </div>
+
+                  <div className="mt-4">
+                    <ConfirmedClientContractFields task={client} onUpdate={handleConfirmedTaskUpdate} />
                   </div>
 
                   <div className="mt-4 space-y-3">
                     <div className="flex items-center gap-2 text-sm text-secondary">
                       <Calendar className="h-4 w-4" />
-                      <span>Fecha: {formatDate(client.createdAt)}</span>
+                      <span>Registro en sistema: {formatDate(client.createdAt)}</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-secondary">
                       <User className="h-4 w-4" />
@@ -244,7 +264,7 @@ export default function ClientesConfirmadosPage() {
                                   <Download className="h-3 w-3" />
                                   Descargar
                                 </button>
-                                {data.workshopPdfKey ? (
+                                {hasWorkshopPdfActions(data) ? (
                                   <>
                                     <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-violet-600/80">
                                       Taller
@@ -293,13 +313,13 @@ export default function ClientesConfirmadosPage() {
                         {client.files.map((file) => (
                           <div
                             key={file.id}
-                            className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 text-sm"
+                            className="flex min-w-0 items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-sm"
                           >
-                            <div className="flex items-center gap-2">
-                              <FileText className="h-4 w-4 text-secondary" />
-                              <span className="truncate">{file.name}</span>
-                            </div>
-                            <span className="text-xs uppercase text-secondary">{file.type}</span>
+                            <FileText className="h-4 w-4 shrink-0 text-secondary" />
+                            <span className="min-w-0 flex-1 truncate" title={file.name}>
+                              {file.name}
+                            </span>
+                            <span className="shrink-0 text-xs uppercase text-secondary">{file.type}</span>
                           </div>
                         ))}
                       </div>
@@ -309,6 +329,8 @@ export default function ClientesConfirmadosPage() {
                       <p className="text-sm text-secondary">Sin archivos adjuntos</p>
                     </div>
                   )}
+                </div>
+                  ))}
                 </div>
               ))}
             </div>

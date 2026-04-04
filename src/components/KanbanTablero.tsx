@@ -196,6 +196,11 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
     designApprovedByAdmin: Boolean(task.designApprovedByAdmin),
     designApprovedByClient: Boolean(task.designApprovedByClient),
     codigoProyecto: typeof task.codigoProyecto === "string" ? task.codigoProyecto : undefined,
+    contractDate: typeof task.contractDate === "string" ? task.contractDate : undefined,
+    estimatedDeliveryDate:
+      typeof task.estimatedDeliveryDate === "string" ? task.estimatedDeliveryDate : undefined,
+    projectTypeSummary:
+      typeof task.projectTypeSummary === "string" ? task.projectTypeSummary : undefined,
   };
 };
 

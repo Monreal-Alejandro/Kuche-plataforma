@@ -23,6 +23,16 @@ export type PreliminarData = {
   cubierta: string;
   frente: string;
   herraje: string;
+  /** Medidas generales del espacio (formulario preliminar), en metros. */
+  largo?: string;
+  alto?: string;
+  /** Desglose y totales (MXN); opcional en datos legados sin cotización detallada. */
+  costoBase?: number;
+  costoMateriales?: number;
+  costoIluminacion?: number;
+  subtotal?: number;
+  iva?: number;
+  total?: number;
   /** Medidas y comentarios por sección del levantamiento detallado (opcional). */
   levantamiento?: LevantamientoDetalle;
 };
@@ -77,6 +87,12 @@ export type KanbanTask = {
   cotizacionesFormales?: CotizacionFormalData[];
   /** Código para que el cliente acceda a /seguimiento (ej. K-8821). Se genera al crear la tarea. */
   codigoProyecto?: string;
+  /**
+   * Admin «Clientes confirmados»: contrato y entrega (ISO `YYYY-MM-DD`) y tipo de proyecto (texto libre).
+   */
+  contractDate?: string;
+  estimatedDeliveryDate?: string;
+  projectTypeSummary?: string;
 };
 
 /** Lista efectiva de cotizaciones preliminares (array nuevo o migrado desde preliminarData). */
@@ -93,6 +109,20 @@ export function getCotizacionesFormalesList(task: KanbanTask): CotizacionFormalD
     return task.cotizacionesFormales;
   }
   return task.cotizacionFormalData ? [task.cotizacionFormalData] : [];
+}
+
+/** Tipos de espacio únicos desde cotizaciones (formal + preliminar), para sugerencia en confirmados. */
+export function deriveProjectTypesLabel(task: KanbanTask): string {
+  const types = new Set<string>();
+  for (const c of getCotizacionesFormalesList(task)) {
+    const t = c.projectType?.trim();
+    if (t) types.add(t);
+  }
+  for (const p of getPreliminarList(task)) {
+    const t = p.projectType?.trim();
+    if (t) types.add(t);
+  }
+  return Array.from(types).join(", ");
 }
 
 export const kanbanColumns = [

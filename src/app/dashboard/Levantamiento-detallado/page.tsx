@@ -1119,10 +1119,22 @@ export default function CotizadorPreliminarPage() {
       location: location || "Por definir",
       date: formatDeliveryWeeksLabel(deliveryWeeksMin, deliveryWeeksMax) || "Por definir",
       rangeLabel: scenarioRangeLabel,
+      largo: largo.trim() || undefined,
+      alto: alto.trim() || undefined,
       cubierta: cubierta?.name ?? "Sin definir",
       frente: frenteLabel || "Sin definir",
       herraje: herraje?.name ?? "Sin definir",
-      levantamiento,
+      costoBase: metrics.costoBase,
+      costoMateriales: metrics.costoMateriales,
+      costoIluminacion: metrics.costoIluminacion,
+      subtotal: metrics.subtotal,
+      iva: metrics.iva,
+      total: metrics.total,
+      levantamiento: {
+        ...levantamiento,
+        largo: largo.trim() || undefined,
+        alto: alto.trim() || undefined,
+      },
     };
   };
 
@@ -1187,7 +1199,7 @@ export default function CotizadorPreliminarPage() {
       const preliminarCotizaciones = getPreliminarList(
         updatedTasks.find((t) => t.id === activeCitaTaskId) ?? activeCitaTask,
       );
-      const estimatedInversion = Math.round(metrics.puntoMedio * 1.16);
+      const estimatedInversion = Math.round(metrics.total);
       const seguimientoProject: Record<string, unknown> = {
         ...existingParsed,
         codigo: codigoProyecto,
@@ -1336,16 +1348,20 @@ export default function CotizadorPreliminarPage() {
     const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
     const precioEscenario = SCENARIO_PRICE_PER_M_MXN[selectedScenario] ?? 5000;
     const costoBase = largoValue * precioEscenario;
-    const puntoMedio = costoBase + costoMateriales + costoIluminacion;
-    const rangeMin = puntoMedio * 0.92;
-    const rangeMax = puntoMedio * 1.08;
+    const subtotal = costoBase + costoMateriales + costoIluminacion;
+    const iva = subtotal * 0.16;
+    const total = subtotal + iva;
+    const rangeMin = total * 0.92;
+    const rangeMax = total * 1.08;
 
     return {
       largoValue,
       costoBase,
       costoMateriales,
       costoIluminacion,
-      puntoMedio,
+      subtotal,
+      iva,
+      total,
       rangeMin,
       rangeMax,
       rangeLabel: `${formatCurrency(rangeMin)} - ${formatCurrency(rangeMax)}`,
@@ -1407,9 +1423,10 @@ export default function CotizadorPreliminarPage() {
       largoValue * (MATERIAL_TIER_PRICE_PER_M.cubiertas[tierC] + sumPrecioFrentePorM + MATERIAL_TIER_PRICE_PER_M.herrajes[tierH]);
     const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
     return scenarioOptions.map((s) => {
-      const costoBase = largoValue * (SCENARIO_PRICE_PER_M_MXN[s.id] ?? 5000);
-      const pm = costoBase + costoMateriales + costoIluminacion;
-      return { id: s.id, min: pm * 0.92, max: pm * 1.08 };
+      const costoBaseS = largoValue * (SCENARIO_PRICE_PER_M_MXN[s.id] ?? 5000);
+      const sub = costoBaseS + costoMateriales + costoIluminacion;
+      const tot = sub + sub * 0.16;
+      return { id: s.id, min: tot * 0.92, max: tot * 1.08 };
     });
   }, [largo, selectedCubierta, selectedFrenteIds, selectedHerraje, levantamiento, scenarioOptions]);
 
@@ -3038,30 +3055,53 @@ export default function CotizadorPreliminarPage() {
                 El PDF incluye portada (datos, materiales, rango) y anexo con comentarios y medidas del
                 levantamiento cuando hay información capturada.
               </p>
+              <div className="mt-4 max-w-md rounded-lg border border-primary/10 bg-white/80 px-3 py-2.5 text-xs text-secondary/90">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary/70">
+                  Desglose técnico
+                </p>
+                <div className="mt-2 space-y-1.5 tabular-nums">
+                  <div className="flex justify-between gap-3">
+                    <span>Costo base (escenario)</span>
+                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoBase)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span>Materiales</span>
+                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoMateriales)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span>Iluminación</span>
+                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoIluminacion)}</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="rounded-2xl border border-primary/10 bg-primary/5 p-6">
+            <div className="min-w-0 rounded-2xl border border-primary/10 bg-primary/5 p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
                 Estimación preliminar
               </p>
-              <div className="mt-4 space-y-3 text-sm">
-                <div className="flex justify-between gap-2 text-secondary">
-                  <span>Costo base (escenario)</span>
-                  <span className="font-semibold text-primary">{formatCurrency(metrics.costoBase)}</span>
+              <div className="mt-4 space-y-5">
+                <div className="space-y-3 text-right">
+                  <div className="flex justify-end gap-4 text-sm text-secondary sm:gap-6">
+                    <span className="min-w-0 shrink">Subtotal</span>
+                    <span className="min-w-0 shrink-0 font-semibold tabular-nums text-primary">
+                      {formatCurrency(metrics.subtotal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-end gap-4 text-sm text-secondary sm:gap-6">
+                    <span className="min-w-0 shrink">IVA (16%)</span>
+                    <span className="min-w-0 shrink-0 font-semibold tabular-nums text-primary">
+                      {formatCurrency(metrics.iva)}
+                    </span>
+                  </div>
+                  <div className="flex justify-end gap-4 border-t border-primary/15 pt-2 text-sm text-secondary sm:gap-6">
+                    <span className="min-w-0 shrink self-center font-medium">Total</span>
+                    <span className="min-w-0 shrink-0 text-2xl font-bold tabular-nums text-[#8B1C1C] sm:text-3xl">
+                      {formatCurrency(metrics.total)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between gap-2 text-secondary">
-                  <span>Materiales (cubierta + frente + herraje)</span>
-                  <span className="font-semibold text-primary">{formatCurrency(metrics.costoMateriales)}</span>
-                </div>
-                <div className="flex justify-between gap-2 text-secondary">
-                  <span>Iluminación (suma directa)</span>
-                  <span className="font-semibold text-primary">{formatCurrency(metrics.costoIluminacion)}</span>
-                </div>
-                <div className="border-t border-primary/10 pt-3">
-                  <p className="text-xs text-secondary">Punto medio</p>
-                  <p className="text-3xl font-bold text-[#8B1C1C]">{formatCurrency(metrics.puntoMedio)}</p>
-                </div>
-                <div className="rounded-2xl bg-white px-4 py-3 text-secondary">
-                  Rango estimado (±8%):{" "}
+                <div className="border-t border-primary/10 pt-3 text-xs text-secondary sm:text-right">
+                  Rango estimado (±8% sobre total):{" "}
                   <span className="font-semibold text-[#8B1C1C]">{scenarioRangeLabel}</span>
                 </div>
               </div>
@@ -3102,8 +3142,8 @@ export default function CotizadorPreliminarPage() {
         </div>
       ) : null}
       <div
-        className={`fixed right-6 z-40 w-[260px] rounded-3xl border border-white/70 bg-white/90 p-4 shadow-2xl backdrop-blur-md ${
-          activeCitaTask ? "bottom-28" : "bottom-6"
+        className={`fixed right-6 z-40 w-[min(260px,calc(100vw-2rem))] rounded-3xl border border-white/70 bg-white/90 p-4 shadow-2xl backdrop-blur-md ${
+          activeCitaTask ? "bottom-28" : "top-24"
         }`}
       >
         <p className="text-xs uppercase tracking-[0.25em] text-secondary">Rango estimado</p>

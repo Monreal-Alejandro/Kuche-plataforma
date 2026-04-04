@@ -19,7 +19,7 @@ import {
   wallMeasureLetter,
   wallMeasuresTieneValor,
 } from "@/lib/levantamiento-catalog";
-import { getFormalPdf } from "@/lib/formal-pdf-storage";
+import { getFormalPdf, resolveWorkshopPdfKeysToTry } from "@/lib/formal-pdf-storage";
 
 /** Tiempo antes de revocar el object URL (la pestaña nueva debe terminar de cargar). */
 const PDF_OBJECT_URL_TAB_MS = 120_000;
@@ -28,8 +28,101 @@ const BRAND_RED: [number, number, number] = [139, 28, 28]; // #8B1C1C
 const TEXT_DARK: [number, number, number] = [51, 51, 51]; // #333333
 const TEXT_MID: [number, number, number] = [102, 102, 102]; // #666666
 const LINE_SOFT: [number, number, number] = [225, 225, 225];
+const LINE_THIN = 0.5;
+const MARGIN_PDF = 40;
 
-type PtBox = { x: number; y: number; w: number; h: number };
+/** Cabecera institucional (cotizador formal). */
+const HEADER_BG: [number, number, number] = [26, 26, 26]; // #1A1A1A
+const HEADER_H = 46;
+const FOOTER_H = 42;
+/** Y inicial del contenido bajo la cabecera oscura. */
+const CONTENT_TOP = HEADER_H + 16;
+/** Tras marca "Levantamiento · …" en página nueva: separa el breadcrumb del título siguiente. */
+const Y_AFTER_CONTINUATION = CONTENT_TOP + 42;
+
+/**
+ * Espacio mínimo libre (pt) antes de pintar un bloque "título rojo + inicio de tabla" para evitar
+ * huérfanos (cabecera de sección o fila de encabezado gris al pie sin cuerpo en la misma página).
+ */
+const MIN_SPACE_BEFORE_SECTION_TABLE = 72;
+/** Espacio mínimo antes de título de pared + autoTable (título + margen + cabecera gris + ≥1 fila). */
+const MIN_SPACE_BEFORE_WALL_TABLE = 92;
+const FOOTER_TEXT_RGB: [number, number, number] = [150, 150, 150];
+const LINE_TABLE: [number, number, number] = [220, 220, 220];
+const ZEBRA_FILL: [number, number, number] = [248, 248, 248];
+/** Encabezados de tabla autoTable (gris institucional, secundario al rojo de marca). */
+const TABLE_HEAD_GRAY: [number, number, number] = [78, 78, 78];
+
+const FOOTER_LINE =
+  "Copal No. 303 Fracc. Vista Hermosa Tel. 618 101 7363 | cocinasinteligentesdgo@gmail.com";
+
+function getPageH(doc: jsPDF): number {
+  return doc.internal.pageSize.getHeight();
+}
+
+function getContentBottom(doc: jsPDF): number {
+  return getPageH(doc) - FOOTER_H - 14;
+}
+
+/** Logo para cabecera PDF (base64 data URL). Solo en cliente. */
+export async function fetchKucheLogoDataUrl(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const res = await fetch("/images/kuche-logo.png");
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve) => {
+      const r = new FileReader();
+      r.onloadend = () => resolve(typeof r.result === "string" ? r.result : null);
+      r.onerror = () => resolve(null);
+      r.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Escala el logo previo al PDF (máx. acorde a la cabecera institucional). */
+export async function getLogoFitSizeForPdf(dataUrl: string | null): Promise<{ w: number; h: number } | undefined> {
+  if (!dataUrl || typeof window === "undefined") return undefined;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 230;
+      const maxH = 46;
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      if (!nw || !nh) {
+        resolve({ w: 140, h: (140 * 28) / 100 });
+        return;
+      }
+      const scale = Math.min(maxW / nw, maxH / nh);
+      resolve({ w: nw * scale, h: nh * scale });
+    };
+    img.onerror = () => resolve({ w: 140, h: (140 * 28) / 100 });
+    img.src = dataUrl;
+  });
+}
+
+function fmtMoneyMx(n: number | undefined): string {
+  if (n === undefined || Number.isNaN(n)) return "—";
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    maximumFractionDigits: 0,
+  }).format(n);
+}
+
+function financeFromPreliminar(data: PreliminarData) {
+  const cb = data.costoBase;
+  const cm = data.costoMateriales;
+  const ci = data.costoIluminacion;
+  const sub =
+    data.subtotal ?? (cb != null && cm != null && ci != null ? cb + cm + ci : undefined);
+  const iva = data.iva ?? (sub != null ? sub * 0.16 : undefined);
+  const total = data.total ?? (sub != null ? sub * 1.16 : undefined);
+  return { cb, cm, ci, sub, iva, total };
+}
 
 function safeText(v: unknown, fallback = "N/A"): string {
   const s = typeof v === "string" ? v.trim() : "";
@@ -46,7 +139,7 @@ function fmtMedidas(m: MedidasCampos | undefined): string {
 
 function drawHLine(doc: jsPDF, x1: number, x2: number, y: number) {
   doc.setDrawColor(...LINE_SOFT);
-  doc.setLineWidth(0.6);
+  doc.setLineWidth(LINE_THIN);
   doc.line(x1, y, x2, y);
 }
 
@@ -56,44 +149,111 @@ function setText(doc: jsPDF, rgb: [number, number, number], size: number, style:
   doc.setFontSize(size);
 }
 
-function blockTitle(doc: jsPDF, text: string, x: number, y: number) {
-  setText(doc, TEXT_DARK, 11, "bold");
-  doc.text(text, x, y);
-}
-
-function labelValue(doc: jsPDF, label: string, value: string, x: number, y: number, w: number) {
-  setText(doc, TEXT_MID, 8, "normal");
-  doc.text(label.toUpperCase(), x, y);
-  setText(doc, TEXT_DARK, 10, "normal");
-  doc.text(value, x, y + 14, { maxWidth: w });
-}
-
-function addHeader(doc: jsPDF, title: string, subtitle?: string) {
+/** Marca de continuación debajo de la cabecera (el bloque oscuro se aplica al final en todas las páginas). */
+function addContinuationMark(doc: jsPDF, label: string) {
   const pageW = doc.internal.pageSize.getWidth();
-  const marginX = 48;
-  doc.setFillColor(...BRAND_RED);
-  doc.rect(0, 0, pageW, 74, "F");
-  setText(doc, [255, 255, 255], 20, "bold");
-  doc.text(title, marginX, 44);
-  if (subtitle) {
-    setText(doc, [255, 255, 255], 10, "normal");
-    doc.text(subtitle, marginX, 62);
+  const x = MARGIN_PDF;
+  const yLine = CONTENT_TOP + 2;
+  doc.setDrawColor(...LINE_SOFT);
+  doc.setLineWidth(LINE_THIN);
+  doc.line(x, yLine, pageW - x, yLine);
+  setText(doc, TEXT_MID, 8, "normal");
+  doc.text(label, x, yLine + 16);
+}
+
+function drawInstitutionalHeader(
+  doc: jsPDF,
+  logoDataUrl: string | null,
+  logoDisplay: { w: number; h: number } | undefined,
+) {
+  const pageW = doc.internal.pageSize.getWidth();
+  doc.setFillColor(...HEADER_BG);
+  doc.rect(0, 0, pageW, HEADER_H, "F");
+  const maxLogoH = HEADER_H - 8;
+  const maxLogoW = 230;
+  if (logoDataUrl) {
+    try {
+      let lw = logoDisplay?.w ?? 100;
+      let lh = logoDisplay?.h ?? 28;
+      const scale = Math.min(maxLogoW / lw, maxLogoH / lh);
+      lw *= scale;
+      lh *= scale;
+      doc.addImage(logoDataUrl, "PNG", MARGIN_PDF, (HEADER_H - lh) / 2, lw, lh);
+    } catch {
+      /* ignore */
+    }
+  }
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text("LEVANTAMIENTO", pageW - MARGIN_PDF, 16, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.text("ESTIMACIÓN PRELIMINAR", pageW - MARGIN_PDF, HEADER_H - 8, { align: "right" });
+  doc.setTextColor(...TEXT_DARK);
+}
+
+function drawFooter(doc: jsPDF, pageNum: number, totalPages: number) {
+  const pageW = doc.internal.pageSize.getWidth();
+  const ph = getPageH(doc);
+  const yLine = ph - FOOTER_H + 10;
+  doc.setDrawColor(210, 210, 210);
+  doc.setLineWidth(0.35);
+  doc.line(MARGIN_PDF, yLine, pageW - MARGIN_PDF, yLine);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(...FOOTER_TEXT_RGB);
+  doc.text(FOOTER_LINE, pageW / 2, yLine + 12, { align: "center", maxWidth: pageW - MARGIN_PDF * 2 });
+  doc.text(`Página ${pageNum} de ${totalPages}`, pageW - MARGIN_PDF, yLine + 12, { align: "right" });
+  doc.setTextColor(...TEXT_DARK);
+}
+
+function applyHeaderFooterAllPages(
+  doc: jsPDF,
+  logoDataUrl: string | null,
+  logoDisplay: { w: number; h: number } | undefined,
+) {
+  const n = doc.getNumberOfPages();
+  for (let i = 1; i <= n; i++) {
+    doc.setPage(i);
+    drawInstitutionalHeader(doc, logoDataUrl, logoDisplay);
+    drawFooter(doc, i, n);
   }
 }
 
-function sectionHeading(doc: jsPDF, text: string, x: number, y: number) {
-  setText(doc, BRAND_RED, 12, "bold");
-  doc.text(text, x, y);
-  drawHLine(doc, x, doc.internal.pageSize.getWidth() - x, y + 8);
+/** Encabezado de sección con fondo rojo de marca y texto blanco (sin bordes). */
+function brandSectionHeader(doc: jsPDF, text: string, x: number, y: number): number {
+  const pageW = doc.internal.pageSize.getWidth();
+  const marginRight = MARGIN_PDF;
+  const w = pageW - x - marginRight;
+  const padX = 10;
+  const padY = 8;
+  const lineH = 12;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  const lines = doc.splitTextToSize(text, Math.max(40, w - padX * 2));
+  const boxH = padY * 2 + lines.length * lineH;
+  doc.setFillColor(...BRAND_RED);
+  doc.rect(x, y, w, boxH, "F");
+  doc.setTextColor(255, 255, 255);
+  let ty = y + padY + 9;
+  for (const line of lines) {
+    doc.text(line, x + padX, ty);
+    ty += lineH;
+  }
+  doc.setTextColor(...TEXT_DARK);
+  return y + boxH + 12;
 }
 
+/**
+ * Si no cabe `needed` (pt) hasta el pie útil, añade página y deja `y` bajo la marca de continuación.
+ * Usar con umbrales altos antes de títulos de sección + tablas para evitar huérfanos.
+ */
 function ensureSpace(doc: jsPDF, y: number, needed: number, onNewPage: () => void): number {
-  const pageH = doc.internal.pageSize.getHeight();
-  const bottom = 52;
-  if (y + needed <= pageH - bottom) return y;
+  if (y + needed <= getContentBottom(doc)) return y;
   doc.addPage();
   onNewPage();
-  return 96; // below header
+  return Y_AFTER_CONTINUATION;
 }
 
 function wallRowsForTable(wallId: string, measures: Record<string, string>): Array<[string, string, string]> {
@@ -118,96 +278,148 @@ function commentsLabelForKey(key: string): string {
   }
 }
 
-function addCoverAndSummary(doc: jsPDF, data: PreliminarData, lev?: LevantamientoDetalle) {
-  addHeader(doc, "Levantamiento Detallado y Estimacion Preliminar", "KUCHE - Documento no vinculante");
-
-  const marginX = 48;
+/** Bloque editorial: datos del proyecto (2 columnas) + estimación. El logo va en la cabecera oscura (applyHeaderFooterAllPages). */
+function addEditorialProjectBlock(doc: jsPDF, data: PreliminarData, lev: LevantamientoDetalle | undefined): number {
+  const marginX = MARGIN_PDF;
   const pageW = doc.internal.pageSize.getWidth();
-  const y0 = 96;
-
-  // 2 columnas de datos del proyecto
-  blockTitle(doc, "Datos del proyecto", marginX, y0);
-  const colGap = 24;
-  const colW = (pageW - marginX * 2 - colGap) / 2;
+  const gap = 28;
+  const colW = (pageW - marginX * 2 - gap) / 2;
   const leftX = marginX;
-  const rightX = marginX + colW + colGap;
-
+  const rightX = marginX + colW + gap;
+  const rightEdge = marginX + colW * 2 + gap;
   const typeProyecto = safeText(data.projectType);
-  const conIsla = lev?.conIsla === "si" ? "Con isla" : lev?.conIsla === "no" ? "Sin isla" : "Sin definir";
+  const conIsla = lev?.conIsla === "si" ? " · Con isla" : lev?.conIsla === "no" ? " · Sin isla" : "";
+  const fecha =
+    safeText(data.date, "") ||
+    new Date().toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" });
+  const fin = financeFromPreliminar(data);
+  const lineH = 13;
 
-  labelValue(doc, "Cliente", safeText(data.client, "Sin definir"), leftX, y0 + 18, colW);
-  labelValue(doc, "Ubicacion", safeText(data.location, "Sin definir"), leftX, y0 + 54, colW);
-  labelValue(doc, "Fecha", safeText(data.date, "Sin definir"), rightX, y0 + 18, colW);
-  labelValue(doc, "Tipo de proyecto", `${typeProyecto} (${conIsla})`, rightX, y0 + 54, colW);
+  let y = CONTENT_TOP;
 
-  drawHLine(doc, marginX, pageW - marginX, y0 + 92);
+  const leftStack: { label: string; value: string }[] = [
+    { label: "FECHA", value: fecha },
+    { label: "TIPO DE PROYECTO", value: `${typeProyecto}${conIsla}` },
+    { label: "CLIENTE", value: safeText(data.client, "—") },
+    { label: "DIRECCIÓN", value: safeText(data.location, "—") },
+  ];
 
-  // Materiales seleccionados
-  const yMat = y0 + 112;
-  blockTitle(doc, "Materiales seleccionados", marginX, yMat);
-  const matBox: PtBox = { x: marginX, y: yMat + 12, w: pageW - marginX * 2, h: 78 };
-  doc.setFillColor(248, 248, 248);
-  doc.rect(matBox.x, matBox.y, matBox.w, matBox.h, "F");
-  labelValue(doc, "Cubierta", safeText(data.cubierta, "Sin definir"), matBox.x + 14, matBox.y + 18, (matBox.w - 28) / 3);
-  labelValue(doc, "Frente", safeText(data.frente, "Sin definir"), matBox.x + 14 + (matBox.w / 3), matBox.y + 18, (matBox.w - 28) / 3);
-  labelValue(doc, "Herrajes", safeText(data.herraje, "Sin definir"), matBox.x + 14 + (matBox.w * 2) / 3, matBox.y + 18, (matBox.w - 28) / 3);
+  let yL = y;
+  for (const row of leftStack) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(...TEXT_MID);
+    doc.text(row.label, leftX, yL);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...TEXT_DARK);
+    const vLines = doc.splitTextToSize(row.value, colW);
+    doc.text(vLines, leftX, yL + 10);
+    yL += 10 + vLines.length * 11 + 8;
+  }
 
-  // Precio
-  const yPrice = yMat + 112;
-  blockTitle(doc, "Estimacion", marginX, yPrice);
-  doc.setFillColor(...BRAND_RED);
-  doc.rect(marginX, yPrice + 12, pageW - marginX * 2, 64, "F");
-  setText(doc, [255, 255, 255], 10, "normal");
-  doc.text("Rango estimado de inversion", marginX + 14, yPrice + 34);
-  setText(doc, [255, 255, 255], 22, "bold");
-  doc.text(safeText(data.rangeLabel, "Sin definir"), marginX + 14, yPrice + 60);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.setTextColor(...TEXT_MID);
+  doc.text("ACABADOS", leftX, yL);
+  yL += 10;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...TEXT_DARK);
+  doc.text(`Cubierta: ${safeText(data.cubierta, "—")}`, leftX, yL, { maxWidth: colW });
+  yL += 12;
+  doc.text(`Frente: ${safeText(data.frente, "—")}`, leftX, yL, { maxWidth: colW });
+  yL += 12;
+  doc.text(`Herrajes: ${safeText(data.herraje, "—")}`, leftX, yL, { maxWidth: colW });
+  yL += 18;
 
-  // Nota
-  setText(doc, TEXT_MID, 9, "normal");
-  doc.text(
-    "Este documento es una estimacion preliminar. El costo final puede variar segun medidas exactas, condiciones de sitio y definicion final de acabados.",
-    marginX,
-    yPrice + 96,
-    { maxWidth: pageW - marginX * 2 },
-  );
+  let yR = y;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.setTextColor(...TEXT_MID);
+  doc.text("ESTIMACIÓN", rightX, yR);
+  yR += 14;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(...TEXT_MID);
+  doc.text("RANGO ESTIMADO", rightX, yR);
+  yR += 12;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(...BRAND_RED);
+  const rangeLines = doc.splitTextToSize(safeText(data.rangeLabel, "—"), colW);
+  let yyRange = yR;
+  for (const rl of rangeLines) {
+    doc.text(rl, rightEdge, yyRange, { align: "right" });
+    yyRange += 18;
+  }
+  yR = yyRange + 10;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(...TEXT_MID);
+  const labelX = rightX + colW - 72;
+  doc.text("Subtotal", labelX, yR, { align: "right" });
+  doc.setTextColor(...TEXT_DARK);
+  doc.setFontSize(10);
+  doc.text(fmtMoneyMx(fin.sub), rightEdge, yR, { align: "right" });
+  yR += lineH;
+  doc.setFontSize(8);
+  doc.setTextColor(...TEXT_MID);
+  doc.text("IVA (16%)", labelX, yR, { align: "right" });
+  doc.setTextColor(...TEXT_DARK);
+  doc.setFontSize(10);
+  doc.text(fmtMoneyMx(fin.iva), rightEdge, yR, { align: "right" });
+  yR += lineH + 4;
+  doc.setDrawColor(...LINE_SOFT);
+  doc.setLineWidth(LINE_THIN);
+  doc.line(labelX - 24, yR - 4, rightEdge, yR - 4);
+  doc.setFontSize(8);
+  doc.setTextColor(...TEXT_MID);
+  doc.text("Total", labelX, yR + 6, { align: "right" });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(...BRAND_RED);
+  doc.text(fmtMoneyMx(fin.total), rightEdge, yR + 6, { align: "right" });
+  yR += 22;
+
+  const yEnd = Math.max(yL, yR) + 28;
+  return yEnd;
 }
 
-function addFichaTecnica(doc: jsPDF, data: PreliminarData, lev?: LevantamientoDetalle) {
-  const marginX = 48;
+function addFichaTecnica(doc: jsPDF, data: PreliminarData, lev: LevantamientoDetalle | undefined, startY: number): number {
+  const marginX = MARGIN_PDF;
   const pageW = doc.internal.pageSize.getWidth();
 
-  doc.addPage();
-  addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion");
+  let y = startY + 20;
+  y = ensureSpace(doc, y, 100, () => addContinuationMark(doc, "Levantamiento · especificaciones"));
+  y = brandSectionHeader(doc, "Especificaciones para arquitectura e instalación", marginX, y);
 
-  let y = 108;
+  setText(doc, TEXT_DARK, 10, "bold");
+  doc.text("Medidas generales", marginX, y);
+  y += 16;
 
-  // Medidas generales (si existen en wallOtro u otros, mostramos algo util)
-  sectionHeading(doc, "Medidas generales", marginX, y);
-  y += 24;
-
-  const general = lev?.wallOtro;
-  setText(doc, TEXT_DARK, 10, "normal");
-  doc.text(
-    `Referencia (si aplica): ${general?.descripcion?.trim() ? general.descripcion.trim() : "Sin definir"}`,
-    marginX,
-    y,
-    { maxWidth: pageW - marginX * 2 },
-  );
-  y += 18;
-  setText(doc, TEXT_MID, 9, "normal");
-  doc.text(`Medidas (Otro muro): ${general ? fmtMedidas(general) : "N/A"}`, marginX, y);
-  y += 20;
-
-  // Muros
-  y = ensureSpace(doc, y, 40, () => addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion"));
-  sectionHeading(doc, "Muros", marginX, y);
-  y += 18;
+  const largoRaw = (lev?.largo ?? data.largo ?? "").trim();
+  const altoRaw = (lev?.alto ?? data.alto ?? "").trim();
+  const largoTxt = largoRaw || "—";
+  const altoTxt = altoRaw || "—";
+  setText(doc, TEXT_DARK, 9, "normal");
+  doc.text(`Largo total: ${largoTxt} m   |   Alto total: ${altoTxt} m`, marginX, y, {
+    maxWidth: pageW - marginX * 2,
+  });
+  y += 22;
 
   if (!lev) {
     setText(doc, TEXT_MID, 10, "normal");
     doc.text("Sin levantamiento detallado capturado.", marginX, y);
-    return;
+    return y + 18;
   }
+
+  // Muros (salto de página si no cabe título rojo + al menos el inicio de la primera tabla)
+  y = ensureSpace(doc, y, MIN_SPACE_BEFORE_SECTION_TABLE, () =>
+    addContinuationMark(doc, "Levantamiento · especificaciones"),
+  );
+  y = brandSectionHeader(doc, "Muros", marginX, y);
 
   const slotWallKeys = Object.keys(lev.wallMeasures)
     .filter(isWallSlotKey)
@@ -262,32 +474,53 @@ function addFichaTecnica(doc: jsPDF, data: PreliminarData, lev?: LevantamientoDe
         }));
 
     for (const row of rows) {
-      y = ensureSpace(doc, y, 120, () => addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion"));
+      y = ensureSpace(doc, y, MIN_SPACE_BEFORE_WALL_TABLE, () =>
+        addContinuationMark(doc, "Levantamiento · especificaciones"),
+      );
       setText(doc, TEXT_DARK, 11, "bold");
       doc.text(row.kind === "slot" ? `${row.title} - ${row.label}` : row.label, marginX, y);
-      setText(doc, TEXT_MID, 9, "normal");
-      doc.text(`ID: ${row.typeId}`, marginX + 280, y);
-      y += 10;
+      y += 14;
 
       const measures = row.measures;
+      const tableStartY = y + 8;
       autoTable(doc, {
-        startY: y + 8,
-        margin: { left: marginX, right: marginX },
+        startY: tableStartY,
+        pageBreak: "auto",
+        margin: { left: marginX, right: marginX, top: CONTENT_TOP, bottom: FOOTER_H + 12 },
         theme: "plain",
         head: [["Ref.", "Medida", "Valor (m)"]],
         body: wallRowsForTable(row.typeId, measures),
-        styles: { font: "helvetica", fontSize: 9, textColor: TEXT_DARK, cellPadding: { top: 6, right: 6, bottom: 6, left: 0 } },
-        headStyles: { fontStyle: "bold", textColor: TEXT_MID },
+        styles: {
+          font: "helvetica",
+          fontSize: 8,
+          textColor: TEXT_DARK,
+          cellPadding: { top: 4, right: 5, bottom: 4, left: 5 },
+          lineColor: LINE_TABLE,
+          lineWidth: 0.1,
+        },
+        headStyles: {
+          fillColor: TABLE_HEAD_GRAY,
+          textColor: 255,
+          fontStyle: "bold",
+          fontSize: 8,
+          cellPadding: { top: 6, right: 5, bottom: 6, left: 5 },
+        },
+        alternateRowStyles: { fillColor: ZEBRA_FILL },
         columnStyles: {
-          0: { cellWidth: 40, textColor: BRAND_RED, fontStyle: "bold" },
-          1: { cellWidth: 320 },
+          0: { cellWidth: 36, textColor: TEXT_DARK, fontStyle: "bold" },
+          1: { cellWidth: 300 },
           2: { halign: "right" as const },
         },
         didDrawCell: (d) => {
           if (d.section === "body") {
-            doc.setDrawColor(...LINE_SOFT);
-            doc.setLineWidth(0.6);
-            doc.line(d.cell.x, d.cell.y + d.cell.height, d.cell.x + d.cell.width + (d.row.cells[2]?.width ?? 0) + 360, d.cell.y + d.cell.height);
+            doc.setDrawColor(...LINE_TABLE);
+            doc.setLineWidth(0.1);
+            doc.line(
+              d.cell.x,
+              d.cell.y + d.cell.height,
+              d.cell.x + d.cell.width,
+              d.cell.y + d.cell.height,
+            );
           }
         },
       });
@@ -295,7 +528,8 @@ function addFichaTecnica(doc: jsPDF, data: PreliminarData, lev?: LevantamientoDe
     }
 
     if (lev.wallOtro.descripcion.trim() || medidasCamposTieneValor(lev.wallOtro)) {
-      y = ensureSpace(doc, y, 70, () => addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion"));
+      y = ensureSpace(doc, y, 70, () => addContinuationMark(doc, "Levantamiento · especificaciones"));
+      y += 6;
       setText(doc, TEXT_DARK, 11, "bold");
       doc.text("Otro muro / situacion especial", marginX, y);
       y += 14;
@@ -310,10 +544,11 @@ function addFichaTecnica(doc: jsPDF, data: PreliminarData, lev?: LevantamientoDe
     }
   }
 
-  // Electrodomesticos e Iluminacion
-  y = ensureSpace(doc, y, 60, () => addHeader(doc, "Ficha tecnica", "Especificaciones para arquitectura e instalacion"));
-  sectionHeading(doc, "Electrodomesticos e iluminacion", marginX, y);
-  y += 18;
+  // Electrodomésticos e iluminación
+  y = ensureSpace(doc, y, MIN_SPACE_BEFORE_SECTION_TABLE, () =>
+    addContinuationMark(doc, "Levantamiento · especificaciones"),
+  );
+  y = brandSectionHeader(doc, "Electrodomésticos e iluminación", marginX, y);
 
   const appliances = APPLIANCE_ITEMS.filter((a) => applianceAppearsInPdf(lev, a.id));
   const lights = LIGHTING_ITEMS.filter((l) => lightingAppearsInPdf(lev, l.id));
@@ -337,45 +572,69 @@ function addFichaTecnica(doc: jsPDF, data: PreliminarData, lev?: LevantamientoDe
   if (rows.length === 0) {
     setText(doc, TEXT_MID, 10, "normal");
     doc.text("No se registraron electrodomesticos ni iluminacion.", marginX, y);
-    return;
+    return y + 18;
   }
 
+  y = ensureSpace(doc, y, MIN_SPACE_BEFORE_WALL_TABLE, () =>
+    addContinuationMark(doc, "Levantamiento · especificaciones"),
+  );
+  const electroTableStartY = y + 8;
   autoTable(doc, {
-    startY: y + 10,
-    margin: { left: marginX, right: marginX },
+    startY: electroTableStartY,
+    pageBreak: "auto",
+    margin: { left: marginX, right: marginX, top: CONTENT_TOP, bottom: FOOTER_H + 12 },
     theme: "plain",
     head: [["Elemento", "Ancho", "Alto", "Fondo"]],
     body: rows,
-    styles: { font: "helvetica", fontSize: 9, textColor: TEXT_DARK, cellPadding: { top: 6, right: 6, bottom: 6, left: 0 } },
-    headStyles: { fontStyle: "bold", textColor: TEXT_MID },
+    styles: {
+      font: "helvetica",
+      fontSize: 8,
+      textColor: TEXT_DARK,
+      cellPadding: { top: 4, right: 5, bottom: 4, left: 5 },
+      lineColor: LINE_TABLE,
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: TABLE_HEAD_GRAY,
+      textColor: 255,
+      fontStyle: "bold",
+      fontSize: 8,
+      cellPadding: { top: 6, right: 5, bottom: 6, left: 5 },
+    },
+    alternateRowStyles: { fillColor: ZEBRA_FILL },
     columnStyles: {
-      0: { cellWidth: 330 },
-      1: { halign: "right" as const, cellWidth: 70 },
-      2: { halign: "right" as const, cellWidth: 70 },
-      3: { halign: "right" as const, cellWidth: 70 },
+      0: { cellWidth: 310 },
+      1: { halign: "right" as const, cellWidth: 68 },
+      2: { halign: "right" as const, cellWidth: 68 },
+      3: { halign: "right" as const, cellWidth: 68 },
     },
     didDrawCell: (d) => {
       if (d.section === "body") {
-        doc.setDrawColor(...LINE_SOFT);
-        doc.setLineWidth(0.6);
-        doc.line(d.table.settings.margin.left, d.cell.y + d.cell.height, pageW - d.table.settings.margin.right, d.cell.y + d.cell.height);
+        doc.setDrawColor(...LINE_TABLE);
+        doc.setLineWidth(0.1);
+        doc.line(
+          d.cell.x,
+          d.cell.y + d.cell.height,
+          d.cell.x + d.cell.width,
+          d.cell.y + d.cell.height,
+        );
       }
     },
   });
+  return (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
 }
 
-function addObservaciones(doc: jsPDF, lev?: LevantamientoDetalle) {
-  const marginX = 48;
+function addObservaciones(doc: jsPDF, lev: LevantamientoDetalle | undefined, startY: number): number {
+  const marginX = MARGIN_PDF;
   const pageW = doc.internal.pageSize.getWidth();
 
-  doc.addPage();
-  addHeader(doc, "Observaciones de sitio", "Notas capturadas en el levantamiento");
+  let y = startY + 20;
+  y = ensureSpace(doc, y, 80, () => addContinuationMark(doc, "Levantamiento · observaciones"));
 
-  let y = 110;
   if (!lev) {
-    setText(doc, TEXT_MID, 10, "normal");
+    setText(doc, TEXT_MID, 9, "normal");
     doc.text("Sin observaciones capturadas.", marginX, y);
-    return;
+    return y + 16;
   }
 
   const entries = (Object.entries(lev.sectionComments ?? {}) as Array<[string, string]>)
@@ -383,33 +642,69 @@ function addObservaciones(doc: jsPDF, lev?: LevantamientoDetalle) {
     .filter(([, v]) => Boolean(v));
 
   if (entries.length === 0) {
-    setText(doc, TEXT_MID, 10, "normal");
+    setText(doc, TEXT_MID, 9, "normal");
     doc.text("Sin observaciones capturadas.", marginX, y);
-    return;
+    return y + 16;
   }
 
+  y = brandSectionHeader(doc, "Observaciones de sitio", marginX, y);
+
   for (const [k, v] of entries) {
-    y = ensureSpace(doc, y, 120, () => addHeader(doc, "Observaciones de sitio", "Notas capturadas en el levantamiento"));
-    sectionHeading(doc, commentsLabelForKey(k), marginX, y);
-    y += 22;
-    setText(doc, TEXT_DARK, 10, "normal");
+    y = ensureSpace(doc, y, 100, () => addContinuationMark(doc, "Levantamiento · observaciones"));
+    y += 6;
+    setText(doc, TEXT_DARK, 10, "bold");
+    doc.text(commentsLabelForKey(k), marginX, y);
+    y += 14;
+    setText(doc, TEXT_DARK, 9, "normal");
     doc.text(v, marginX, y, { maxWidth: pageW - marginX * 2 });
-    y += 20 + Math.min(80, Math.ceil((v.length / 90) * 12));
+    y += 16 + Math.min(72, Math.ceil((v.length / 95) * 11));
+  }
+  return y;
+}
+
+function addCondicionesEstimacion(doc: jsPDF, startY: number): void {
+  const marginX = MARGIN_PDF;
+  const pageW = doc.internal.pageSize.getWidth();
+  let y = startY + 24;
+  y = ensureSpace(doc, y, 160, () => addContinuationMark(doc, "Levantamiento · condiciones"));
+  y = brandSectionHeader(doc, "CONDICIONES DE LA ESTIMACIÓN", marginX, y);
+
+  const bullets: string[] = [
+    "Este documento es una estimación preliminar basada en un levantamiento rápido.",
+    "El rango de precio presentado es una guía y no representa el costo final del proyecto.",
+    "El diseño, medidas finales y la cotización vinculante se presentarán tras el proceso de diseño.",
+    "La selección de materiales, herrajes y electrodomésticos está sujeta a disponibilidad.",
+  ];
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...TEXT_DARK);
+  for (const line of bullets) {
+    const wrapped = doc.splitTextToSize(`• ${line}`, pageW - marginX * 2 - 10);
+    y = ensureSpace(doc, y, wrapped.length * 12 + 10, () => addContinuationMark(doc, "Levantamiento · condiciones"));
+    doc.text(wrapped, marginX + 4, y);
+    y += wrapped.length * 11 + 8;
   }
 }
 
-function buildPreliminarJsPdf(data: PreliminarData): jsPDF {
+function buildPreliminarJsPdf(
+  data: PreliminarData,
+  logoDataUrl: string | null,
+  logoDisplay?: { w: number; h: number },
+): jsPDF {
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const lev = data.levantamiento ? normalizeLevantamientoDetalle(data.levantamiento) : undefined;
-  addCoverAndSummary(doc, data, lev);
-  addFichaTecnica(doc, data, lev);
-  addObservaciones(doc, lev);
+  let y = addEditorialProjectBlock(doc, data, lev);
+  y = addFichaTecnica(doc, data, lev, y);
+  y = addObservaciones(doc, lev, y);
+  addCondicionesEstimacion(doc, y);
+  applyHeaderFooterAllPages(doc, logoDataUrl, logoDisplay);
   return doc;
 }
 
-/** Genera el PDF preliminar (como Uint8Array) a partir de los datos guardados. */
+/** Genera el PDF preliminar (como Uint8Array) a partir de los datos guardados. Sin logo (sincronía). */
 export function buildPreliminarPdf(data: PreliminarData): Uint8Array {
-  const doc = buildPreliminarJsPdf(data);
+  const doc = buildPreliminarJsPdf(data, null);
   const ab = doc.output("arraybuffer");
   return new Uint8Array(ab);
 }
@@ -443,32 +738,44 @@ function openStoredPdfInNewTab(stored: string): void {
 
 /** Abre el PDF en una nueva pestaña. */
 export function openPreliminarPdfInNewTab(data: PreliminarData): void {
-  const bytes = buildPreliminarPdf(data);
-  const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, "_blank");
-  if (!win) {
-    URL.revokeObjectURL(url);
-    return;
-  }
-  setTimeout(() => URL.revokeObjectURL(url), PDF_OBJECT_URL_TAB_MS);
+  void (async () => {
+    const logo = await fetchKucheLogoDataUrl();
+    const logoFit = await getLogoFitSizeForPdf(logo);
+    const doc = buildPreliminarJsPdf(data, logo, logoFit);
+    const bytes = new Uint8Array(doc.output("arraybuffer"));
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (!win) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+    setTimeout(() => URL.revokeObjectURL(url), PDF_OBJECT_URL_TAB_MS);
+  })();
 }
 
 /** Descarga el PDF con nombre sugerido. */
 export function downloadPreliminarPdf(data: PreliminarData, filename?: string): void {
-  const bytes = buildPreliminarPdf(data);
-  const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename ?? `levantamiento-detallado-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
-  link.click();
-  URL.revokeObjectURL(url);
+  void (async () => {
+    const logo = await fetchKucheLogoDataUrl();
+    const logoFit = await getLogoFitSizeForPdf(logo);
+    const doc = buildPreliminarJsPdf(data, logo, logoFit);
+    const bytes = new Uint8Array(doc.output("arraybuffer"));
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename ?? `levantamiento-detallado-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
+  })();
 }
 
 /** Data URL del PDF preliminar (para guardar en IndexedDB y enlazar al seguimiento). */
 export async function buildPreliminarPdfDataUrl(data: PreliminarData): Promise<string> {
-  const doc = buildPreliminarJsPdf(data);
+  const logo = await fetchKucheLogoDataUrl();
+  const logoFit = await getLogoFitSizeForPdf(logo);
+  const doc = buildPreliminarJsPdf(data, logo, logoFit);
   return doc.output("datauristring");
 }
 
@@ -520,19 +827,31 @@ export function downloadFormalPdf(data: CotizacionFormalData, filename?: string)
   downloadPreliminarPdf(data, filename);
 }
 
-/** Abre la hoja de taller guardada con la cotización formal (IndexedDB por workshopPdfKey). */
+async function getFirstStoredWorkshopPdfUrl(data: CotizacionFormalData): Promise<string | null> {
+  for (const key of resolveWorkshopPdfKeysToTry(data)) {
+    const url = await getFormalPdf(key);
+    if (url) return url;
+  }
+  return null;
+}
+
+/** Abre la hoja de taller guardada con la cotización formal (IndexedDB; prueba workshopPdfKey y clave emparejada desde formalPdfKey). */
 export function openWorkshopPdfInNewTab(data: CotizacionFormalData): void {
-  if (!data.workshopPdfKey) return;
-  getFormalPdf(data.workshopPdfKey).then((url) => {
+  if (resolveWorkshopPdfKeysToTry(data).length === 0) return;
+  void getFirstStoredWorkshopPdfUrl(data).then((url) => {
     if (url) openStoredPdfInNewTab(url);
+    else window.alert("No se encontró la hoja de taller guardada en este dispositivo.");
   });
 }
 
 /** Descarga la hoja de taller (misma tienda IndexedDB que el PDF formal). */
 export function downloadWorkshopPdf(data: CotizacionFormalData, filename?: string): void {
-  if (!data.workshopPdfKey) return;
-  getFormalPdf(data.workshopPdfKey).then((url) => {
-    if (!url) return;
+  if (resolveWorkshopPdfKeysToTry(data).length === 0) return;
+  void getFirstStoredWorkshopPdfUrl(data).then((url) => {
+    if (!url) {
+      window.alert("No se encontró la hoja de taller guardada en este dispositivo.");
+      return;
+    }
     const link = document.createElement("a");
     link.href = url;
     link.download =
