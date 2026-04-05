@@ -19,8 +19,31 @@ import {
   type TaskStage,
 } from "@/lib/kanban";
 import { generatePublicProjectCode } from "@/lib/project-code";
+import { EMPLEADO_DASHBOARD_USER as CURRENT_USER } from "@/lib/empleado-dashboard-user";
 
-const CURRENT_USER = "Valeria";
+function isAssignedToCurrentUser(t: KanbanTask): boolean {
+  return (t.assignedTo ?? []).some((n) => n === CURRENT_USER);
+}
+
+/** Alineado con “clientes en proceso”: fuera del tablero activo si ya está confirmado o descartado en contrato. */
+function taskIsEnProcesoPipeline(t: KanbanTask): boolean {
+  if (
+    t.stage === "contrato" &&
+    (t.followUpStatus === "confirmado" || t.followUpStatus === "descartado")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function taskIsConfirmado(t: KanbanTask): boolean {
+  return t.stage === "contrato" && t.followUpStatus === "confirmado";
+}
+
+/** Inactivos: descarte de seguimiento en Kanban (`followUpStatus === "descartado"`). */
+function taskIsInactivo(t: KanbanTask): boolean {
+  return t.followUpStatus === "descartado";
+}
 
 const TEAM_STORAGE_KEY = "kuche_team_members";
 const defaultTeamMembers = [
@@ -85,13 +108,20 @@ export default function EmpleadoDashboard() {
     }
   }, [refreshTrigger]);
 
+  /** Todas las tareas asignadas al empleado que tienen código (incluye confirmadas e inactivas). */
   const myTasksWithCode = useMemo(() => {
-    return kanbanTasks.filter(
-      (t) =>
-        Boolean(t.codigoProyecto?.trim()) &&
-        (t.assignedTo ?? []).some((n) => n === CURRENT_USER),
-    );
+    return kanbanTasks.filter((t) => Boolean(t.codigoProyecto?.trim()) && isAssignedToCurrentUser(t));
   }, [kanbanTasks]);
+
+  const tasksProceso = useMemo(
+    () => myTasksWithCode.filter(taskIsEnProcesoPipeline),
+    [myTasksWithCode],
+  );
+  const tasksConfirmados = useMemo(
+    () => myTasksWithCode.filter(taskIsConfirmado),
+    [myTasksWithCode],
+  );
+  const tasksInactivos = useMemo(() => myTasksWithCode.filter(taskIsInactivo), [myTasksWithCode]);
 
   const selectedPublicTask = useMemo(
     () => myTasksWithCode.find((t) => t.id === selectedPublicTaskId) ?? null,
@@ -215,6 +245,7 @@ export default function EmpleadoDashboard() {
       >
         <KanbanTablero
           filterByEmployee={viewMode === "mine" ? CURRENT_USER : null}
+          pipelineFilter={taskIsEnProcesoPipeline}
           refreshTrigger={refreshTrigger}
           teamMembers={teamMembers}
           allowDeleteTask={false}
@@ -225,7 +256,7 @@ export default function EmpleadoDashboard() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.05 }}
-        className="grid grid-cols-1 gap-6 md:grid-cols-3"
+        className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
       >
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
           <p className="text-xs uppercase tracking-[0.3em] text-secondary">Salud del día</p>
@@ -271,10 +302,38 @@ export default function EmpleadoDashboard() {
             Ver tus clientes en proceso y los PDF de cotizaciones.
           </p>
           <button
-            onClick={() => router.push("/dashboard/clientes-en-proceso")}
+            onClick={() => router.push("/dashboard/empleado/en-proceso")}
             className="mt-4 rounded-2xl border border-primary/20 bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition hover:border-primary/40"
           >
             Ver clientes
+          </button>
+        </div>
+        <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
+          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Clientes</p>
+          <h3 className="mt-2 text-xl font-semibold">Clientes confirmados</h3>
+          <p className="mt-3 text-sm text-secondary">
+            Revisa proyectos confirmados y expedientes PDF en un solo lugar.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/empleado/confirmados")}
+            className="mt-4 rounded-2xl border border-primary/20 bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition hover:border-primary/40"
+          >
+            Ver confirmados
+          </button>
+        </div>
+        <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
+          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Clientes</p>
+          <h3 className="mt-2 text-xl font-semibold">Proyectos inactivos</h3>
+          <p className="mt-3 text-sm text-secondary">
+            Consulta historial de proyectos que por ahora no continúan.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/empleado/inactivos")}
+            className="mt-4 rounded-2xl border border-primary/20 bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition hover:border-primary/40"
+          >
+            Ver inactivos
           </button>
         </div>
       </motion.section>
@@ -282,7 +341,7 @@ export default function EmpleadoDashboard() {
       <motion.section
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
+        transition={{ duration: 0.4, delay: 0.08 }}
         className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md"
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -294,23 +353,46 @@ export default function EmpleadoDashboard() {
                 : "Sin proyectos asignados con código"}
             </h3>
             <p className="mt-2 text-sm text-secondary">
-              Actualiza el estatus público (/seguimiento) solo para tareas que te están asignadas y tienen código de proyecto.
+              Actualiza el estatus público (/seguimiento) para cualquier proyecto tuyo con código
+              (en proceso, confirmado o inactivo).
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:items-end">
             {myTasksWithCode.length > 0 ? (
-              <label className="w-full text-xs font-semibold text-secondary sm:max-w-xs">
+              <label className="w-full text-xs font-semibold text-secondary sm:max-w-md">
                 Proyecto
                 <select
                   value={selectedPublicTaskId ?? ""}
                   onChange={(e) => setSelectedPublicTaskId(e.target.value || null)}
                   className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                 >
-                  {myTasksWithCode.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.codigoProyecto} · {t.project ?? t.title}
-                    </option>
-                  ))}
+                  {tasksProceso.length > 0 ? (
+                    <optgroup label="En Proceso">
+                      {tasksProceso.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.codigoProyecto} · {t.project ?? t.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  {tasksConfirmados.length > 0 ? (
+                    <optgroup label="Confirmados">
+                      {tasksConfirmados.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.codigoProyecto} · {t.project ?? t.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  {tasksInactivos.length > 0 ? (
+                    <optgroup label="Inactivos/Descartados">
+                      {tasksInactivos.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.codigoProyecto} · {t.project ?? t.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
                 </select>
               </label>
             ) : null}

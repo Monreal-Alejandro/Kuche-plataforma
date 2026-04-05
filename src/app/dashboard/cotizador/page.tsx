@@ -1058,7 +1058,7 @@ export default function CotizadorPage() {
       const base =
         existing != null
           ? (JSON.parse(existing) as Record<string, unknown>)
-          : { codigo: codigoProyecto, cliente: taskToUpdate?.project ?? "Cliente", isProspect: false };
+          : { codigo: codigoProyecto, cliente: taskToUpdate?.project ?? "Cliente" };
       const prevArchivos = Array.isArray(base.archivos) ? [...(base.archivos as object[])] : [];
       const safeId = (k: string) => k.replace(/[^a-zA-Z0-9_-]/g, "_");
       const pdfArchivos: object[] = [];
@@ -1080,7 +1080,8 @@ export default function CotizadorPage() {
         ...base,
         codigo: codigoProyecto,
         cliente: ((base.cliente as string) || taskToUpdate?.project) ?? "Cliente",
-        isProspect: false,
+        kanbanStage: taskToUpdate?.stage,
+        kanbanFollowUpStatus: taskToUpdate?.followUpStatus ?? "pendiente",
         inversion,
         fechaInicio: fechaInicioPersist,
         fechaEntrega: data.date || "Por definir",

@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { CheckCircle2 } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { seguimientoProjectStoragePrefix } from "@/lib/kanban";
+import { persistSeguimientoRecordForLocalStorage } from "@/lib/seguimiento-storage-blobs";
 import {
-  mergePagosPreservingReceipts,
   mergeSeguimientoFromStorage,
   TIMELINE_STEPS,
   type SeguimientoClienteProject,
@@ -52,6 +54,63 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+/** Objetivo por debajo del umbral de offload (~40KB) para no depender solo de IndexedDB al guardar. */
+const RECEIPT_JPEG_TARGET_MAX_LEN = 35 * 1024;
+
+function compressImageFileToJpegDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      try {
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        const maxW = 1600;
+        if (w > maxW) {
+          h = Math.round((h * maxW) / w);
+          w = maxW;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          void readFileAsDataUrl(file).then(resolve).catch(reject);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, w, h);
+        let q = 0.88;
+        let jpeg = "";
+        for (let i = 0; i < 12; i++) {
+          jpeg = canvas.toDataURL("image/jpeg", q);
+          if (jpeg.length <= RECEIPT_JPEG_TARGET_MAX_LEN || q <= 0.52) break;
+          q -= 0.07;
+        }
+        resolve(jpeg);
+      } catch {
+        void readFileAsDataUrl(file).then(resolve).catch(reject);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      void readFileAsDataUrl(file).then(resolve).catch(reject);
+    };
+    img.src = objectUrl;
+  });
+}
+
+/** PDF sin tocar; imágenes se comprimen a JPEG para el seguimiento del cliente. */
+async function readReceiptOrPdfAsStoredDataUrl(file: File): Promise<string> {
+  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+    return readFileAsDataUrl(file);
+  }
+  if (file.type.startsWith("image/")) {
+    return compressImageFileToJpegDataUrl(file);
+  }
+  return readFileAsDataUrl(file);
+}
+
 function toInputDate(isoLike: string): string {
   const t = Date.parse(isoLike);
   if (Number.isNaN(t)) return "";
@@ -60,34 +119,6 @@ function toInputDate(isoLike: string): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function mergePagosForRole(
-  base: SeguimientoPagos,
-  draft: SeguimientoPagos,
-  isAdmin: boolean,
-): SeguimientoPagos {
-  if (isAdmin) return draft;
-  return {
-    anticipo: {
-      ...base.anticipo,
-      date: draft.anticipo.date,
-      receiptImage: draft.anticipo.receiptImage,
-      receiptLabel: draft.anticipo.receiptLabel ?? base.anticipo.receiptLabel,
-    },
-    segundoPago: {
-      ...base.segundoPago,
-      date: draft.segundoPago.date,
-      receiptImage: draft.segundoPago.receiptImage,
-      receiptLabel: draft.segundoPago.receiptLabel ?? base.segundoPago.receiptLabel,
-    },
-    liquidacion: {
-      ...base.liquidacion,
-      date: draft.liquidacion.date,
-      receiptImage: draft.liquidacion.receiptImage,
-      receiptLabel: draft.liquidacion.receiptLabel ?? base.liquidacion.receiptLabel,
-    },
-  };
 }
 
 export type PublicStatusEditorModalProps = {
@@ -109,7 +140,7 @@ export function PublicStatusEditorModal({
   subtitle,
   onSaved,
 }: PublicStatusEditorModalProps) {
-  const isAdmin = role === "admin";
+  void role;
   const modalRef = useRef<HTMLDivElement | null>(null);
   /** Data URLs enormes en `draft` bloquean React/Chrome (modal “en blanco”). Se guardan fuera del estado. */
   const baselineReceiptsRef = useRef<Record<keyof SeguimientoPagos, string>>({
@@ -120,7 +151,10 @@ export function PublicStatusEditorModal({
   const pendingReceiptsRef = useRef<Partial<Record<keyof SeguimientoPagos, string>>>({});
   const [receiptTick, setReceiptTick] = useState(0);
   const [draft, setDraft] = useState<SeguimientoClienteProject | null>(null);
+  /** Solo fallo al cargar desde localStorage (bloquea el formulario). */
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** Fallo al guardar: no debe usar `loadError` o el botón Guardar queda deshabilitado y no se puede reintentar. */
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState("");
   const [newFileType, setNewFileType] = useState("pdf");
   const [newFileSrc, setNewFileSrc] = useState<string | undefined>(undefined);
@@ -132,12 +166,25 @@ export function PublicStatusEditorModal({
     segundoPago: "",
     liquidacion: "",
   });
+  /** Mini confirmación verde tras guardar (unos segundos antes de cerrar). */
+  const [saveSuccessVisible, setSaveSuccessVisible] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  useEscapeClose(open, onClose);
+  useEffect(() => {
+    return () => {
+      if (saveSuccessTimerRef.current) {
+        clearTimeout(saveSuccessTimerRef.current);
+        saveSuccessTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEscapeClose(open && !saveSuccessVisible && !isSaving, onClose);
   /** Sin focus trap aquí: Chrome + selector de archivos del SO deja la animación de Framer en opacity:0
    *  o el foco en un input sr-only y el panel parece “vacío” sin poder salir. Escape y Cerrar siguen disponibles. */
 
@@ -168,21 +215,26 @@ export function PublicStatusEditorModal({
       };
       pendingReceiptsRef.current = {};
       setReceiptTick((t) => t + 1);
+      /** Sincronizar montos ya guardados en inputs (si no, un nuevo guardado borraba anticipo con parseMoneyInput(""). */
+      const pagoTextFromAmount = (amount: number) =>
+        amount > 0 ? String(Math.max(0, Math.round(amount))) : "";
+      setPagoAmountText({
+        anticipo: pagoTextFromAmount(p.anticipo.amount),
+        segundoPago: pagoTextFromAmount(p.segundoPago.amount),
+        liquidacion: pagoTextFromAmount(p.liquidacion.amount),
+      });
       setDraft({
         ...merged,
         pagos: {
+          /** `receiptImage` vacío en estado: los data URL grandes viven en baselineReceiptsRef. Montos/fechas sí del guardado. */
           anticipo: { ...p.anticipo, receiptImage: "" },
           segundoPago: { ...p.segundoPago, receiptImage: "" },
           liquidacion: { ...p.liquidacion, receiptImage: "" },
         },
       });
       setInversionText(merged.inversion === 0 ? "" : String(merged.inversion));
-      setPagoAmountText({
-        anticipo: p.anticipo.amount === 0 ? "" : String(p.anticipo.amount),
-        segundoPago: p.segundoPago.amount === 0 ? "" : String(p.segundoPago.amount),
-        liquidacion: p.liquidacion.amount === 0 ? "" : String(p.liquidacion.amount),
-      });
       setLoadError(null);
+      setSaveError(null);
     } catch {
       setDraft(null);
       setLoadError("No se pudo leer el proyecto.");
@@ -195,9 +247,12 @@ export function PublicStatusEditorModal({
 
   const totalPagado = useMemo(() => {
     if (!draft) return 0;
-    const p = draft.pagos;
-    return p.anticipo.amount + p.segundoPago.amount + p.liquidacion.amount;
-  }, [draft]);
+    return (
+      parseMoneyInput(pagoAmountText.anticipo) +
+      parseMoneyInput(pagoAmountText.segundoPago) +
+      parseMoneyInput(pagoAmountText.liquidacion)
+    );
+  }, [draft, pagoAmountText]);
 
   const restante = useMemo(() => Math.max(0, (draft?.inversion ?? 0) - totalPagado), [draft, totalPagado]);
 
@@ -229,42 +284,42 @@ export function PublicStatusEditorModal({
     });
   };
 
-  const handleSave = () => {
-    if (typeof window === "undefined" || !draft) return;
+  const handleSave = useCallback(async () => {
+    if (typeof window === "undefined" || !draft) {
+      setSaveError("No hay datos cargados. Cierra el modal y ábrelo de nuevo.");
+      return;
+    }
+    setSaveError(null);
+    setIsSaving(true);
     try {
       const prevRaw = window.localStorage.getItem(projectKey);
-      const baseParsed = prevRaw
-        ? (JSON.parse(prevRaw) as Record<string, unknown>)
-        : ({} as Record<string, unknown>);
+      let baseParsed: Record<string, unknown>;
+      try {
+        baseParsed = prevRaw ? (JSON.parse(prevRaw) as Record<string, unknown>) : {};
+      } catch {
+        setSaveError("Los datos guardados están dañados. Recarga la página o contacta soporte.");
+        return;
+      }
       const baseMerged = mergeSeguimientoFromStorage(baseParsed);
 
-      const draftForSave: SeguimientoClienteProject =
-        isAdmin
-          ? {
-              ...draft,
-              inversion: parseMoneyInput(inversionText),
-              pagos: {
-                anticipo: {
-                  ...draft.pagos.anticipo,
-                  amount: parseMoneyInput(pagoAmountText.anticipo),
-                },
-                segundoPago: {
-                  ...draft.pagos.segundoPago,
-                  amount: parseMoneyInput(pagoAmountText.segundoPago),
-                },
-                liquidacion: {
-                  ...draft.pagos.liquidacion,
-                  amount: parseMoneyInput(pagoAmountText.liquidacion),
-                },
-              },
-            }
-          : draft;
-
-      const pagosMerged = mergePagosForRole(
-        baseMerged.pagos,
-        effectivePagosFor(draftForSave),
-        isAdmin,
-      );
+      const draftForSave: SeguimientoClienteProject = {
+        ...draft,
+        inversion: parseMoneyInput(inversionText),
+        pagos: {
+          anticipo: {
+            ...draft.pagos.anticipo,
+            amount: parseMoneyInput(pagoAmountText.anticipo),
+          },
+          segundoPago: {
+            ...draft.pagos.segundoPago,
+            amount: parseMoneyInput(pagoAmountText.segundoPago),
+          },
+          liquidacion: {
+            ...draft.pagos.liquidacion,
+            amount: parseMoneyInput(pagoAmountText.liquidacion),
+          },
+        },
+      };
 
       const next: Record<string, unknown> = {
         ...baseMerged,
@@ -273,22 +328,66 @@ export function PublicStatusEditorModal({
         cliente: draftForSave.cliente,
         etapaActual: draftForSave.etapaActual as TimelineStep,
         archivos: draftForSave.archivos,
-        pagos: pagosMerged,
+        pagos: effectivePagosFor(draftForSave),
       };
 
-      if (!isAdmin) {
-        next.estadoProyecto = baseMerged.estadoProyecto;
-        next.garantiaInicio = baseMerged.garantiaInicio;
-        next.inversion = baseMerged.inversion;
+      let persisted: Record<string, unknown>;
+      try {
+        persisted = await persistSeguimientoRecordForLocalStorage(next, codigoProyecto);
+      } catch (err) {
+        console.error(err);
+        setSaveError(
+          "No se pudieron guardar los archivos adjuntos (comprobantes o PDFs demasiado pesados). Prueba reducir el tamaño o el número de páginas.",
+        );
+        return;
       }
 
-      window.localStorage.setItem(projectKey, JSON.stringify(next));
+      let serialized: string;
+      try {
+        serialized = JSON.stringify(persisted);
+      } catch (err) {
+        console.error(err);
+        setSaveError("No se pudo serializar los datos. Revisa archivos o comprobantes muy grandes.");
+        return;
+      }
+      try {
+        window.localStorage.setItem(projectKey, serialized);
+      } catch (e) {
+        const name = e instanceof DOMException ? e.name : "";
+        if (name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED") {
+          setSaveError(
+            "No hay espacio suficiente en el navegador (comprobantes o PDFs muy pesados). Elimina archivos grandes o usa otro navegador.",
+          );
+        } else {
+          setSaveError("No se pudo guardar en el almacenamiento local. Intenta de nuevo.");
+        }
+        return;
+      }
       onSaved?.();
-      onClose();
-    } catch {
-      setLoadError("No se pudo guardar. Intenta de nuevo.");
+      if (saveSuccessTimerRef.current) {
+        clearTimeout(saveSuccessTimerRef.current);
+      }
+      setSaveSuccessVisible(true);
+      saveSuccessTimerRef.current = setTimeout(() => {
+        saveSuccessTimerRef.current = null;
+        setSaveSuccessVisible(false);
+        onClose();
+      }, 2200);
+    } catch (e) {
+      console.error(e);
+      setSaveError("No se pudo guardar. Intenta de nuevo.");
+    } finally {
+      setIsSaving(false);
     }
-  };
+  }, [
+    draft,
+    projectKey,
+    inversionText,
+    pagoAmountText,
+    effectivePagosFor,
+    onSaved,
+    onClose,
+  ]);
 
   const addArchivo = () => {
     if (!draft) return;
@@ -328,7 +427,7 @@ export function PublicStatusEditorModal({
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 px-4"
       style={{ isolation: "isolate" }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !saveSuccessVisible && !isSaving) onClose();
       }}
     >
       <div
@@ -336,10 +435,20 @@ export function PublicStatusEditorModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="public-status-editor-title"
-        className="max-h-[min(90vh,720px)] w-full max-w-lg overflow-y-auto rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl"
+        className={`flex max-h-[min(90vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl transition-opacity duration-300 ${saveSuccessVisible || isSaving ? "pointer-events-none opacity-50" : ""}`}
         style={{ color: "#111827" }}
         onClick={(e) => e.stopPropagation()}
       >
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!draft || loadError || saveSuccessVisible || isSaving) return;
+            void handleSave();
+          }}
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="flex items-start justify-between gap-3">
           <h3 id="public-status-editor-title" className="text-lg font-semibold text-gray-900">
             Editar estatus público
@@ -356,11 +465,6 @@ export function PublicStatusEditorModal({
           <p className="mt-1 text-sm font-medium text-gray-800">{subtitle}</p>
           <p className="mt-2 text-sm text-gray-600">
             Código: <span className="font-mono font-semibold">{codigoProyecto}</span>
-            {!isAdmin ? (
-              <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-800">
-                Empleado: montos y garantía solo admin
-              </span>
-            ) : null}
           </p>
           <p className="mt-2 text-sm text-gray-600">
             Cambia el paso del timeline y los datos que ve el cliente en /seguimiento.
@@ -369,6 +473,11 @@ export function PublicStatusEditorModal({
           {loadError ? (
             <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               {loadError}
+            </p>
+          ) : null}
+          {saveError ? (
+            <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              {saveError}
             </p>
           ) : null}
 
@@ -400,100 +509,68 @@ export function PublicStatusEditorModal({
                 </label>
               </div>
 
-              {isAdmin ? (
-                <>
-                  <div className="mt-4">
-                    <label className="text-xs font-semibold text-secondary">
-                      Inversión total (MXN)
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="off"
-                        value={inversionText}
-                        onChange={(e) => setInversionText(digitsOnly(e.target.value))}
-                        onBlur={() => {
-                          const n = parseMoneyInput(inversionText);
-                          setInversionText(n === 0 ? "" : String(n));
-                          setDraft((prev) => {
-                            if (!prev) return prev;
-                            const mergedPagos = mergePagosPreservingReceipts(effectivePagosFor(prev), n);
-                            const nextPagos = {
-                              anticipo: { ...mergedPagos.anticipo, receiptImage: "" },
-                              segundoPago: { ...mergedPagos.segundoPago, receiptImage: "" },
-                              liquidacion: { ...mergedPagos.liquidacion, receiptImage: "" },
-                            };
-                            requestAnimationFrame(() => {
-                              setPagoAmountText({
-                                anticipo:
-                                  mergedPagos.anticipo.amount === 0
-                                    ? ""
-                                    : String(mergedPagos.anticipo.amount),
-                                segundoPago:
-                                  mergedPagos.segundoPago.amount === 0
-                                    ? ""
-                                    : String(mergedPagos.segundoPago.amount),
-                                liquidacion:
-                                  mergedPagos.liquidacion.amount === 0
-                                    ? ""
-                                    : String(mergedPagos.liquidacion.amount),
-                              });
-                            });
-                            return { ...prev, inversion: n, pagos: nextPagos };
-                          });
-                        }}
-                        className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                      />
-                    </label>
-                    <p className="mt-1 text-[11px] text-secondary">
-                      Viene del cotizador; aquí puedes ajustarla y se redistribuyen las parcialidades
-                      conservando fechas y comprobantes ya capturados.
-                    </p>
-                  </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <label className="text-xs font-semibold text-secondary">
-                      Estado del proyecto
-                      <select
-                        value={draft.estadoProyecto}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setDraft((prev) => {
-                            if (!prev) return prev;
-                            const next = { ...prev, estadoProyecto: v };
-                            if (
-                              v === "Completado/Entregado" &&
-                              !String(prev.garantiaInicio ?? "").trim()
-                            ) {
-                              next.garantiaInicio = new Date().toISOString().slice(0, 10);
-                            }
-                            return next;
-                          });
-                        }}
-                        className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                      >
-                        <option value="En proceso">En proceso</option>
-                        <option value="Prospecto">Prospecto</option>
-                        <option value="Completado/Entregado">Completado/Entregado</option>
-                      </select>
-                    </label>
-                    <label className="text-xs font-semibold text-secondary">
-                      Inicio de garantía (entrega)
-                      <input
-                        type="date"
-                        value={toInputDate(draft.garantiaInicio)}
-                        onChange={(e) =>
-                          setDraft((prev) =>
-                            prev ? { ...prev, garantiaInicio: e.target.value || "" } : prev,
-                          )
+              <div className="mt-4">
+                <label className="text-xs font-semibold text-secondary">
+                  Inversión total (MXN)
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={inversionText}
+                    onChange={(e) => setInversionText(digitsOnly(e.target.value))}
+                    onBlur={() => {
+                      const n = parseMoneyInput(inversionText);
+                      setInversionText(n === 0 ? "" : String(n));
+                      setDraft((prev) => (prev ? { ...prev, inversion: n } : prev));
+                    }}
+                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  />
+                </label>
+                <p className="mt-1 text-[11px] text-secondary">
+                  Viene del cotizador; ajústala si hace falta. Los montos por parcialidad se capturan abajo y no se
+                  reparten solos.
+                </p>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-semibold text-secondary">
+                  Estado del proyecto
+                  <select
+                    value={draft.estadoProyecto}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDraft((prev) => {
+                        if (!prev) return prev;
+                        const next = { ...prev, estadoProyecto: v };
+                        if (v === "Completado/Entregado" && !String(prev.garantiaInicio ?? "").trim()) {
+                          next.garantiaInicio = new Date().toISOString().slice(0, 10);
                         }
-                        className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                      />
-                      <p className="mt-1 text-[10px] text-gray-500">
-                        Si pasas a «Completado/Entregado» sin fecha, se usa hoy; ajústala si hace falta.
-                      </p>
-                    </label>
-                  </div>
-                </>
-              ) : null}
+                        return next;
+                      });
+                    }}
+                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  >
+                    <option value="En proceso">En proceso</option>
+                    <option value="Prospecto">Prospecto</option>
+                    <option value="Completado/Entregado">Completado/Entregado</option>
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-secondary">
+                  Inicio de garantía (entrega)
+                  <input
+                    type="date"
+                    value={toInputDate(draft.garantiaInicio)}
+                    onChange={(e) =>
+                      setDraft((prev) =>
+                        prev ? { ...prev, garantiaInicio: e.target.value || "" } : prev,
+                      )
+                    }
+                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  />
+                  <p className="mt-1 text-[10px] text-gray-500">
+                    Si pasas a «Completado/Entregado» sin fecha, se usa hoy; ajústala si hace falta.
+                  </p>
+                </label>
+              </div>
 
               <div className="mt-5 space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
@@ -560,7 +637,9 @@ export function PublicStatusEditorModal({
                         return;
                       }
                       try {
-                        setNewFileSrc(await readFileAsDataUrl(f));
+                        setNewFileSrc(
+                          newFileType === "jpg" ? await compressImageFileToJpegDataUrl(f) : await readFileAsDataUrl(f),
+                        );
                         setNewFileName((prev) => (prev.trim() ? prev : f.name));
                       } catch {
                         setNewFileSrc(undefined);
@@ -592,9 +671,8 @@ export function PublicStatusEditorModal({
                   Pagos del cliente
                 </p>
                 <p className="mt-2 text-sm text-secondary">
-                  {isAdmin
-                    ? "Montos, fechas y comprobante por parcialidad."
-                    : "Fechas y foto/PDF de recibo. Los montos los ajusta administración."}
+                  El cliente puede pagar lo que acuerde en cada momento (no hay reparto fijo). Los montos empiezan en
+                  blanco: escribe solo lo que registras. La inversión total viene de la cotización formal arriba.
                 </p>
                 <div className="mt-4 space-y-4">
                   {(
@@ -616,17 +694,14 @@ export function PublicStatusEditorModal({
                             type="text"
                             inputMode="numeric"
                             autoComplete="off"
-                            disabled={!isAdmin}
                             value={pagoAmountText[item.key]}
                             onChange={(e) => {
-                              if (!isAdmin) return;
                               setPagoAmountText((prev) => ({
                                 ...prev,
                                 [item.key]: digitsOnly(e.target.value),
                               }));
                             }}
                             onBlur={() => {
-                              if (!isAdmin) return;
                               const n = parseMoneyInput(pagoAmountText[item.key]);
                               setPagoAmountText((prev) => ({
                                 ...prev,
@@ -634,7 +709,7 @@ export function PublicStatusEditorModal({
                               }));
                               updatePago(item.key, { amount: n });
                             }}
-                            className="mt-1 w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none disabled:bg-gray-100"
+                            className="mt-1 w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
                           />
                         </label>
                         <label className="text-[11px] font-semibold text-secondary">
@@ -665,7 +740,7 @@ export function PublicStatusEditorModal({
                               }
                               void (async () => {
                                 try {
-                                  const dataUrl = await readFileAsDataUrl(f);
+                                  const dataUrl = await readReceiptOrPdfAsStoredDataUrl(f);
                                   pendingReceiptsRef.current[item.key] = dataUrl;
                                   setReceiptTick((t) => t + 1);
                                 } catch {
@@ -709,8 +784,9 @@ export function PublicStatusEditorModal({
               </div>
             </>
           ) : null}
+          </div>
 
-          <div className="mt-6 flex gap-3">
+          <div className="pointer-events-auto relative z-20 flex shrink-0 gap-3 border-t border-gray-100 bg-white px-6 py-4">
             <button
               type="button"
               onClick={onClose}
@@ -719,17 +795,43 @@ export function PublicStatusEditorModal({
               Cancelar
             </button>
             <button
-              type="button"
-              disabled={!draft || Boolean(loadError)}
-              onClick={handleSave}
-              className="w-full rounded-2xl bg-accent py-3 text-xs font-semibold text-white disabled:opacity-50"
+              type="submit"
+              disabled={!draft || Boolean(loadError) || saveSuccessVisible || isSaving}
+              className="w-full rounded-2xl bg-accent py-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Guardar cambios
+              {isSaving ? "Guardando…" : "Guardar cambios"}
             </button>
           </div>
+        </form>
       </div>
     </div>
   );
 
-  return createPortal(modalTree, document.body);
+  return createPortal(
+    <>
+      {modalTree}
+      <AnimatePresence>
+        {saveSuccessVisible ? (
+          <motion.div
+            key="public-status-saved-toast"
+            role="status"
+            aria-live="polite"
+            initial={{ opacity: 0, y: 20, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ type: "spring", damping: 26, stiffness: 320 }}
+            className="pointer-events-none fixed bottom-10 left-1/2 z-[10001] flex w-[min(92vw,340px)] -translate-x-1/2 justify-center px-3"
+          >
+            <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3.5 shadow-lg shadow-emerald-900/15">
+              <CheckCircle2 className="h-7 w-7 shrink-0 text-emerald-600" aria-hidden strokeWidth={2.25} />
+              <span className="text-sm font-semibold leading-tight text-emerald-900">
+                Cambios guardados correctamente
+              </span>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </>,
+    document.body,
+  );
 }

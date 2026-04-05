@@ -1,4 +1,5 @@
 import type { LevantamientoDetalle } from "@/lib/levantamiento-catalog";
+import { parseDeliveryWeeksRangeFromLabel } from "@/lib/delivery-weeks";
 
 export type TaskStage = "citas" | "disenos" | "cotizacion" | "contrato";
 export type TaskStatus = "pendiente" | "completada";
@@ -87,11 +88,11 @@ export type KanbanTask = {
   cotizacionesFormales?: CotizacionFormalData[];
   /** Código para que el cliente acceda a /seguimiento (ej. K-8821). Se genera al crear la tarea. */
   codigoProyecto?: string;
-  /**
-   * Admin «Clientes confirmados»: contrato y entrega (ISO `YYYY-MM-DD`) y tipo de proyecto (texto libre).
-   */
+  /** Admin «Clientes confirmados»: fecha de contrato (ISO `YYYY-MM-DD`). */
   contractDate?: string;
+  /** Admin «Clientes confirmados»: fecha estimada de entrega manual (ISO `YYYY-MM-DD`). */
   estimatedDeliveryDate?: string;
+  /** @deprecated Tipos se leen de cotizaciones en la tarjeta. */
   projectTypeSummary?: string;
 };
 
@@ -111,7 +112,7 @@ export function getCotizacionesFormalesList(task: KanbanTask): CotizacionFormalD
   return task.cotizacionFormalData ? [task.cotizacionFormalData] : [];
 }
 
-/** Tipos de espacio únicos desde cotizaciones (formal + preliminar), para sugerencia en confirmados. */
+/** Tipos de espacio únicos desde cotizaciones (formal + preliminar). */
 export function deriveProjectTypesLabel(task: KanbanTask): string {
   const types = new Set<string>();
   for (const c of getCotizacionesFormalesList(task)) {
@@ -123,6 +124,46 @@ export function deriveProjectTypesLabel(task: KanbanTask): string {
     if (t) types.add(t);
   }
   return Array.from(types).join(", ");
+}
+
+/** Líneas para la tarjeta de confirmados: prioriza cotizaciones formales; si no hay, preliminares. */
+export function getConfirmedCardProjectLines(
+  task: KanbanTask,
+): { projectType: string; weeksLabel: string }[] {
+  const formals = getCotizacionesFormalesList(task);
+  if (formals.length > 0) {
+    return formals.map((c) => ({
+      projectType: c.projectType?.trim() || "Proyecto",
+      weeksLabel:
+        c.date?.trim() && c.date !== "—" ? c.date.trim() : "Sin plazo en cotización formal",
+    }));
+  }
+  const pre = getPreliminarList(task);
+  return pre.map((p) => ({
+    projectType: p.projectType?.trim() || "Proyecto",
+    weeksLabel:
+      p.date?.trim() && p.date !== "—" ? p.date.trim() : "Sin plazo en cotización",
+  }));
+}
+
+/** Rango global de semanas (min/máx) a partir de todas las cotizaciones con texto de semanas. */
+export function getAggregatedDeliveryWeeksFromTask(task: KanbanTask): { min: number; max: number } | null {
+  const ranges: { min: number; max: number }[] = [];
+  for (const c of getCotizacionesFormalesList(task)) {
+    const r = parseDeliveryWeeksRangeFromLabel(c.date || "");
+    if (r) ranges.push(r);
+  }
+  if (ranges.length === 0) {
+    for (const p of getPreliminarList(task)) {
+      const r = parseDeliveryWeeksRangeFromLabel(p.date || "");
+      if (r) ranges.push(r);
+    }
+  }
+  if (ranges.length === 0) return null;
+  return {
+    min: Math.min(...ranges.map((x) => x.min)),
+    max: Math.max(...ranges.map((x) => x.max)),
+  };
 }
 
 export const kanbanColumns = [
@@ -220,6 +261,29 @@ function stripAllPreliminarLevantamiento(tasks: KanbanTask[]): KanbanTask[] {
  * Persiste tareas en localStorage recortando datos pesados. Reintenta con estrategias más agresivas si se excede la cuota.
  * La UI puede seguir teniendo `files[].src` en memoria hasta recargar; no muta el arreglo recibido.
  */
+/** Mantiene `kanbanStage` / `kanbanFollowUpStatus` en cada `kuche_project_*` para `/seguimiento`. */
+function syncSeguimientoKanbanSnapshotForTasks(tasks: KanbanTask[]): void {
+  if (typeof window === "undefined") return;
+  for (const task of tasks) {
+    const code = task.codigoProyecto?.trim();
+    if (!code) continue;
+    const key = `${seguimientoProjectStoragePrefix}${code}`;
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const next: Record<string, unknown> = {
+        ...parsed,
+        kanbanStage: task.stage,
+        kanbanFollowUpStatus: task.followUpStatus ?? "pendiente",
+      };
+      window.localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export function saveKanbanTasksToLocalStorage(tasks: KanbanTask[]): boolean {
   if (typeof window === "undefined") return false;
   const attempts: (() => KanbanTask[])[] = [
@@ -231,6 +295,7 @@ export function saveKanbanTasksToLocalStorage(tasks: KanbanTask[]): boolean {
     try {
       const payload = build();
       window.localStorage.setItem(kanbanStorageKey, JSON.stringify(payload));
+      syncSeguimientoKanbanSnapshotForTasks(payload);
       return true;
     } catch (e) {
       if (!isQuotaExceededError(e)) {

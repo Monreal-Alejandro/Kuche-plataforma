@@ -257,6 +257,8 @@ const autoAdvanceCompletedTasks = (tasks: KanbanTask[]): KanbanTask[] => {
 export type KanbanTableroProps = {
   /** Filtrar por nombre de empleado. null = ver todo, string = solo ese empleado. */
   filterByEmployee?: string | null;
+  /** Filtro adicional (ej. solo pipeline “en proceso” en dashboard empleado). */
+  pipelineFilter?: (task: KanbanTask) => boolean;
   /** Incrementar para forzar re-lectura desde localStorage (ej. tras crear tarea). */
   refreshTrigger?: number;
   /** Lista de integrantes para reasignar desde el detalle. */
@@ -268,7 +270,14 @@ export type KanbanTableroProps = {
 };
 
 export function KanbanTablero(props: KanbanTableroProps = {}) {
-  const { filterByEmployee, refreshTrigger = 0, teamMembers, allowDeleteTask = true, onAfterDiscard } = props;
+  const {
+    filterByEmployee,
+    pipelineFilter,
+    refreshTrigger = 0,
+    teamMembers,
+    allowDeleteTask = true,
+    onAfterDiscard,
+  } = props;
   const router = useRouter();
   const [viewMode, setViewMode] = useState<"all" | "mine">("all");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -486,19 +495,27 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   }, []);
 
   const filteredTasks = useMemo(() => {
+    let list: KanbanTask[];
     if (filterByEmployee !== undefined) {
-      if (filterByEmployee === null || filterByEmployee === "") return kanbanTasks;
-      return kanbanTasks.filter((task) =>
-        Array.isArray(task.assignedTo) ? task.assignedTo.includes(filterByEmployee) : false,
-      );
-    }
-    if (viewMode === "mine") {
-      return kanbanTasks.filter((task) =>
+      if (filterByEmployee === null || filterByEmployee === "") {
+        list = kanbanTasks;
+      } else {
+        list = kanbanTasks.filter((task) =>
+          Array.isArray(task.assignedTo) ? task.assignedTo.includes(filterByEmployee) : false,
+        );
+      }
+    } else if (viewMode === "mine") {
+      list = kanbanTasks.filter((task) =>
         Array.isArray(task.assignedTo) ? task.assignedTo.includes(currentUser) : false,
       );
+    } else {
+      list = kanbanTasks;
     }
-    return kanbanTasks;
-  }, [kanbanTasks, viewMode, filterByEmployee]);
+    if (pipelineFilter) {
+      list = list.filter(pipelineFilter);
+    }
+    return list;
+  }, [kanbanTasks, viewMode, filterByEmployee, pipelineFilter]);
 
   const updateTask = (taskId: string, updater: (task: KanbanTask) => KanbanTask) => {
     setKanbanTasks((prev) =>

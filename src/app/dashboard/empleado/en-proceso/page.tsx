@@ -8,6 +8,7 @@ import { kanbanStorageKey, type KanbanTask } from "@/lib/kanban";
 import { ClientDocuments } from "@/components/admin/ClientDocuments";
 import { splitIntoColumns } from "@/lib/split-into-columns";
 import { useClientCardColumns } from "@/hooks/useClientCardColumns";
+import { EMPLEADO_DASHBOARD_USER } from "@/lib/empleado-dashboard-user";
 
 const stageLabel: Record<string, string> = {
   citas: "Citas",
@@ -16,22 +17,17 @@ const stageLabel: Record<string, string> = {
   contrato: "Seguimiento",
 };
 
-function getTasksInProgress(tasks: KanbanTask[], filterByUser: string | null): KanbanTask[] {
-  const inProgress = tasks.filter((task) => {
+/** Excluye seguimiento ya confirmado o descartado; luego solo tareas asignadas al empleado. */
+function getTasksInProgressForEmpleado(tasks: KanbanTask[], empleado: string): KanbanTask[] {
+  return tasks.filter((task) => {
     if (task.stage === "contrato" && (task.followUpStatus === "confirmado" || task.followUpStatus === "descartado")) {
       return false;
     }
-    return true;
+    return Array.isArray(task.assignedTo) && task.assignedTo.includes(empleado);
   });
-  if (filterByUser) {
-    return inProgress.filter((task) =>
-      Array.isArray(task.assignedTo) ? task.assignedTo.includes(filterByUser) : false,
-    );
-  }
-  return inProgress;
 }
 
-export default function AdminClientesEnProcesoPage() {
+export default function EmpleadoClientesEnProcesoPage() {
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [selectedClient, setSelectedClient] = useState<KanbanTask | null>(null);
@@ -48,7 +44,11 @@ export default function AdminClientesEnProcesoPage() {
     setIsHydrated(true);
   }, []);
 
-  const inProgress = getTasksInProgress(tasks, null);
+  const inProgress = useMemo(
+    () => getTasksInProgressForEmpleado(tasks, EMPLEADO_DASHBOARD_USER),
+    [tasks],
+  );
+
   const columnCount = useClientCardColumns(3);
   const taskColumns = useMemo(() => {
     if (inProgress.length === 0) return [];
@@ -80,11 +80,11 @@ export default function AdminClientesEnProcesoPage() {
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
           <Link
-            href="/admin"
+            href="/dashboard/empleado"
             className="inline-flex items-center gap-2 text-sm text-secondary hover:text-primary"
           >
             <ArrowLeft className="h-4 w-4" />
-            Volver al panel
+            Regresar
           </Link>
         </div>
 
@@ -98,12 +98,12 @@ export default function AdminClientesEnProcesoPage() {
               <User className="h-6 w-6 text-sky-600" />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Administración</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Dashboard Empleado</p>
               <h1 className="text-2xl font-semibold text-gray-900">Clientes en proceso</h1>
             </div>
           </div>
           <p className="ml-15 mt-2 text-sm text-secondary">
-            Todos los clientes que aun no han confirmado o descartado.
+            Tus proyectos activos (sin confirmar ni descartar en seguimiento). Solo ves lo asignado a ti.
           </p>
         </motion.div>
 
@@ -119,7 +119,9 @@ export default function AdminClientesEnProcesoPage() {
                 <User className="h-8 w-8 text-gray-400" />
               </div>
               <p className="mt-4 text-lg font-medium text-gray-900">No hay clientes en proceso</p>
-              <p className="mt-2 text-sm text-secondary">Cuando haya clientes activos en el embudo, aparecerán aquí.</p>
+              <p className="mt-2 text-sm text-secondary">
+                Cuando tengas clientes activos asignados, aparecerán aquí.
+              </p>
             </div>
           ) : (
             <div className="flex flex-col gap-4 md:flex-row md:items-start">
@@ -179,7 +181,7 @@ export default function AdminClientesEnProcesoPage() {
           className="mt-8 rounded-2xl bg-sky-50 px-6 py-4"
         >
           <p className="text-sm text-sky-900">
-            <strong>Total de clientes en proceso:</strong> {inProgress.length}
+            <strong>Total de clientes en proceso (tus asignaciones):</strong> {inProgress.length}
           </p>
         </motion.div>
       </div>
@@ -203,7 +205,7 @@ export default function AdminClientesEnProcesoPage() {
             <motion.div
               role="dialog"
               aria-modal="true"
-              aria-labelledby="en-proceso-expediente-title"
+              aria-labelledby="empleado-en-proceso-expediente-title"
               className="flex h-full w-full max-w-lg shrink-0 flex-col overflow-y-auto bg-white shadow-2xl"
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
@@ -213,7 +215,7 @@ export default function AdminClientesEnProcesoPage() {
             >
               <div className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
                 <div className="min-w-0">
-                  <p id="en-proceso-expediente-title" className="text-lg font-semibold text-gray-900">
+                  <p id="empleado-en-proceso-expediente-title" className="text-lg font-semibold text-gray-900">
                     Expediente
                   </p>
                   <p className="mt-1 break-words text-sm font-medium text-primary">{selectedClient.project}</p>
@@ -228,7 +230,7 @@ export default function AdminClientesEnProcesoPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedClient(null)}
-                  className="rounded-xl p-2 text-secondary hover:bg-gray-100 hover:text-gray-900"
+                  className="relative z-10 rounded-xl p-2 text-secondary hover:bg-gray-100 hover:text-gray-900"
                   aria-label="Cerrar"
                 >
                   <X className="h-5 w-5" />

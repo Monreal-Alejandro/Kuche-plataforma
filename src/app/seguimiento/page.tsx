@@ -1,160 +1,28 @@
- "use client";
+"use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, CheckCircle2, Download, FileText, Image as ImageIcon } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
-import type { CotizacionFormalData, PreliminarData } from "@/lib/kanban";
+import { kanbanStorageKey, type KanbanTask } from "@/lib/kanban";
 import {
-  openPreliminarPdfInNewTab,
-  downloadPreliminarPdf,
-  openFormalPdfInNewTab,
-  downloadFormalPdf,
-  openPdfFromIndexedKey,
-} from "@/lib/pdf-preliminar";
-import {
-  isPagoRegistrado,
   mergeSeguimientoFromStorage,
-  TIMELINE_STEPS,
-  type SeguimientoClienteProject,
+  enrichSeguimientoParsedWithKanbanIfMissing,
 } from "@/lib/seguimiento-project";
-
-const normalizeText = (value: string) =>
-  value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-
-const getPdfButtonPrimaryLabelFromFileName = (fileName: string) => {
-  const n = normalizeText(fileName);
-  if (n.includes("levantamiento detallado")) return "Ver Levantamiento Detallado";
-  if (n.includes("cotizacion formal")) return "Ver cotización formal";
-  return "Ver PDF";
-};
-
-const getPdfButtonSecondaryFromFileName = (fileName: string) => {
-  // Ej: "Levantamiento detallado — Cocina.pdf" => "Cocina"
-  const raw = fileName.replace(/\.pdf$/i, "").trim();
-  const parts = raw.split("—");
-  if (parts.length >= 2) return parts[parts.length - 1].trim();
-  const dashParts = raw.split("-");
-  if (dashParts.length >= 2) return dashParts[dashParts.length - 1].trim();
-  return "";
-};
-
-/** CTAs compactos: un cliente puede tener varias cotizaciones en la misma tarjeta. */
-const inversionPdfCtaPrimaryClass =
-  "inline-flex max-w-full items-center justify-center rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold leading-tight text-white shadow-sm ring-1 ring-black/5 transition hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
-const inversionPdfCtaSecondaryClass =
-  "inline-flex items-center justify-center rounded-full border border-primary/15 bg-white px-2.5 py-1 text-[11px] font-semibold leading-tight text-primary shadow-sm transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent";
-/** Una cotización: tipo + etiqueta + botones en la misma fila. */
-const inversionPdfQuoteRowClass =
-  "flex flex-row flex-wrap items-center gap-1.5 rounded-lg border border-primary/10 bg-primary/[0.02] px-2 py-1 sm:gap-2 sm:px-2.5";
-
-type SeguimientoArchivo = {
-  id: string;
-  name: string;
-  type: string;
-  src?: string;
-  /** PDF guardado en IndexedDB (levantamiento, formal o taller). */
-  indexedPdfKey?: string;
-};
-
-/** Proyecto guardado para seguimiento (localStorage + normalización). */
-type SeguimientoProject = SeguimientoClienteProject & {
-  preliminarData?: PreliminarData;
-  cotizacionFormalData?: CotizacionFormalData;
-  preliminarCotizaciones?: PreliminarData[];
-  cotizacionesFormales?: CotizacionFormalData[];
-};
-
-function getPreliminarListFromProject(p: SeguimientoProject): PreliminarData[] {
-  if (p.preliminarCotizaciones && p.preliminarCotizaciones.length > 0) return p.preliminarCotizaciones;
-  return p.preliminarData ? [p.preliminarData] : [];
-}
-
-function getFormalesListFromProject(p: SeguimientoProject): CotizacionFormalData[] {
-  if (p.cotizacionesFormales && p.cotizacionesFormales.length > 0) return p.cotizacionesFormales;
-  return p.cotizacionFormalData ? [p.cotizacionFormalData] : [];
-}
-
-type PaymentStepAlert = {
-  step: string;
-  label: string;
-  status: "paid" | "pending";
-  tooltip: string;
-};
+import { ConfirmedDashboard } from "./ConfirmedDashboard";
+import { ProspectDashboard } from "./ProspectDashboard";
+import type { SeguimientoProject } from "./lib";
 
 /** Evita null en hooks antes de cargar proyecto con código. */
 const VOID_SEGUIMIENTO = mergeSeguimientoFromStorage({ codigo: "", cliente: "" });
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("es-MX", {
-    style: "currency",
-    currency: "MXN",
-    maximumFractionDigits: 0,
-  }).format(value);
-
-const installments = [
-  { key: "anticipo", label: "Anticipo" },
-  { key: "segundoPago", label: "2do pago" },
-  { key: "liquidacion", label: "Liquidación" },
-] as const;
-
-const formatPayment = (payment: { amount: number; date?: string }) => {
-  const formatted = formatCurrency(payment.amount);
-  if (payment.date?.trim()) return `${formatted} · ${payment.date}`;
-  if (payment.amount > 0) return `${formatted} · programado`;
-  return formatted;
-};
-
-const GarantiaCountdown = ({ startDate }: { startDate: string }) => {
-  const msInDay = 1000 * 60 * 60 * 24;
-  const daysLeft = useMemo(() => {
-    const t = Date.parse(startDate);
-    if (Number.isNaN(t)) return null;
-    const start = new Date(t);
-    const today = new Date();
-    const daysPassed = Math.floor((today.getTime() - start.getTime()) / msInDay);
-    return Math.max(0, 365 - daysPassed);
-  }, [startDate]);
-
-  if (daysLeft === null) {
-    return (
-      <div className="rounded-3xl border border-primary/10 bg-white p-6 text-sm text-secondary shadow-lg">
-        Registra la fecha de inicio de garantía cuando el proyecto quede entregado para ver los días
-        restantes.
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-3xl bg-gradient-to-br from-accent/10 via-white to-white p-6 shadow-lg">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Garantía activa</p>
-          <h3 className="mt-2 text-2xl font-semibold text-primary">
-            Te quedan {daysLeft} días de cobertura
-          </h3>
-          <p className="mt-2 text-sm text-secondary">
-            Estamos contigo durante el primer año después de la entrega.
-          </p>
-        </div>
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent text-white shadow-lg">
-          <span className="text-xl font-semibold">{daysLeft}</span>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 export default function SeguimientoPage() {
   const [codigo, setCodigo] = useState("");
   const [hasAccess, setHasAccess] = useState(false);
   const [project, setProject] = useState<SeguimientoProject | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
-  const [selectedImage, setSelectedImage] = useState<null | { name: string; src: string }>(
-    null,
-  );
+  const [selectedImage, setSelectedImage] = useState<null | { name: string; src: string }>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
 
   useEscapeClose(Boolean(selectedImage), () => setSelectedImage(null));
@@ -162,77 +30,8 @@ export default function SeguimientoPage() {
 
   const currentProject = project ?? VOID_SEGUIMIENTO;
   const isProspect = currentProject.isProspect;
-  const currentIndex = useMemo(
-    () => Math.max(0, TIMELINE_STEPS.indexOf(currentProject.etapaActual)),
-    [currentProject.etapaActual],
-  );
-  const paymentByStep = useMemo(() => {
-    const { pagos } = currentProject;
-    const alerts: PaymentStepAlert[] = [
-      {
-        step: "Diseño Aprobado",
-        label: "Anticipo",
-        status: isPagoRegistrado(pagos.anticipo) ? "paid" : "pending",
-        tooltip: isPagoRegistrado(pagos.anticipo)
-          ? "Pago recibido. Gracias por impulsar tu proyecto."
-          : "Pendiente: anticipo. Coordina con el equipo Küche.",
-      },
-      {
-        step: "Corte CNC",
-        label: "2do pago",
-        status: isPagoRegistrado(pagos.segundoPago) ? "paid" : "pending",
-        tooltip: isPagoRegistrado(pagos.segundoPago)
-          ? "Segundo pago registrado."
-          : "Recordatorio: segundo pago. Tu proyecto sigue avanzando.",
-      },
-      {
-        step: "Instalación Final",
-        label: "Liquidación",
-        status: isPagoRegistrado(pagos.liquidacion) ? "paid" : "pending",
-        tooltip: isPagoRegistrado(pagos.liquidacion)
-          ? "Liquidación registrada."
-          : "Recordatorio: liquidación pendiente al cierre de obra.",
-      },
-    ];
-    return alerts.reduce<Record<string, PaymentStepAlert>>((acc, a) => {
-      acc[a.step] = a;
-      return acc;
-    }, {});
-  }, [currentProject.pagos]);
-  const timelineProgressPct = useMemo(() => {
-    const max = TIMELINE_STEPS.length - 1;
-    if (max <= 0) return 0;
-    return (currentIndex / max) * 100;
-  }, [currentIndex]);
-  const garantiaFechaValida =
-    typeof currentProject.garantiaInicio === "string" &&
-    currentProject.garantiaInicio.trim().length > 0 &&
-    !Number.isNaN(Date.parse(currentProject.garantiaInicio));
-  const totalPagado =
-    (isPagoRegistrado(currentProject.pagos.anticipo) ? currentProject.pagos.anticipo.amount : 0) +
-    (isPagoRegistrado(currentProject.pagos.segundoPago) ? currentProject.pagos.segundoPago.amount : 0) +
-    (isPagoRegistrado(currentProject.pagos.liquidacion) ? currentProject.pagos.liquidacion.amount : 0);
-  const restante = Math.max(0, currentProject.inversion - totalPagado);
-  const infoLockedText = "Esta información se activará una vez apruebes tu proyecto.";
-  /** Incluye PDFs enlazados al terminar levantamiento (prospecto) o cotización formal + taller. */
-  /** La hoja de taller no se muestra al cliente; solo formal y levantamiento. */
-  const filesInSections = useMemo(() => {
-    const all = currentProject.archivos ?? [];
-    return all.filter((file) => {
-      const f = file as SeguimientoArchivo;
-      if (typeof f.indexedPdfKey === "string" && f.indexedPdfKey.startsWith("workshop-")) {
-        return false;
-      }
-      if (normalizeText(f.name).includes("hoja de taller")) return false;
-      return true;
-    });
-  }, [currentProject.archivos]);
-  const quoteButtonLabel = isProspect
-    ? "Ver Levantamiento Detallado"
-    : "Ver cotización formal";
-  const quoteImageSrc = isProspect
-    ? String(currentProject.cotizacionPreliminarImage ?? "")
-    : String(currentProject.cotizacionFormalImage ?? "");
+
+  const openImage = (name: string, src: string) => setSelectedImage({ name, src });
 
   return (
     <main className="min-h-screen bg-background text-primary">
@@ -272,7 +71,15 @@ export default function SeguimientoPage() {
                         return;
                       }
                       const parsed = JSON.parse(stored) as Record<string, unknown>;
-                      setProject(mergeSeguimientoFromStorage(parsed) as SeguimientoProject);
+                      let tasks: KanbanTask[] = [];
+                      try {
+                        const kt = window.localStorage.getItem(kanbanStorageKey);
+                        if (kt) tasks = JSON.parse(kt) as KanbanTask[];
+                      } catch {
+                        tasks = [];
+                      }
+                      const enriched = enrichSeguimientoParsedWithKanbanIfMissing(parsed, tasks);
+                      setProject(mergeSeguimientoFromStorage(enriched) as SeguimientoProject);
                       setHasAccess(true);
                       setCodeError(null);
                     } catch {
@@ -313,360 +120,11 @@ export default function SeguimientoPage() {
               transition={{ duration: 0.4 }}
               className="space-y-10"
             >
-              <section className="space-y-6">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.3em] text-secondary">Seguimiento</p>
-                  <h1 className="mt-2 text-3xl font-semibold">
-                    Proyecto Residencial {currentProject.cliente}
-                  </h1>
-                </div>
-                <div className="grid items-start gap-4 md:grid-cols-3">
-                  {[
-                    {
-                      label: "Inversión total",
-                      value:
-                        currentProject.inversion > 0
-                          ? formatCurrency(currentProject.inversion)
-                          : "Por definir",
-                      extra: (
-                        <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-secondary">
-                          <span className="rounded-full bg-primary/5 px-3 py-1">
-                            Pagado{" "}
-                            <span className="font-semibold text-primary">
-                              {formatCurrency(totalPagado)}
-                            </span>
-                          </span>
-                          <span className="rounded-full bg-accent/10 px-3 py-1 text-accent">
-                            Restante {formatCurrency(restante)}
-                          </span>
-                        </div>
-                      ),
-                    },
-                    { label: "Fecha inicio", value: currentProject.fechaInicio },
-                    {
-                      label: "Entrega estimada",
-                      value: currentProject.fechaEntrega,
-                      highlight: true,
-                    },
-                  ].map((item) => {
-                    const valueNode = (() => {
-                      if (!isProspect) return item.value;
-                      if (item.label === "Inversión total") return item.value;
-                      if (item.label === "Fecha inicio" || item.label === "Entrega estimada") {
-                        const v = String(item.value ?? "");
-                        if (v.trim() && v !== "Por definir") return v;
-                      }
-                      return (
-                        <span className="mt-3 inline-flex rounded-2xl bg-primary/5 px-3 py-2 text-xs font-semibold text-secondary">
-                          {infoLockedText}
-                        </span>
-                      );
-                    })();
-                    return (
-                    <div
-                      key={item.label}
-                      className={`rounded-3xl bg-white p-6 shadow-lg ${
-                        item.highlight ? "border border-accent/40" : "border border-white"
-                      }`}
-                    >
-                      <p className="text-xs uppercase tracking-[0.2em] text-secondary">{item.label}</p>
-                      {item.label === "Inversión total" ? (
-                        (() => {
-                          const proj = currentProject as SeguimientoProject;
-                          const preliminarList = getPreliminarListFromProject(proj);
-                          const formalesList = getFormalesListFromProject(proj);
-                          const hasPdfData = isProspect ? preliminarList.length > 0 : formalesList.length > 0;
-                          const list = isProspect ? preliminarList : formalesList;
-                          const prefix = isProspect ? "levantamiento-detallado" : "cotizacion-formal";
-                          if (hasPdfData && list.length > 0) {
-                            const kindLabel = isProspect
-                              ? "Levantamiento detallado"
-                              : "Cotización formal";
-                            return (
-                              <div className="mt-3 flex w-full flex-row flex-wrap items-center gap-2">
-                                {list.map((data, idx) => {
-                                  const filename = `${prefix}-${(data.projectType || "proyecto").replace(/\s+/g, "-")}-${(currentProject.cliente || "cliente").replace(/\s+/g, "-")}.pdf`;
-                                  return (
-                                    <div key={idx} className={inversionPdfQuoteRowClass}>
-                                      <span className="text-[11px] font-semibold text-primary whitespace-nowrap">
-                                        {data.projectType}
-                                      </span>
-                                      <span className="text-[10px] font-semibold leading-tight text-secondary/80 sm:whitespace-nowrap">
-                                        {kindLabel}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        className={inversionPdfCtaPrimaryClass}
-                                        aria-label={
-                                          list.length === 1 && isProspect ? quoteButtonLabel : undefined
-                                        }
-                                        onClick={() =>
-                                          isProspect
-                                            ? openPreliminarPdfInNewTab(data)
-                                            : openFormalPdfInNewTab(data as CotizacionFormalData)
-                                        }
-                                      >
-                                        Ver PDF
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className={inversionPdfCtaSecondaryClass}
-                                        onClick={() =>
-                                          isProspect
-                                            ? downloadPreliminarPdf(data, filename)
-                                            : downloadFormalPdf(data as CotizacionFormalData, filename)
-                                        }
-                                      >
-                                        Descargar
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            );
-                          }
-                          return quoteImageSrc.trim() ? (
-                            <div className="mt-4 flex w-full justify-center">
-                              <button
-                                type="button"
-                                className={inversionPdfCtaPrimaryClass}
-                                onClick={() => {
-                                  setSelectedImage({
-                                    name: quoteButtonLabel,
-                                    src: quoteImageSrc,
-                                  });
-                                }}
-                              >
-                                {quoteButtonLabel}
-                              </button>
-                            </div>
-                          ) : (
-                            <p className="mt-3 text-xs text-secondary">
-                              Cuando el equipo adjunte la vista previa, podrás verla aquí.
-                            </p>
-                          );
-                        })()
-                      ) : null}
-                      {isProspect ? (
-                        valueNode
-                      ) : (
-                        <p
-                          className={`mt-3 text-xl font-semibold ${
-                            item.highlight ? "text-accent" : "text-primary"
-                          }`}
-                        >
-                          {valueNode}
-                        </p>
-                      )}
-                      {!isProspect && "extra" in item ? item.extra : null}
-                    </div>
-                    );
-                  })}
-                </div>
-                {currentProject.inversion > 0 ? (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    {installments.map((item) => {
-                      const payment = currentProject.pagos[item.key];
-                      const hasRecibo =
-                        typeof payment.receiptImage === "string" &&
-                        payment.receiptImage.trim().length > 2;
-                      return (
-                        <div
-                          key={item.key}
-                          className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                              {item.label}
-                            </p>
-                            <button
-                              type="button"
-                              disabled={!hasRecibo}
-                              className={`rounded-full border px-3 py-1 text-[10px] font-semibold transition ${
-                                hasRecibo
-                                  ? "border-primary/10 text-primary hover:border-accent hover:text-accent"
-                                  : "cursor-not-allowed border-primary/5 text-secondary/50"
-                              }`}
-                              onClick={() => {
-                                if (hasRecibo) {
-                                  setSelectedImage({
-                                    name: `${item.label} - Recibo`,
-                                    src: payment.receiptImage as string,
-                                  });
-                                }
-                              }}
-                            >
-                              {hasRecibo ? (payment.receiptLabel ?? "Ver recibo") : "Sin recibo"}
-                            </button>
-                          </div>
-                          <p className="mt-2 text-sm font-semibold text-primary">
-                            {formatPayment(payment)}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary">
-                    {isProspect
-                      ? "Los montos de pago aparecerán cuando tengamos una inversión estimada o formal."
-                      : "Aún no hay inversión registrada en tu proyecto."}
-                  </div>
-                )}
-                <div className="mt-6 rounded-3xl border border-primary/10 bg-white p-6">
-                  <p className="text-xs uppercase tracking-[0.3em] text-secondary">Archivos</p>
-                  <div className="mt-4 flex flex-wrap justify-center gap-3">
-                    {filesInSections.length === 0 ? (
-                      <p className="w-full text-center text-sm text-secondary">
-                        Aún no hay archivos compartidos en tu expediente.
-                      </p>
-                    ) : null}
-                    {filesInSections.map((file) => {
-                      const f = file as SeguimientoArchivo;
-                      const primary = f.type === "pdf" ? getPdfButtonPrimaryLabelFromFileName(f.name) : "";
-                      const secondary =
-                        f.type === "pdf" ? getPdfButtonSecondaryFromFileName(f.name) : "";
-                      const canOpenFile =
-                        f.type === "pdf"
-                          ? Boolean(f.indexedPdfKey || f.src?.trim())
-                          : Boolean(f.src?.trim());
-                      return (
-                      <button
-                        key={f.id}
-                        type="button"
-                        disabled={!canOpenFile}
-                        title={!canOpenFile ? "Archivo no adjunto aún" : undefined}
-                        className="inline-flex items-center gap-2 rounded-full border border-primary/10 px-4 py-2 text-xs font-semibold text-primary transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-primary/10 disabled:hover:text-primary"
-                        onClick={() => {
-                          if (f.type === "pdf") {
-                            if (f.indexedPdfKey) {
-                              openPdfFromIndexedKey(f.indexedPdfKey);
-                              return;
-                            }
-                            if (f.src?.trim()) {
-                              window.open(f.src, "_blank", "noopener,noreferrer");
-                            }
-                            return;
-                          }
-                          if (f.type === "jpg" && f.src?.trim()) {
-                            setSelectedImage({
-                              name: f.name,
-                              src: f.src,
-                            });
-                          }
-                        }}
-                      >
-                        {f.type === "pdf" ? (
-                          <FileText className="h-4 w-4" />
-                        ) : (
-                          <ImageIcon className="h-4 w-4" />
-                        )}
-                        {f.type === "pdf" ? (
-                          <span className="flex flex-col items-start leading-4">
-                            <span className="leading-4">{primary}</span>
-                            {secondary ? (
-                              <span className="text-[10px] font-semibold text-secondary/80">
-                                {secondary}
-                              </span>
-                            ) : null}
-                          </span>
-                        ) : (
-                          f.name
-                        )}
-                      </button>
-                    );
-                    })}
-                  </div>
-                </div>
-              </section>
-
-              <section
-                className={`rounded-3xl bg-white p-8 shadow-lg ${
-                  isProspect ? "opacity-60" : ""
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.3em] text-secondary">Timeline</p>
-                    <h2 className="mt-2 text-2xl font-semibold">Progreso de tu cocina</h2>
-                  </div>
-                  <span className="rounded-full bg-accent/10 px-4 py-2 text-xs font-semibold text-accent">
-                    {currentProject.etapaActual}
-                  </span>
-                </div>
-                <div className="mt-8">
-                  <div className="relative h-2 rounded-full bg-primary/10">
-                    <div
-                      className="absolute left-0 top-0 h-2 rounded-full bg-accent"
-                      style={{ width: `${timelineProgressPct}%` }}
-                    />
-                  </div>
-                  <div className="mt-6 grid grid-cols-5 gap-2 text-center text-xs text-secondary">
-                    {TIMELINE_STEPS.map((step, index) => {
-                      const isCompleted = index <= currentIndex;
-                      const isActive = index === currentIndex;
-                      const payment = paymentByStep[step];
-                      return (
-                        <div key={step} className="flex flex-col items-center gap-3">
-                          <div className="relative flex h-5 w-5 items-center justify-center">
-                            <span
-                              className={`h-3 w-3 rounded-full ${
-                                isCompleted ? "bg-accent" : "bg-primary/20"
-                              }`}
-                            />
-                            {isActive ? (
-                              <motion.span
-                                className="absolute h-5 w-5 rounded-full border border-accent"
-                                animate={{ scale: [1, 1.4, 1], opacity: [0.8, 0, 0.8] }}
-                                transition={{ duration: 1.6, repeat: Infinity }}
-                              />
-                            ) : null}
-                          </div>
-                          <span className={isActive ? "font-semibold text-primary" : ""}>{step}</span>
-                          {payment ? (
-                            <div
-                              className={`group relative mt-1 flex items-center gap-2 rounded-full px-2 py-1 text-[10px] font-semibold ${
-                                payment.status === "pending"
-                                  ? "animate-[pulse_3.5s_ease-in-out_infinite] bg-amber-50 text-amber-500"
-                                  : "bg-accent/10 text-accent"
-                              }`}
-                              aria-label={payment.tooltip}
-                              title={payment.tooltip}
-                            >
-                              {payment.status === "pending" ? (
-                                <Bell className="h-3.5 w-3.5" />
-                              ) : (
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                              )}
-                              <span>{payment.label}</span>
-                              {payment.status === "pending" ? (
-                                <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-primary px-3 py-1 text-[10px] font-medium text-white opacity-0 transition group-hover:opacity-100">
-                                  {payment.tooltip}
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </section>
               {isProspect ? (
-                <div className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary">
-                  El seguimiento se activará cuando apruebes el inicio de tu proyecto.
-                </div>
-              ) : null}
-
-              {isProspect ? (
-                <div className="rounded-2xl border border-primary/10 bg-white p-4 text-xs text-secondary">
-                  La garantía se activará una vez completemos tu proyecto.
-                </div>
-              ) : currentProject.estadoProyecto === "Completado/Entregado" && garantiaFechaValida ? (
-                <section>
-                  <GarantiaCountdown startDate={currentProject.garantiaInicio} />
-                </section>
-              ) : null}
+                <ProspectDashboard project={currentProject} onOpenImage={openImage} />
+              ) : (
+                <ConfirmedDashboard project={currentProject} onOpenImage={openImage} />
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -700,4 +158,3 @@ export default function SeguimientoPage() {
     </main>
   );
 }
-

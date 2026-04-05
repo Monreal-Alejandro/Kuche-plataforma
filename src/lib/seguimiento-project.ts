@@ -2,6 +2,64 @@
  * Modelo y utilidades del proyecto de seguimiento del cliente (`kuche_project_${codigo}` en localStorage).
  */
 
+import type { KanbanTask } from "@/lib/kanban";
+
+/** Orden del embudo en el tablero. Las etapas que se añadan después de `contrato` deben ir al final. */
+export const KANBAN_PIPELINE_STAGES = ["citas", "disenos", "cotizacion", "contrato"] as const;
+
+/**
+ * Cliente “confirmado” en sentido comercial: tarjeta en seguimiento (≥ contrato) y follow-up confirmado.
+ * Si en el futuro hay etapas posteriores a `contrato`, siguen contando como confirmado.
+ */
+export function isClienteConfirmadoSegunKanban(stage: unknown, followUpStatus: unknown): boolean {
+  if (followUpStatus !== "confirmado") return false;
+  const s = typeof stage === "string" ? stage : "";
+  const order = KANBAN_PIPELINE_STAGES as readonly string[];
+  const idx = order.indexOf(s);
+  const contratoIdx = order.indexOf("contrato");
+  if (contratoIdx < 0) return false;
+  if (idx >= contratoIdx) return true;
+  return false;
+}
+
+/** Prospecto mientras no cumpla la condición de confirmación en Kanban. */
+export function computeIsProspectFromKanban(stage: unknown, followUpStatus: unknown): boolean {
+  return !isClienteConfirmadoSegunKanban(stage, followUpStatus);
+}
+
+function resolveIsProspectFromParsed(parsed: Record<string, unknown>): boolean {
+  const hasKanbanSync =
+    typeof parsed.kanbanStage === "string" || typeof parsed.kanbanFollowUpStatus === "string";
+  if (hasKanbanSync) {
+    return computeIsProspectFromKanban(parsed.kanbanStage, parsed.kanbanFollowUpStatus);
+  }
+  return Boolean(parsed.isProspect);
+}
+
+/**
+ * Si el JSON no trae snapshot de Kanban, intenta enlazarlo con la tarea actual por `codigoProyecto`.
+ */
+export function enrichSeguimientoParsedWithKanbanIfMissing(
+  parsed: Record<string, unknown>,
+  tasks: KanbanTask[] | null | undefined,
+): Record<string, unknown> {
+  if (
+    typeof parsed.kanbanStage === "string" &&
+    typeof parsed.kanbanFollowUpStatus === "string"
+  ) {
+    return parsed;
+  }
+  const codigo = String(parsed.codigo ?? "").trim();
+  if (!codigo || !tasks?.length) return parsed;
+  const task = tasks.find((t) => (t.codigoProyecto ?? "").trim() === codigo);
+  if (!task) return parsed;
+  return {
+    ...parsed,
+    kanbanStage: task.stage,
+    kanbanFollowUpStatus: task.followUpStatus ?? "pendiente",
+  };
+}
+
 export const TIMELINE_STEPS = [
   "Diseño Aprobado",
   "Materiales en Taller",
@@ -99,6 +157,9 @@ export type SeguimientoClienteProject = {
   codigo: string;
   cliente: string;
   isProspect: boolean;
+  /** Copiados del Kanban para calcular `isProspect` de forma determinista. */
+  kanbanStage?: string;
+  kanbanFollowUpStatus?: string;
   inversion: number;
   fechaInicio: string;
   fechaEntrega: string;
@@ -133,9 +194,7 @@ export function mergeSeguimientoFromStorage(parsed: Record<string, unknown>): Se
   const sumPagos =
     pagos.anticipo.amount + pagos.segundoPago.amount + pagos.liquidacion.amount;
   if (inversion === 0 && sumPagos > 0) inversion = sumPagos;
-  if (inversion > 0 && sumPagos === 0) {
-    pagos = defaultPagosForInversion(inversion);
-  }
+  /** No repartir la inversión en tercios automáticamente: los montos los capturan admin/empleado en el modal. */
 
   const codigo = String(parsed.codigo ?? "").trim() || "—";
   const cliente = String(parsed.cliente ?? "Cliente").trim() || "Cliente";
@@ -144,7 +203,7 @@ export function mergeSeguimientoFromStorage(parsed: Record<string, unknown>): Se
     ...parsed,
     codigo,
     cliente,
-    isProspect: Boolean(parsed.isProspect),
+    isProspect: resolveIsProspectFromParsed(parsed),
     inversion,
     fechaInicio:
       typeof parsed.fechaInicio === "string" && parsed.fechaInicio.trim()

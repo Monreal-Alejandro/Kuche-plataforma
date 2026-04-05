@@ -1200,11 +1200,13 @@ export default function CotizadorPreliminarPage() {
         updatedTasks.find((t) => t.id === activeCitaTaskId) ?? activeCitaTask,
       );
       const estimatedInversion = Math.round(metrics.total);
+      const taskAfter = updatedTasks.find((t) => t.id === activeCitaTaskId);
       const seguimientoProject: Record<string, unknown> = {
         ...existingParsed,
         codigo: codigoProyecto,
         cliente: activeCitaTask.project ?? clientName ?? "Cliente",
-        isProspect: true,
+        kanbanStage: taskAfter?.stage ?? activeCitaTask.stage,
+        kanbanFollowUpStatus: taskAfter?.followUpStatus ?? activeCitaTask.followUpStatus ?? "pendiente",
         preliminarCotizaciones,
         inversion: estimatedInversion,
         fechaInicio: formatSeguimientoDateLong(),

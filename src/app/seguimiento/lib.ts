@@ -1,0 +1,78 @@
+import type { CotizacionFormalData, PreliminarData } from "@/lib/kanban";
+import type { SeguimientoClienteProject } from "@/lib/seguimiento-project";
+
+export type SeguimientoProject = SeguimientoClienteProject & {
+  preliminarData?: PreliminarData;
+  cotizacionFormalData?: CotizacionFormalData;
+  preliminarCotizaciones?: PreliminarData[];
+  cotizacionesFormales?: CotizacionFormalData[];
+};
+
+export type SeguimientoArchivo = {
+  id: string;
+  name: string;
+  type: string;
+  src?: string;
+  indexedPdfKey?: string;
+};
+
+export function getPreliminarListFromProject(p: SeguimientoProject): PreliminarData[] {
+  if (p.preliminarCotizaciones && p.preliminarCotizaciones.length > 0) return p.preliminarCotizaciones;
+  return p.preliminarData ? [p.preliminarData] : [];
+}
+
+export function getFormalesListFromProject(p: SeguimientoProject): CotizacionFormalData[] {
+  if (p.cotizacionesFormales && p.cotizacionesFormales.length > 0) return p.cotizacionesFormales;
+  return p.cotizacionFormalData ? [p.cotizacionFormalData] : [];
+}
+
+const normalizeText = (value: string) =>
+  value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+export function filterArchivosForCliente(archivos: unknown[] | undefined): SeguimientoArchivo[] {
+  const all = archivos ?? [];
+  return all.filter((file) => {
+    const f = file as SeguimientoArchivo;
+    if (typeof f.indexedPdfKey === "string" && f.indexedPdfKey.startsWith("workshop-")) {
+      return false;
+    }
+    if (normalizeText(f.name).includes("hoja de taller")) return false;
+    return true;
+  }) as SeguimientoArchivo[];
+}
+
+export const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    maximumFractionDigits: 0,
+  }).format(value);
+
+export const installments = [
+  { key: "anticipo" as const, label: "Anticipo" },
+  { key: "segundoPago" as const, label: "2do pago" },
+  { key: "liquidacion" as const, label: "Liquidación" },
+];
+
+export const inversionPdfCtaPrimaryClass =
+  "inline-flex max-w-full items-center justify-center rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold leading-tight text-white shadow-sm ring-1 ring-black/5 transition hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+export const inversionPdfCtaSecondaryClass =
+  "inline-flex items-center justify-center rounded-full border border-primary/15 bg-white px-2.5 py-1 text-[11px] font-semibold leading-tight text-primary shadow-sm transition hover:border-accent/40 hover:bg-accent/5 hover:text-accent";
+export const inversionPdfQuoteRowClass =
+  "flex flex-row flex-wrap items-center gap-1.5 rounded-lg border border-primary/10 bg-primary/[0.02] px-2 py-1 sm:gap-2 sm:px-2.5";
+
+export function getPdfButtonPrimaryLabelFromFileName(fileName: string) {
+  const n = normalizeText(fileName);
+  if (n.includes("levantamiento detallado")) return "Ver Levantamiento Detallado";
+  if (n.includes("cotizacion formal")) return "Ver cotización formal";
+  return "Ver PDF";
+}
+
+export function getPdfButtonSecondaryFromFileName(fileName: string) {
+  const raw = fileName.replace(/\.pdf$/i, "").trim();
+  const parts = raw.split("—");
+  if (parts.length >= 2) return parts[parts.length - 1].trim();
+  const dashParts = raw.split("-");
+  if (dashParts.length >= 2) return dashParts[dashParts.length - 1].trim();
+  return "";
+}

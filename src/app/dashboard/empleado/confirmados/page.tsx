@@ -20,22 +20,17 @@ import {
   getAggregatedDeliveryWeeksFromTask,
   type KanbanTask,
 } from "@/lib/kanban";
-import { ConfirmedClientContractFields } from "@/components/admin/ConfirmedClientContractFields";
-import { ExpedientePdfSections } from "@/components/admin/ExpedientePdfSections";
+import { ClientDocuments } from "@/components/admin/ClientDocuments";
 import { splitIntoColumns } from "@/lib/split-into-columns";
 import { useClientCardColumns } from "@/hooks/useClientCardColumns";
+import { EMPLEADO_DASHBOARD_USER } from "@/lib/empleado-dashboard-user";
 
-/** Fecha ISO (YYYY-MM-DD) legible, mismo estilo que el registro del sistema. */
 function formatIsoDateLong(iso: string): string {
   const d = new Date(`${iso.trim()}T12:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" });
 }
 
-/**
- * Entrega estimada para la tarjeta: `estimatedDeliveryDate` guardado, o rango calculado
- * desde fecha de contrato + semanas del cotizador.
- */
 function getCardDeliverySummary(task: KanbanTask): string | null {
   if (task.estimatedDeliveryDate?.trim()) {
     return formatIsoDateLong(task.estimatedDeliveryDate);
@@ -55,6 +50,18 @@ function getCardDeliverySummary(task: KanbanTask): string | null {
   return `${fmt(from)} – ${fmt(to)}`;
 }
 
+function isAssignedToEmpleado(t: KanbanTask): boolean {
+  return (t.assignedTo ?? []).some((n) => n === EMPLEADO_DASHBOARD_USER);
+}
+
+function isEmpleadoConfirmado(t: KanbanTask): boolean {
+  return (
+    t.stage === "contrato" &&
+    t.followUpStatus === "confirmado" &&
+    isAssignedToEmpleado(t)
+  );
+}
+
 const mergeTasks = (storedTasks: KanbanTask[]): KanbanTask[] => {
   const map = new Map(storedTasks.map((task) => [task.id, task]));
   initialKanbanTasks.forEach((task) => {
@@ -65,7 +72,7 @@ const mergeTasks = (storedTasks: KanbanTask[]): KanbanTask[] => {
   return Array.from(map.values());
 };
 
-export default function ClientesConfirmadosPage() {
+export default function EmpleadoConfirmadosPage() {
   const [clients, setClients] = useState<KanbanTask[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [selectedClient, setSelectedClient] = useState<KanbanTask | null>(null);
@@ -93,15 +100,9 @@ export default function ClientesConfirmadosPage() {
       saveKanbanTasksToLocalStorage(allTasks);
     }
 
-    const confirmed = allTasks.filter((task) => task.followUpStatus === "confirmado");
-    setClients(confirmed);
+    setClients(allTasks.filter(isEmpleadoConfirmado));
     setIsHydrated(true);
   }, []);
-
-  const handleConfirmedTaskUpdate = (updated: KanbanTask) => {
-    setClients((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    setSelectedClient((sel) => (sel?.id === updated.id ? updated : sel));
-  };
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -127,11 +128,11 @@ export default function ClientesConfirmadosPage() {
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
           <Link
-            href="/admin"
+            href="/dashboard/empleado"
             className="inline-flex items-center gap-2 text-sm text-secondary hover:text-primary"
           >
             <ArrowLeft className="h-4 w-4" />
-            Volver al panel
+            Regresar
           </Link>
         </div>
 
@@ -145,12 +146,12 @@ export default function ClientesConfirmadosPage() {
               <CheckCircle2 className="h-6 w-6 text-emerald-600" />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Administración</p>
-              <h1 className="text-2xl font-semibold text-gray-900">Clientes Confirmados</h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Dashboard Empleado</p>
+              <h1 className="text-2xl font-semibold text-gray-900">Mis Clientes Confirmados</h1>
             </div>
           </div>
           <p className="ml-15 mt-2 text-sm text-secondary">
-            Clientes que han confirmado su proyecto con la empresa.
+            Proyectos confirmados asignados a ti. Solo ves tus tareas.
           </p>
         </motion.div>
 
@@ -165,8 +166,10 @@ export default function ClientesConfirmadosPage() {
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
                 <User className="h-8 w-8 text-gray-400" />
               </div>
-              <p className="mt-4 text-lg font-medium text-gray-900">No hay clientes confirmados aún</p>
-              <p className="mt-2 text-sm text-secondary">Cuando un cliente confirme su proyecto, aparecerá aquí.</p>
+              <p className="mt-4 text-lg font-medium text-gray-900">No tienes clientes confirmados</p>
+              <p className="mt-2 text-sm text-secondary">
+                Cuando confirmes un proyecto tuyo en seguimiento, aparecerá aquí.
+              </p>
             </div>
           ) : (
             <div className="flex flex-col gap-4 md:flex-row md:items-start">
@@ -176,82 +179,78 @@ export default function ClientesConfirmadosPage() {
                     const projectTypesLabel = deriveProjectTypesLabel(client).trim();
                     const deliverySummary = getCardDeliverySummary(client);
                     return (
-                    <div
-                      key={client.id}
-                      className="min-w-0 rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm transition hover:border-emerald-200/80 hover:shadow-md"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 items-start gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-100">
-                            <User className="h-5 w-5 text-emerald-600" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-secondary">Proyecto</p>
-                            <h3 className="break-words text-base font-semibold text-gray-900">{client.project}</h3>
-                            <p className="mt-0.5 text-sm text-secondary">{client.title}</p>
+                      <div
+                        key={client.id}
+                        className="min-w-0 rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm transition hover:border-emerald-200/80 hover:shadow-md"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="break-words text-lg font-semibold text-gray-900">{client.project}</h3>
                             {client.codigoProyecto ? (
-                              <p className="mt-2 break-all text-[11px] text-secondary">
-                                Código:{" "}
+                              <p className="mt-1 break-all text-sm text-secondary">
                                 <span className="font-semibold text-primary">{client.codigoProyecto}</span>
                               </p>
-                            ) : null}
+                            ) : (
+                              <p className="mt-1 text-sm italic text-secondary/80">Sin código</p>
+                            )}
+                          </div>
+                          <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                            Confirmado
+                          </span>
+                        </div>
+
+                        <div className="mt-4 space-y-3 border-t border-gray-100 pt-4 text-sm text-secondary">
+                          <div className="flex items-start gap-2">
+                            <LayoutTemplate className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
+                            <span className="min-w-0 leading-snug">
+                              <span className="block text-[10px] font-semibold uppercase tracking-wide text-secondary/90">
+                                Tipo(s) de proyecto
+                              </span>
+                              {projectTypesLabel ? (
+                                <span className="text-secondary">{projectTypesLabel}</span>
+                              ) : (
+                                <span className="italic text-secondary/80">Sin definir</span>
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <FileSignature className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
+                            <span className="min-w-0 leading-snug">
+                              <span className="block text-[10px] font-semibold uppercase tracking-wide text-secondary/90">
+                                Fecha de contrato
+                              </span>
+                              {client.contractDate?.trim() ? (
+                                <span className="font-medium text-gray-800">
+                                  {formatIsoDateLong(client.contractDate)}
+                                </span>
+                              ) : (
+                                <span className="text-amber-600">Pendiente</span>
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
+                            <span className="min-w-0 leading-snug">
+                              <span className="block text-[10px] font-semibold uppercase tracking-wide text-secondary/90">
+                                Fecha de entrega
+                              </span>
+                              {deliverySummary ? (
+                                <span className="text-secondary">{deliverySummary}</span>
+                              ) : (
+                                <span className="text-secondary/90">Por definir</span>
+                              )}
+                            </span>
                           </div>
                         </div>
-                        <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                          Confirmado
-                        </span>
-                      </div>
 
-                      <div className="mt-4 space-y-3 border-t border-gray-100 pt-4 text-sm text-secondary">
-                        <div className="flex items-start gap-2">
-                          <LayoutTemplate className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
-                          <span className="min-w-0 leading-snug">
-                            <span className="block text-[10px] font-semibold uppercase tracking-wide text-secondary/90">
-                              Tipo(s) de proyecto
-                            </span>
-                            {projectTypesLabel ? (
-                              <span className="text-secondary">{projectTypesLabel}</span>
-                            ) : (
-                              <span className="italic text-secondary/80">Sin definir</span>
-                            )}
-                          </span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <FileSignature className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
-                          <span className="min-w-0 leading-snug">
-                            <span className="block text-[10px] font-semibold uppercase tracking-wide text-secondary/90">
-                              Fecha de contrato
-                            </span>
-                            {client.contractDate?.trim() ? (
-                              <span className="font-medium text-gray-800">{formatIsoDateLong(client.contractDate)}</span>
-                            ) : (
-                              <span className="text-amber-600">Pendiente</span>
-                            )}
-                          </span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
-                          <span className="min-w-0 leading-snug">
-                            <span className="block text-[10px] font-semibold uppercase tracking-wide text-secondary/90">
-                              Fecha de entrega
-                            </span>
-                            {deliverySummary ? (
-                              <span className="text-secondary">{deliverySummary}</span>
-                            ) : (
-                              <span className="text-secondary/90">Por definir</span>
-                            )}
-                          </span>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedClient(client)}
+                          className="mt-5 w-full rounded-xl bg-emerald-700 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800"
+                        >
+                          Abrir expediente
+                        </button>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setSelectedClient(client)}
-                        className="mt-5 w-full rounded-xl bg-emerald-700 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800"
-                      >
-                        Abrir expediente
-                      </button>
-                    </div>
                     );
                   })}
                 </div>
@@ -267,7 +266,7 @@ export default function ClientesConfirmadosPage() {
           className="mt-8 rounded-2xl bg-emerald-50 px-6 py-4"
         >
           <p className="text-sm text-emerald-800">
-            <strong>Total de clientes confirmados:</strong> {clients.length}
+            <strong>Total (mis clientes confirmados):</strong> {clients.length}
           </p>
         </motion.div>
       </div>
@@ -291,7 +290,7 @@ export default function ClientesConfirmadosPage() {
             <motion.aside
               role="dialog"
               aria-modal="true"
-              aria-labelledby="expediente-title"
+              aria-labelledby="empleado-confirmados-expediente"
               className="flex h-full w-full max-w-lg shrink-0 flex-col bg-white shadow-2xl"
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
@@ -301,11 +300,10 @@ export default function ClientesConfirmadosPage() {
             >
               <div className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
                 <div className="min-w-0">
-                  <p id="expediente-title" className="text-lg font-semibold text-gray-900">
+                  <p id="empleado-confirmados-expediente" className="text-lg font-semibold text-gray-900">
                     Expediente
                   </p>
                   <p className="mt-1 break-words text-sm font-medium text-primary">{selectedClient.project}</p>
-                  <p className="text-xs text-secondary">{selectedClient.title}</p>
                   {selectedClient.codigoProyecto ? (
                     <p className="mt-2 break-all text-[11px] text-secondary">
                       Código: <span className="font-semibold text-primary">{selectedClient.codigoProyecto}</span>
@@ -323,9 +321,8 @@ export default function ClientesConfirmadosPage() {
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-                <div className="space-y-8 pb-8">
-                  <ConfirmedClientContractFields task={selectedClient} onUpdate={handleConfirmedTaskUpdate} />
-                  <ExpedientePdfSections client={selectedClient} withTopDivider />
+                <div className="space-y-6 pb-8">
+                  <ClientDocuments task={selectedClient} />
                 </div>
               </div>
             </motion.aside>

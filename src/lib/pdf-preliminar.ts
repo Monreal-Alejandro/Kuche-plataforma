@@ -709,6 +709,11 @@ export function buildPreliminarPdf(data: PreliminarData): Uint8Array {
   return new Uint8Array(ab);
 }
 
+/** Abre un PDF desde data URL o URL http (comprobantes / archivos de seguimiento). */
+export function openPdfDataUrlOrUrlInNewTab(stored: string): void {
+  openStoredPdfInNewTab(stored);
+}
+
 function openStoredPdfInNewTab(stored: string): void {
   void (async () => {
     if (!stored) return;
@@ -720,15 +725,28 @@ function openStoredPdfInNewTab(stored: string): void {
         const win = window.open(objectUrl, "_blank");
         if (!win) {
           URL.revokeObjectURL(objectUrl);
+          window.alert(
+            "El navegador bloqueó la nueva pestaña. Permite ventanas emergentes para este sitio e inténtalo de nuevo.",
+          );
           return;
         }
         setTimeout(() => URL.revokeObjectURL(objectUrl), PDF_OBJECT_URL_TAB_MS);
         return;
       }
-      window.open(stored, "_blank", "noopener,noreferrer");
+      const w = window.open(stored, "_blank", "noopener,noreferrer");
+      if (!w && typeof window !== "undefined") {
+        window.alert(
+          "El navegador bloqueó la nueva pestaña. Permite ventanas emergentes para este sitio e inténtalo de nuevo.",
+        );
+      }
     } catch {
       try {
-        window.open(stored, "_blank");
+        const w = window.open(stored, "_blank");
+        if (!w && typeof window !== "undefined") {
+          window.alert(
+            "El navegador bloqueó la nueva pestaña. Permite ventanas emergentes para este sitio e inténtalo de nuevo.",
+          );
+        }
       } catch {
         /* ignore */
       }
@@ -782,7 +800,15 @@ export async function buildPreliminarPdfDataUrl(data: PreliminarData): Promise<s
 /** Abre un PDF guardado en IndexedDB por clave (formal, taller o levantamiento-seguimiento). */
 export function openPdfFromIndexedKey(key: string): void {
   getFormalPdf(key).then((url) => {
-    if (url) openStoredPdfInNewTab(url);
+    if (url) {
+      openStoredPdfInNewTab(url);
+      return;
+    }
+    if (typeof window !== "undefined") {
+      window.alert(
+        "No se encontró el PDF en este navegador. Si lo subiste en otro dispositivo, vuelve a adjuntarlo desde «Editar estatus público» aquí.",
+      );
+    }
   });
 }
 
