@@ -1,6 +1,7 @@
  "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { FileUp, AlertTriangle, CheckCircle2, XCircle, Clock, Calendar, Trash2 } from "lucide-react";
@@ -24,17 +25,12 @@ import {
   type FollowUpStatus,
   type PreliminarData,
   type CotizacionFormalData,
+  stageStyles,
+  getCotizacionesFormalesList,
 } from "@/lib/kanban";
 import { dueDateToSortTimestamp, formatDueDateTimeDisplay } from "@/lib/kanban-due-datetime";
 
 const currentUser = "Valeria";
-
-const stageStyles: Record<TaskStage, { border: string; badge: string }> = {
-  citas: { border: "border-sky-500", badge: "bg-sky-50 text-sky-600" },
-  disenos: { border: "border-violet-500", badge: "bg-violet-50 text-violet-600" },
-  cotizacion: { border: "border-emerald-500", badge: "bg-emerald-50 text-emerald-600" },
-  contrato: { border: "border-amber-500", badge: "bg-amber-50 text-amber-700" },
-};
 
 const statusStyles: Record<TaskStatus, string> = {
   pendiente: "bg-rose-50 text-rose-600",
@@ -239,16 +235,6 @@ const autoAdvanceCompletedTasks = (tasks: KanbanTask[]): KanbanTask[] => {
         citaFinished: false,
       };
     }
-    if (task.stage === "cotizacion" && task.citaStarted && task.citaFinished) {
-      changed = true;
-      return {
-        ...task,
-        stage: "contrato" as TaskStage,
-        status: "pendiente" as TaskStatus,
-        followUpEnteredAt: task.followUpEnteredAt ?? Date.now(),
-        followUpStatus: "pendiente" as FollowUpStatus,
-      };
-    }
     return task;
   });
   return changed ? next : tasks;
@@ -290,21 +276,36 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   const [kanbanPersistError, setKanbanPersistError] = useState<string | null>(null);
   const [confirmClientTaskId, setConfirmClientTaskId] = useState<string | null>(null);
   const [deleteConfirmTaskId, setDeleteConfirmTaskId] = useState<string | null>(null);
+  const [cotizacionEntregadaTaskId, setCotizacionEntregadaTaskId] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   const skipNextWriteRef = useRef(false);
   const activeTaskRef = useRef<HTMLElement | null>(null);
   const panelScrollRef = useRef<HTMLElement | null>(null);
   const uploadTaskRef = useRef<HTMLDivElement | null>(null);
   const confirmClientRef = useRef<HTMLDivElement | null>(null);
   const deleteConfirmRef = useRef<HTMLDivElement | null>(null);
+  const cotizacionEntregadaRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    setActiveTaskId(null);
+    setDeleteConfirmTaskId(null);
+    setUploadTaskId(null);
+    setConfirmClientTaskId(null);
+    setCotizacionEntregadaTaskId(null);
+    setDragErrorMessage(null);
+  }, []);
 
   useEscapeClose(Boolean(activeTaskId), () => setActiveTaskId(null));
   useEscapeClose(Boolean(uploadTaskId), () => setUploadTaskId(null));
   useEscapeClose(Boolean(confirmClientTaskId), () => setConfirmClientTaskId(null));
   useEscapeClose(Boolean(deleteConfirmTaskId), () => setDeleteConfirmTaskId(null));
+  useEscapeClose(Boolean(cotizacionEntregadaTaskId), () => setCotizacionEntregadaTaskId(null));
   useFocusTrap(Boolean(activeTaskId), activeTaskRef);
   useFocusTrap(Boolean(uploadTaskId), uploadTaskRef);
   useFocusTrap(Boolean(confirmClientTaskId), confirmClientRef);
   useFocusTrap(Boolean(deleteConfirmTaskId), deleteConfirmRef);
+  useFocusTrap(Boolean(cotizacionEntregadaTaskId), cotizacionEntregadaRef);
   // Al abrir el panel de detalle, aseguramos que se muestre desde el inicio.
   useEffect(() => {
     if (!activeTaskId) return;
@@ -582,6 +583,10 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         showError("Debes iniciar y terminar la cotizacion antes de mover a seguimiento");
         return false;
       }
+      if (getCotizacionesFormalesList(task).length > 0 && targetStage === "contrato") {
+        showError('Usa el botón «Cotización entregada» en la tarjeta para pasar a Seguimiento.');
+        return false;
+      }
     }
 
     if (task.stage === "contrato") {
@@ -707,6 +712,13 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     () => kanbanTasks.find((task) => task.id === activeTaskId) ?? null,
     [activeTaskId, kanbanTasks],
   );
+
+  useEffect(() => {
+    if (activeTaskId && !activeTask) {
+      setActiveTaskId(null);
+    }
+  }, [activeTaskId, activeTask]);
+
   const uploadTask = useMemo(
     () => kanbanTasks.find((task) => task.id === uploadTaskId) ?? null,
     [kanbanTasks, uploadTaskId],
@@ -769,7 +781,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0 }}
-        className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md"
+        className="relative z-0 rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md pointer-events-auto"
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -865,12 +877,24 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 <div className="mt-3 space-y-3">
                   {columnTasks.map((task) => {
                     const stageStyle = stageStyles[task.stage];
+                    const cotizacionFormalLista =
+                      task.stage === "cotizacion" && getCotizacionesFormalesList(task).length > 0;
+                    const cardDraggable = !cotizacionFormalLista;
                     return (
                       <div
                         key={task.id}
-                        draggable
+                        draggable={cardDraggable}
+                        title={
+                          cotizacionFormalLista
+                            ? "Para pasar a Seguimiento usa «Cotización entregada» (arrastre desactivado)"
+                            : undefined
+                        }
                         onClick={() => setActiveTaskId(task.id)}
                         onDragStart={(event) => {
+                          if (!cardDraggable) {
+                            event.preventDefault();
+                            return;
+                          }
                           event.dataTransfer.setData("text/plain", task.id);
                           event.dataTransfer.effectAllowed = "move";
                           setDraggedTaskId(task.id);
@@ -880,8 +904,8 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                           setDragOverColumnId(null);
                         }}
                         className={`flex min-h-[220px] cursor-pointer flex-col rounded-2xl border border-primary/10 bg-white px-4 py-4 text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
-                          stageStyle?.border ? `border-l-4 ${stageStyle.border}` : ""
-                        }`}
+                          cotizacionFormalLista ? "cursor-default" : ""
+                        } ${stageStyle?.border ? `border-l-4 ${stageStyle.border}` : ""}`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           {task.stage === "contrato" && task.followUpStatus === "pendiente" ? (
@@ -1040,18 +1064,21 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                   Terminar cotizacion
                                 </button>
                               ) : null}
-                              {task.stage === "cotizacion" && task.citaStarted && task.citaFinished ? (
+                              {task.stage === "cotizacion" &&
+                              getCotizacionesFormalesList(task).length > 0 ? (
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    completeCotizacion(task.id);
+                                    setCotizacionEntregadaTaskId(task.id);
                                   }}
-                                  className="inline-flex w-auto items-center rounded-full bg-emerald-700 px-3 py-1 text-[11px] font-semibold text-white"
+                                  className="inline-flex min-h-[32px] w-auto items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold leading-tight text-white"
                                 >
-                                  Pasar a seguimiento
+                                  <CheckCircle2 className="h-3 w-3 shrink-0" />
+                                  Cotización entregada
                                 </button>
                               ) : null}
+                              {/* Pasar a Seguimiento: manual vía botón (mismo estilo que «Cliente aceptó» en diseño) */}
 
                               {/* DISEÑOS: Subir → Admin aprueba → Cliente acepta */}
                               {task.stage === "disenos" && task.status === "pendiente" && (!task.files || task.files.length === 0) ? (
@@ -1073,9 +1100,9 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                     event.stopPropagation();
                                     setConfirmClientTaskId(task.id);
                                   }}
-                                  className="inline-flex w-auto items-center gap-1 rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white"
+                                  className="inline-flex min-h-[32px] w-auto items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold leading-tight text-white"
                                 >
-                                  <CheckCircle2 className="h-3 w-3" />
+                                  <CheckCircle2 className="h-3 w-3 shrink-0" />
                                   Cliente aceptó
                                 </button>
                               ) : null}
@@ -1165,15 +1192,19 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
         </div>
       </motion.section>
 
-      <AnimatePresence>
-        {activeTask ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/40"
-            onClick={() => setActiveTaskId(null)}
-          >
+      {mounted
+        ? createPortal(
+            <AnimatePresence mode="sync">
+              {activeTaskId && activeTask ? (
+                <motion.div
+                  key={activeTaskId}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0, pointerEvents: "none" }}
+                  transition={{ duration: 0.2 }}
+                  className="pointer-events-auto fixed inset-0 z-[100] bg-black/40"
+                  onClick={() => setActiveTaskId(null)}
+                >
             <motion.aside
               ref={(node) => {
                 activeTaskRef.current = node;
@@ -1188,7 +1219,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 duration: 0.35,
                 ease: [0.22, 1, 0.36, 1],
               }}
-              className="absolute right-0 top-0 h-full w-full max-w-lg overflow-y-auto rounded-l-3xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur-md"
+              className="pointer-events-auto absolute right-0 top-0 h-full w-full max-w-lg overflow-y-auto rounded-l-3xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur-md"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="flex items-start justify-between gap-4">
@@ -1312,7 +1343,15 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                       className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm font-semibold text-secondary"
                     >
                       {kanbanColumns.map((col) => (
-                        <option key={col.id} value={col.id}>
+                        <option
+                          key={col.id}
+                          value={col.id}
+                          disabled={
+                            activeTask.stage === "cotizacion" &&
+                            getCotizacionesFormalesList(activeTask).length > 0 &&
+                            col.id === "contrato"
+                          }
+                        >
                           {col.label}
                         </option>
                       ))}
@@ -1458,12 +1497,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                         {activeTask.citaFinished ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
                         <span>2. Terminar cotizacion</span>
                       </div>
-                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaStarted && activeTask.citaFinished ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
-                        {activeTask.citaStarted && activeTask.citaFinished ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
-                        <span>3. Pasar a seguimiento</span>
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${getCotizacionesFormalesList(activeTask).length > 0 ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                        {getCotizacionesFormalesList(activeTask).length > 0 ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                        <span>3. Cotización formal lista para entregar</span>
                       </div>
                     </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-4 flex flex-col gap-2">
                       {!activeTask.citaStarted ? (
                         <button
                           type="button"
@@ -1480,17 +1519,18 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                         >
                           Terminar cotizacion
                         </button>
-                      ) : (
+                      ) : getCotizacionesFormalesList(activeTask).length > 0 ? (
                         <button
                           type="button"
-                          onClick={() => {
-                            completeCotizacion(activeTask.id);
-                            setActiveTaskId(null);
-                          }}
-                          className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold text-white"
+                          onClick={() => setCotizacionEntregadaTaskId(activeTask.id)}
+                          className="min-h-[36px] rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold leading-tight text-white"
                         >
-                          Completar y pasar a seguimiento
+                          Cotización entregada
                         </button>
+                      ) : (
+                        <p className="text-xs text-secondary">
+                          Genera y guarda la cotización formal en el cotizador; luego podrás marcarla como entregada.
+                        </p>
                       )}
                     </div>
                   </div>
@@ -1529,7 +1569,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                         <button
                           type="button"
                           onClick={() => setConfirmClientTaskId(activeTask.id)}
-                          className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                          className="min-h-[36px] rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold leading-tight text-white"
                         >
                           Cliente aceptó
                         </button>
@@ -1686,19 +1726,26 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 ) : null}
               </div>
             </motion.aside>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
 
-      <AnimatePresence>
-        {deleteConfirmTaskId ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4"
-            onClick={() => setDeleteConfirmTaskId(null)}
-          >
+      {mounted
+        ? createPortal(
+            <AnimatePresence mode="sync">
+              {deleteConfirmTaskId ? (
+                <motion.div
+                  key={deleteConfirmTaskId}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0, pointerEvents: "none" }}
+                  transition={{ duration: 0.2 }}
+                  className="pointer-events-auto fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4"
+                  onClick={() => setDeleteConfirmTaskId(null)}
+                >
             <motion.div
               ref={deleteConfirmRef}
               tabIndex={-1}
@@ -1708,7 +1755,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-sm rounded-3xl border border-rose-200 bg-white p-6 shadow-2xl"
+              className="pointer-events-auto w-full max-w-sm rounded-3xl border border-rose-200 bg-white p-6 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex justify-center">
@@ -1745,26 +1792,33 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 </button>
               </div>
             </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
 
-      <AnimatePresence>
-        {uploadTaskId ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-            onClick={() => setUploadTaskId(null)}
-          >
+      {mounted
+        ? createPortal(
+            <AnimatePresence mode="sync">
+              {uploadTaskId ? (
+                <motion.div
+                  key={uploadTaskId}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0, pointerEvents: "none" }}
+                  transition={{ duration: 0.2 }}
+                  className="pointer-events-auto fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4"
+                  onClick={() => setUploadTaskId(null)}
+                >
             <motion.div
               ref={uploadTaskRef}
               tabIndex={-1}
               initial={{ y: 40, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 40, opacity: 0 }}
-              className="w-full max-w-md rounded-3xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur-md"
+              className="pointer-events-auto w-full max-w-md rounded-3xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur-md"
               onClick={(event) => event.stopPropagation()}
             >
               <h3 className="text-lg font-semibold">
@@ -1815,26 +1869,33 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 Listo
               </button>
             </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
 
-      <AnimatePresence>
-        {confirmClientTaskId ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-            onClick={() => setConfirmClientTaskId(null)}
-          >
+      {mounted
+        ? createPortal(
+            <AnimatePresence mode="sync">
+              {confirmClientTaskId ? (
+                <motion.div
+                  key={confirmClientTaskId}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0, pointerEvents: "none" }}
+                  transition={{ duration: 0.2 }}
+                  className="pointer-events-auto fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4"
+                  onClick={() => setConfirmClientTaskId(null)}
+                >
             <motion.div
               ref={confirmClientRef}
               tabIndex={-1}
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-sm rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
+              className="pointer-events-auto w-full max-w-sm rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="flex items-center justify-center">
@@ -1868,27 +1929,95 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 </button>
               </div>
             </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
 
-      <AnimatePresence>
-        {dragErrorMessage ? (
-          <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ 
-              opacity: 1, 
-              y: 0, 
-              scale: 1,
-              x: [0, -10, 10, -10, 10, 0],
-            }}
-            exit={{ opacity: 0, y: 50, scale: 0.9 }}
-            transition={{ 
-              duration: 0.4,
-              x: { duration: 0.4, delay: 0.1 }
-            }}
-            className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-2xl border-2 border-rose-300 bg-rose-50 px-6 py-4 shadow-xl"
-          >
+      {mounted
+        ? createPortal(
+            <AnimatePresence mode="sync">
+              {cotizacionEntregadaTaskId ? (
+                <motion.div
+                  key={cotizacionEntregadaTaskId}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0, pointerEvents: "none" }}
+                  transition={{ duration: 0.2 }}
+                  className="pointer-events-auto fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4"
+                  onClick={() => setCotizacionEntregadaTaskId(null)}
+                >
+                  <motion.div
+                    ref={cotizacionEntregadaRef}
+                    tabIndex={-1}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="cotizacion-entregada-title"
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="pointer-events-auto w-full max-w-md rounded-3xl border border-primary/10 bg-white p-6 shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 id="cotizacion-entregada-title" className="text-lg font-semibold text-gray-900">
+                      ¿Confirmar entrega?
+                    </h3>
+                    <p className="mt-2 text-sm text-secondary">
+                      ¿Confirmas que el cliente ya recibió su cotización formal? El proyecto pasará a la etapa de Seguimiento
+                      para esperar su decisión.
+                    </p>
+                    <div className="mt-6 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setCotizacionEntregadaTaskId(null)}
+                        className="flex-1 rounded-2xl border border-primary/10 bg-white py-3 text-sm font-semibold text-secondary transition hover:bg-gray-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (cotizacionEntregadaTaskId) {
+                            completeCotizacion(cotizacionEntregadaTaskId);
+                            setCotizacionEntregadaTaskId(null);
+                            setActiveTaskId(null);
+                          }
+                        }}
+                        className="flex-1 rounded-2xl bg-emerald-600 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                      >
+                        Confirmar
+                      </button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
+
+      {mounted
+        ? createPortal(
+            <AnimatePresence mode="sync">
+              {dragErrorMessage ? (
+                <motion.div
+                  key="kanban-drag-error"
+                  initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                    scale: 1,
+                    x: [0, -10, 10, -10, 10, 0],
+                  }}
+                  exit={{ opacity: 0, y: 50, scale: 0.9, pointerEvents: "none" }}
+                  transition={{
+                    duration: 0.4,
+                    x: { duration: 0.4, delay: 0.1 },
+                  }}
+                  className="pointer-events-auto fixed bottom-6 left-1/2 z-[100] -translate-x-1/2 rounded-2xl border-2 border-rose-300 bg-rose-50 px-6 py-4 shadow-xl"
+                >
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100">
                 <AlertTriangle className="h-5 w-5 text-rose-600" />
@@ -1898,9 +2027,12 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                 <p className="mt-1 text-sm font-medium text-rose-800">{dragErrorMessage}</p>
               </div>
             </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

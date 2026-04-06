@@ -4,7 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, User, FileText, Eye, Download } from "lucide-react";
-import { kanbanStorageKey, kanbanColumns, getPreliminarList, getCotizacionesFormalesList, type KanbanTask } from "@/lib/kanban";
+import {
+  kanbanStorageKey,
+  kanbanColumns,
+  getPreliminarList,
+  getCotizacionesFormalesList,
+  stageStyles,
+  type KanbanTask,
+} from "@/lib/kanban";
 import {
   openPreliminarPdfInNewTab,
   downloadPreliminarPdf,
@@ -137,7 +144,9 @@ export default function ClientesEnProcesoPage() {
                           <span className="font-semibold text-primary">{task.codigoProyecto}</span>
                         </p>
                       ) : null}
-                      <span className="mt-2 inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                      <span
+                        className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${stageStyles[task.stage].badge}`}
+                      >
                         {stageLabel[task.stage] ?? task.stage}
                       </span>
                       {task.assignedTo?.length ? (

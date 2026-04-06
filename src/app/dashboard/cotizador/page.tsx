@@ -15,6 +15,7 @@ import {
   activeCotizacionFormalTaskStorageKey,
   citaReturnUrlStorageKey,
   getCotizacionesFormalesList,
+  getPreliminarList,
   kanbanStorageKey,
   initialKanbanTasks,
   saveKanbanTasksToLocalStorage,
@@ -24,15 +25,15 @@ import {
 } from "@/lib/kanban";
 import { buildWorkshopPdfDataUrl, type WorkshopPdfBuildInput } from "@/lib/cotizacion-workshop-pdf";
 import { createFormalWorkshopPdfKeys, saveFormalPdf } from "@/lib/formal-pdf-storage";
-import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
+import { formatDeliveryWeeksLabel, parseDeliveryWeeksRangeFromLabel } from "@/lib/delivery-weeks";
 import { generatePublicProjectCode } from "@/lib/project-code";
 import {
   formatSeguimientoDateLong,
   mergePagosPreservingReceipts,
   normalizeEtapaForStorage,
 } from "@/lib/seguimiento-project";
-
-const projectTypes = ["Cocina", "Clóset", "TV Unit"];
+import { CatalogProjectTypeField } from "@/components/CatalogProjectTypeField";
+import { CATALOG_PROJECT_TYPES, normalizeLegacyProjectTypeToCatalog } from "@/lib/catalog-project-types";
 /** Precio por metro lineal para material base (según ítem de ESTRUCTURA seleccionado). */
 const MATERIAL_BASE_PRICE_PER_METER: Record<string, number> = {
   est_mdf_natural: 6500,
@@ -51,33 +52,6 @@ const THICKNESS_FACTORS: Record<string, number> = {
   "18": 1.05,
   "19": 1.08,
 };
-
-const scenarioCards = [
-  {
-    id: "esencial",
-    title: "GAMA ESENCIAL",
-    subtitle: "Cocina minimalista limpia",
-    multiplier: 0.92,
-    image: "/images/cocina1.jpg",
-    tags: ["Melamina", "Granito", "Herrajes Std"],
-  },
-  {
-    id: "tendencia",
-    title: "GAMA TENDENCIA",
-    subtitle: "Texturas y brillo",
-    multiplier: 1.05,
-    image: "/images/cocina6.jpg",
-    tags: ["Melamina", "Granito", "Herrajes Std"],
-  },
-  {
-    id: "premium",
-    title: "GAMA PREMIUM",
-    subtitle: "Lujo con luces y madera",
-    multiplier: 1.18,
-    image: "/images/render3.jpg",
-    tags: ["Melamina", "Granito", "Herrajes Std"],
-  },
-];
 
 /** Ítem del catálogo de materiales (precio por `unitType`, ej. pieza, metro lineal, m²). */
 export type CatalogoItem = {
@@ -346,17 +320,15 @@ export default function CotizadorPage() {
   const [newClientName, setNewClientName] = useState("");
   const [newClientPhone, setNewClientPhone] = useState("");
   const [newClientEmail, setNewClientEmail] = useState("");
-  const [projectType, setProjectType] = useState(projectTypes[0]);
+  const [projectType, setProjectType] = useState<string>(CATALOG_PROJECT_TYPES[0]);
   const [location, setLocation] = useState("");
   const [deliveryWeeksMin, setDeliveryWeeksMin] = useState("");
   const [deliveryWeeksMax, setDeliveryWeeksMax] = useState("");
-  const [largo, setLargo] = useState("4.2");
-  const [alto, setAlto] = useState("2.4");
-  const [fondo, setFondo] = useState("0.6");
+  const [largo, setLargo] = useState("");
+  const [alto, setAlto] = useState("");
   const [materialBaseItemId, setMaterialBaseItemId] = useState(getDefaultMaterialBaseItemId);
   const [colorItemId, setColorItemId] = useState(getDefaultColorItemId);
   const [thicknessItemId, setThicknessItemId] = useState(getDefaultThicknessItemId);
-  const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(initialCatalogoKuche[0]?.category ?? "");
   const [materialSearch, setMaterialSearch] = useState("");
 
@@ -374,6 +346,8 @@ export default function CotizadorPage() {
   const [newItemCategory, setNewItemCategory] = useState(initialCatalogoKuche[0]?.category ?? "");
   const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
   const [activeCotizacionFormalTaskId, setActiveCotizacionFormalTaskId] = useState<string | null>(null);
+  /** Evita pisar datos si el efecto se repite con el mismo taskId. */
+  const prefilledFormalTaskIdRef = useRef<string | null>(null);
   const [finishFormalError, setFinishFormalError] = useState("");
   const [referenceImages, setReferenceImages] = useState<
     Array<{ id: string; name: string; dataUrl: string }>
@@ -562,6 +536,67 @@ export default function CotizadorPage() {
     setActiveCitaTaskId(window.localStorage.getItem(activeCitaTaskStorageKey));
     setActiveCotizacionFormalTaskId(window.localStorage.getItem(activeCotizacionFormalTaskStorageKey));
   }, []);
+
+  /** Desde la tarjeta del tablero: cliente, ubicación, tipo y semanas (último levantamiento preliminar). */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const taskId = activeCotizacionFormalTaskId;
+    if (!taskId) {
+      prefilledFormalTaskIdRef.current = null;
+      return;
+    }
+    if (prefilledFormalTaskIdRef.current === taskId) return;
+
+    const raw = window.localStorage.getItem(kanbanStorageKey);
+    if (!raw) return;
+    let tasks: KanbanTask[];
+    try {
+      tasks = JSON.parse(raw) as KanbanTask[];
+    } catch {
+      return;
+    }
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    prefilledFormalTaskIdRef.current = taskId;
+
+    const preList = getPreliminarList(task);
+    const pre = preList.length > 0 ? preList[preList.length - 1] : null;
+
+    const fromPreClient = pre?.client?.trim();
+    const clientName =
+      (fromPreClient && fromPreClient !== "Sin nombre" ? fromPreClient : null) ??
+      task.project?.trim() ??
+      "";
+    if (clientName) {
+      setClient(clientName);
+      setClients((prev) =>
+        prev.some((e) => e.name === clientName)
+          ? prev
+          : [...prev, { name: clientName, phone: "", email: "" }],
+      );
+    }
+
+    const fromPreLoc = pre?.location?.trim();
+    const loc =
+      (fromPreLoc && fromPreLoc !== "Por definir" ? fromPreLoc : null) ??
+      task.location?.trim() ??
+      "";
+    if (loc) setLocation(loc);
+
+    if (pre?.projectType?.trim()) {
+      setProjectType(normalizeLegacyProjectTypeToCatalog(pre.projectType));
+    }
+
+    const weeksParsed = pre?.date ? parseDeliveryWeeksRangeFromLabel(pre.date) : null;
+    if (weeksParsed) {
+      setDeliveryWeeksMin(String(weeksParsed.min));
+      setDeliveryWeeksMax(String(weeksParsed.max));
+    }
+
+    if (pre?.largo?.trim()) setLargo(pre.largo.trim());
+    if (pre?.alto?.trim()) setAlto(pre.alto.trim());
+  }, [activeCotizacionFormalTaskId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -991,15 +1026,14 @@ export default function CotizadorPage() {
 
   const validateFormalSections = (): boolean => {
     const hasProject =
-      client.trim() !== "" ||
-      projectType !== "" ||
-      location.trim() !== "" ||
-      deliveryWeeksMin.trim() !== "" ||
-      deliveryWeeksMax.trim() !== "";
+      projectType.trim() !== "" &&
+      (client.trim() !== "" ||
+        location.trim() !== "" ||
+        deliveryWeeksMin.trim() !== "" ||
+        deliveryWeeksMax.trim() !== "");
     const largoN = Number.parseFloat(largo) || 0;
     const altoN = Number.parseFloat(alto) || 0;
-    const fondoN = Number.parseFloat(fondo) || 0;
-    const hasMeasures = largoN > 0 || altoN > 0 || fondoN > 0;
+    const hasMeasures = largoN > 0 || altoN > 0;
     const hasCatalog = Object.values(quantities).some((q) => q > 0);
     return !!(hasProject && hasMeasures && hasCatalog);
   };
@@ -1152,18 +1186,7 @@ export default function CotizadorPage() {
     data.workshopPdfKey = workshopPdfKey;
     const result = saveFormalAndGetNextTasks(data);
     if (!result) return;
-    const updatedTasksWithStage = result.updatedTasks.map((task) =>
-      task.id === taskId
-        ? {
-            ...task,
-            stage: "contrato" as const,
-            status: "pendiente" as const,
-            followUpEnteredAt: Date.now(),
-            followUpStatus: "pendiente" as const,
-          }
-        : task,
-    );
-    saveKanbanTasksToLocalStorage(updatedTasksWithStage);
+    saveKanbanTasksToLocalStorage(result.updatedTasks);
     window.localStorage.removeItem(activeCotizacionFormalTaskStorageKey);
     setActiveCotizacionFormalTaskId(null);
     const returnUrl = window.localStorage.getItem(citaReturnUrlStorageKey) || "/dashboard/empleado";
@@ -1219,13 +1242,12 @@ export default function CotizadorPage() {
     data.workshopPdfKey = workshopPdfKey;
     const result = saveFormalAndGetNextTasks(data);
     if (!result) return;
-    setProjectType(projectTypes[0]);
+    setProjectType(CATALOG_PROJECT_TYPES[0]);
     setLocation("");
     setDeliveryWeeksMin("");
     setDeliveryWeeksMax("");
-    setLargo("4.2");
-    setAlto("2.4");
-    setFondo("0.6");
+    setLargo("");
+    setAlto("");
     setQuantities({});
     setMaterialBaseItemId(getDefaultMaterialBaseItemId);
     setColorItemId(getDefaultColorItemId);
@@ -1289,16 +1311,28 @@ export default function CotizadorPage() {
     const dateLabel = new Date().toLocaleDateString("es-MX");
     const deliveryWeeksStr = formatDeliveryWeeksLabel(deliveryWeeksMin, deliveryWeeksMax);
 
-    const normalizedType = projectType.toLowerCase();
-    const formalProjectType = normalizedType.includes("cocina")
-      ? "COCINA"
-      : normalizedType.includes("cl") || normalizedType.includes("vest")
-        ? "VESTIDOR O CLÓSET"
-        : normalizedType.includes("bañ") || normalizedType.includes("ban")
-          ? "BAÑOS"
-          : normalizedType.includes("tv")
-            ? "TV UNIT"
-            : projectType.toUpperCase();
+    const formalProjectType = (() => {
+      switch (projectType) {
+        case "Cocinas":
+          return "COCINAS";
+        case "Closets":
+          return "CLOSETS";
+        case "Baños":
+          return "BAÑOS";
+        case "Muebles a medida":
+          return "MUEBLES A MEDIDA";
+        default: {
+          const normalizedType = projectType.toLowerCase();
+          if (normalizedType.includes("cocina")) return "COCINAS";
+          if (normalizedType.includes("cl") || normalizedType.includes("vest")) return "CLOSETS";
+          if (normalizedType.includes("bañ") || normalizedType.includes("ban")) return "BAÑOS";
+          if (normalizedType.includes("tv") || normalizedType.includes("mueble")) {
+            return "MUEBLES A MEDIDA";
+          }
+          return projectType.toUpperCase();
+        }
+      }
+    })();
 
     const selectedLines = catalogoKuche.flatMap((category) =>
       category.items
@@ -1339,7 +1373,6 @@ export default function CotizadorPage() {
 
     const largoValue = Number.parseFloat(largo) || 0;
     const altoValue = Number.parseFloat(alto) || 0;
-    const fondoValue = Number.parseFloat(fondo) || 0;
     const metrosLinealesForDescription = largoValue;
     const basePrice = Math.round(precioTotalSinIva);
     const projectPrice = Math.round(totalNeto);
@@ -1351,7 +1384,7 @@ export default function CotizadorPage() {
     const projectDescription =
       `Proyecto de ${formalProjectType} fabricado en ${baseMaterialLabel} (${thicknessMm}mm), ` +
       `tono ${colorLabel.toLowerCase()}, con medidas generales de ` +
-      `${largoValue.toFixed(1)}m de largo, ${altoValue.toFixed(1)}m de alto y ${fondoValue.toFixed(1)}m de fondo, ` +
+      `${largoValue.toFixed(1)} m de largo y ${altoValue.toFixed(1)} m de alto, ` +
       `considerando ${metrosLinealesForDescription.toFixed(1)} m lineales. ` +
       "Incluye fabricación e instalación de módulos y componentes seleccionados.";
 
@@ -1634,15 +1667,6 @@ export default function CotizadorPage() {
     }
   };
 
-  const scenarioPrices = scenarioCards.map((scenario) => {
-    const base = materialSubtotal * scenario.multiplier;
-    return {
-      ...scenario,
-      min: Math.round(base * 0.95),
-      max: Math.round(base * 1.08),
-    };
-  });
-
   const showCotizadorBottomBar = Boolean(activeCotizacionFormalTaskId || activeCitaTaskId);
 
   return (
@@ -1672,109 +1696,170 @@ export default function CotizadorPage() {
           <h2 className="text-2xl font-semibold">Sección A · Datos del proyecto</h2>
           <p className="mt-2 text-sm text-secondary">Información base para abrir el expediente.</p>
         </div>
-        <div className="grid gap-4 lg:grid-cols-4">
-          <label className="text-xs font-semibold text-secondary">
-            Cliente
-            <div className="mt-2 flex gap-2">
-              <input
-                value={client}
-                onChange={(event) => setClient(event.target.value)}
-                list="clientes-sugeridos"
-                placeholder="Buscar o escribir nuevo"
-                className="w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setNewClientName("");
-                  setNewClientPhone("");
-                  setNewClientEmail("");
-                  setIsClientModalOpen(true);
-                }}
-                className="rounded-2xl border border-primary/10 px-4 text-xs font-semibold text-secondary"
-              >
-                Nuevo
-              </button>
-            </div>
-            <datalist id="clientes-sugeridos">
-              {clients.map((entry) => (
-                <option key={entry.name} value={entry.name} />
-              ))}
-            </datalist>
-          </label>
-          <label className="text-xs font-semibold text-secondary">
-            Tipo de proyecto
-            <select
-              value={projectType}
-              onChange={(event) => setProjectType(event.target.value)}
-              className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-            >
-              {projectTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs font-semibold text-secondary">
-            Ubicación
-            <input
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-              placeholder="Ciudad / Estado"
-              className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-            />
-          </label>
-          <div className="text-xs font-semibold text-secondary">
-            <span className="block">Tiempo de entrega (Semanas aproximadas)</span>
-            <div className="mt-2 flex gap-2">
-              <input
-                value={deliveryWeeksMin}
-                onChange={(event) => setDeliveryWeeksMin(event.target.value)}
-                type="number"
-                min={1}
-                step={1}
-                placeholder="Mín."
-                className="min-w-0 flex-1 rounded-2xl border border-primary/10 bg-white px-3 py-3 text-sm outline-none"
-              />
-              <input
-                value={deliveryWeeksMax}
-                onChange={(event) => setDeliveryWeeksMax(event.target.value)}
-                type="number"
-                min={1}
-                step={1}
-                placeholder="Máx."
-                className="min-w-0 flex-1 rounded-2xl border border-primary/10 bg-white px-3 py-3 text-sm outline-none"
-              />
-            </div>
-          </div>
-        </div>
 
-        <div className="rounded-3xl border border-primary/10 bg-white p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-secondary">El lienzo</p>
-              <h3 className="mt-2 text-lg font-semibold">Medidas generales</h3>
-              <p className="mt-1 text-xs text-secondary">Largo x alto x fondo en metros.</p>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-secondary">
+            Datos del cliente y del proyecto
+          </p>
+          <div className="mt-4 grid grid-cols-1 items-end gap-x-4 gap-y-5 md:grid-cols-12">
+            {/* Cliente + acción Nuevo */}
+            <div className="col-span-12 md:col-span-4">
+              <label
+                htmlFor="cotizador-cliente"
+                className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
+              >
+                Cliente
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="cotizador-cliente"
+                  value={client}
+                  onChange={(event) => setClient(event.target.value)}
+                  list="clientes-sugeridos"
+                  placeholder="Buscar o escribir nuevo"
+                  className="min-w-0 flex-1 rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewClientName("");
+                    setNewClientPhone("");
+                    setNewClientEmail("");
+                    setIsClientModalOpen(true);
+                  }}
+                  className="shrink-0 rounded-xl border border-primary/10 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-secondary transition hover:border-primary/25"
+                >
+                  Nuevo
+                </button>
+              </div>
+              <datalist id="clientes-sugeridos">
+                {clients.map((entry) => (
+                  <option key={entry.name} value={entry.name} />
+                ))}
+              </datalist>
             </div>
-            <div className="flex items-center gap-4">
-              {[
-                { label: "Largo", value: largo, setValue: setLargo },
-                { label: "Alto", value: alto, setValue: setAlto },
-                { label: "Fondo", value: fondo, setValue: setFondo },
-              ].map((field) => (
-                <label key={field.label} className="text-[11px] font-semibold text-secondary">
-                  {field.label}
+
+            {/* Tipo de proyecto */}
+            <div className="col-span-12 flex flex-col md:col-span-4">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                Tipo de proyecto
+              </span>
+              <div className="min-w-0 flex-1">
+                <CatalogProjectTypeField
+                  value={projectType}
+                  onChange={setProjectType}
+                  placeholder="Cocinas, Baños, comedor, consultorio…"
+                  innerRowClassName="flex w-full gap-2"
+                  buttonClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-white text-secondary shadow-sm transition hover:border-primary/30 hover:bg-primary/[0.04]"
+                  inputClassName="w-full min-w-0 rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Ubicación */}
+            <div className="col-span-12 md:col-span-4">
+              <label
+                htmlFor="cotizador-ubicacion"
+                className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
+              >
+                Ubicación
+              </label>
+              <input
+                id="cotizador-ubicacion"
+                value={location}
+                onChange={(event) => setLocation(event.target.value)}
+                placeholder="Ciudad / Estado"
+                className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+              />
+            </div>
+
+            {/* Tiempo de entrega · mín / máx */}
+            <div className="col-span-12 md:col-span-4" role="group" aria-label="Tiempo de entrega en semanas">
+              <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                Tiempo de entrega (sem)
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="cotizador-semanas-min"
+                    className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                  >
+                    Mín.
+                  </label>
                   <input
-                    value={field.value}
-                    onChange={(event) => field.setValue(event.target.value)}
+                    id="cotizador-semanas-min"
+                    value={deliveryWeeksMin}
+                    onChange={(event) => setDeliveryWeeksMin(event.target.value)}
+                    type="number"
+                    min={1}
+                    step={1}
+                    placeholder="ej. 8"
+                    className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="cotizador-semanas-max"
+                    className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                  >
+                    Máx.
+                  </label>
+                  <input
+                    id="cotizador-semanas-max"
+                    value={deliveryWeeksMax}
+                    onChange={(event) => setDeliveryWeeksMax(event.target.value)}
+                    type="number"
+                    min={1}
+                    step={1}
+                    placeholder="ej. 9"
+                    className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Medidas generales · mismo patrón que Levantamiento Detallado */}
+            <div className="col-span-12 md:col-span-8" role="group" aria-label="Medidas generales en metros">
+              <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                Medidas generales (m)
+              </p>
+              <span className="sr-only">Largo y alto del espacio general en metros.</span>
+              <div className="grid grid-cols-2 gap-4 sm:max-w-md">
+                <div>
+                  <label
+                    htmlFor="cotizador-largo"
+                    className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                  >
+                    Largo
+                  </label>
+                  <input
+                    id="cotizador-largo"
+                    value={largo}
+                    onChange={(event) => setLargo(event.target.value)}
                     type="number"
                     min="0"
                     step="0.1"
-                    className="mt-1 w-24 rounded-2xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                    className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
                   />
-                </label>
-              ))}
+                </div>
+                <div>
+                  <label
+                    htmlFor="cotizador-alto"
+                    className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                  >
+                    Alto
+                  </label>
+                  <input
+                    id="cotizador-alto"
+                    value={alto}
+                    onChange={(event) => setAlto(event.target.value)}
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2391,63 +2476,9 @@ export default function CotizadorPage() {
         </div>
       ) : null}
 
-      <section className="space-y-6">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Sección D · Estimación visual</p>
-          <h2 className="mt-2 text-2xl font-semibold">Selecciona el Nivel de Acabados</h2>
-          <p className="mt-2 text-sm text-secondary">
-            Galería de niveles basada en metros lineales y material base.
-          </p>
-        </div>
-        <div className="grid gap-6 lg:grid-cols-3">
-          {scenarioPrices.map((scenario, index) => (
-            <motion.button
-              key={scenario.id}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: index * 0.06 }}
-              onClick={() => setSelectedScenario(scenario.id)}
-              className={`group overflow-hidden rounded-3xl border text-left shadow-xl transition ${
-                selectedScenario === scenario.id
-                  ? "border-accent bg-white"
-                  : "border-primary/10 bg-white/80 hover:border-primary/30"
-              }`}
-            >
-              <div className="relative h-56 w-full overflow-hidden">
-                <img
-                  src={scenario.image}
-                  alt={scenario.title}
-                  className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                />
-                <div className="absolute left-4 top-4 flex flex-wrap gap-2">
-                  {scenario.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-semibold text-secondary shadow"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="space-y-3 p-6">
-                <p className="text-xs uppercase tracking-[0.3em] text-secondary">{scenario.title}</p>
-                <h3 className="text-lg font-semibold">{scenario.subtitle}</h3>
-                <div className="rounded-2xl bg-primary/5 px-4 py-3 text-center text-lg font-semibold text-accent">
-                  {formatCurrency(scenario.min)} - {formatCurrency(scenario.max)}
-                </div>
-                <p className="text-xs text-secondary">
-                  Base: {formatCurrency(materialSubtotal)} · {baseMaterialLabel}
-                </p>
-              </div>
-            </motion.button>
-          ))}
-        </div>
-      </section>
-
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
         <div>
-          <h2 className="text-2xl font-semibold">Sección E · Cierre y documentación</h2>
+          <h2 className="text-2xl font-semibold">Sección D · Cierre y documentación</h2>
           <p className="mt-2 text-sm text-secondary">
             Resumen ejecutivo y generación de documentos para cliente y taller.
           </p>

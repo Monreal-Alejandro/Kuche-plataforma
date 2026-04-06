@@ -21,6 +21,12 @@ import {
   type KanbanTask,
   type PreliminarData,
 } from "@/lib/kanban";
+import { CatalogProjectTypeField } from "@/components/CatalogProjectTypeField";
+import {
+  CATALOG_PROJECT_TYPES,
+  isCocinasProjectTypeForConIsla,
+  normalizeLegacyProjectTypeToCatalog,
+} from "@/lib/catalog-project-types";
 import {
   APPLIANCE_CATEGORIAS,
   APPLIANCE_ITEMS,
@@ -771,12 +777,12 @@ export default function CotizadorPreliminarPage() {
   const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
   const [activeCitaTask, setActiveCitaTask] = useState<KanbanTask | null>(null);
   const [clientName, setClientName] = useState("");
-  const [projectType, setProjectType] = useState("Cocina");
+  const [projectType, setProjectType] = useState<string>(CATALOG_PROJECT_TYPES[0]);
   const [location, setLocation] = useState("");
   const [deliveryWeeksMin, setDeliveryWeeksMin] = useState("");
   const [deliveryWeeksMax, setDeliveryWeeksMax] = useState("");
-  const [largo, setLargo] = useState("4.2");
-  const [alto, setAlto] = useState("2.4");
+  const [largo, setLargo] = useState("");
+  const [alto, setAlto] = useState("");
   /** Sección D · showroom: materiales y escenario de inversión (derivado + ajuste manual opcional). */
   const [selectedCubierta, setSelectedCubierta] = useState(materialCatalog.cubiertas[0].id);
   const [selectedFrenteIds, setSelectedFrenteIds] = useState<string[]>(() => [materialCatalog.frentes[0].id]);
@@ -1084,6 +1090,10 @@ export default function CotizadorPreliminarPage() {
           if (task) {
             setActiveCitaTask(task);
             if (task.project) setClientName(task.project);
+            const lastPre = getPreliminarList(task).at(-1);
+            if (lastPre?.projectType?.trim()) {
+              setProjectType(normalizeLegacyProjectTypeToCatalog(lastPre.projectType));
+            }
           }
         } catch {
           // ignore
@@ -1312,12 +1322,12 @@ export default function CotizadorPreliminarPage() {
       seguimientoPdf: { key: preliminarPdfKey, fileLabel },
     });
     if (!result) return;
-    setProjectType("Cocina");
+    setProjectType(CATALOG_PROJECT_TYPES[0]);
     setLocation("");
     setDeliveryWeeksMin("");
     setDeliveryWeeksMax("");
-    setLargo("4.2");
-    setAlto("2.4");
+    setLargo("");
+    setAlto("");
     setSelectedCubierta(materialCatalog.cubiertas[0].id);
     setSelectedFrenteIds([materialCatalog.frentes[0].id]);
     setSelectedHerraje(materialCatalog.herrajes[0].id);
@@ -1619,19 +1629,25 @@ export default function CotizadorPreliminarPage() {
         ) : null}
 
         <SectionCard>
-          <div className="space-y-6">
+          <div className="space-y-4">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
               Sección A · Datos del proyecto
             </p>
-            <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-            <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-secondary">
                 Datos del proyecto
               </p>
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Cliente
+              <div className="mt-4 grid grid-cols-1 items-end gap-x-4 gap-y-5 md:grid-cols-12">
+                {/* Fila md: Cliente | Tipo | Ubicación (4+4+4) */}
+                <div className="col-span-12 md:col-span-4">
+                  <label
+                    htmlFor="levantamiento-cliente"
+                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                  >
+                    Cliente
+                  </label>
                   <input
+                    id="levantamiento-cliente"
                     ref={clientNameInputRef}
                     value={clientName}
                     onChange={(event) => {
@@ -1641,61 +1657,42 @@ export default function CotizadorPreliminarPage() {
                       setClientName(nextValue);
                     }}
                     placeholder="Nombre del cliente"
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                    className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                   />
-                </label>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Tipo de proyecto
-                  <select
-                    value={projectType}
-                    onChange={(event) => {
-                      const v = event.target.value;
-                      setProjectType(v);
-                      if (v !== "Cocina") {
-                        setLevantamiento((prev) => ({ ...prev, conIsla: "" }));
-                      }
-                    }}
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
-                  >
-                    <option value="Cocina">Cocina</option>
-                    <option value="Closet">Closet</option>
-                    <option value="TV Unit">TV Unit</option>
-                  </select>
-                </label>
-                {projectType === "Cocina" ? (
-                  <div className="md:col-span-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      ¿Con isla?
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "si" }))}
-                        className={`rounded-full px-5 py-2.5 text-sm font-semibold transition ${
-                          levantamiento.conIsla === "si"
-                            ? "bg-[#8B1C1C] text-white shadow-md"
-                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
-                        }`}
-                      >
-                        Sí
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "no" }))}
-                        className={`rounded-full px-5 py-2.5 text-sm font-semibold transition ${
-                          levantamiento.conIsla === "no"
-                            ? "bg-[#8B1C1C] text-white shadow-md"
-                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
-                        }`}
-                      >
-                        No
-                      </button>
+                </div>
+
+                <div className="col-span-12 flex flex-col md:col-span-4">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Tipo de proyecto
+                  </span>
+                  <div className="flex w-full gap-2">
+                    <div className="min-w-0 flex-1">
+                      <CatalogProjectTypeField
+                        value={projectType}
+                        onChange={(next) => {
+                          setProjectType(next);
+                          if (!isCocinasProjectTypeForConIsla(next)) {
+                            setLevantamiento((prev) => ({ ...prev, conIsla: "" }));
+                          }
+                        }}
+                        placeholder="Categoría…"
+                        innerRowClassName="flex w-full gap-2"
+                        buttonClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-white text-secondary shadow-sm transition hover:border-primary/30 hover:bg-primary/[0.04]"
+                        inputClassName="w-full min-w-0 rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
+                      />
                     </div>
                   </div>
-                ) : null}
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Ubicación
+                </div>
+
+                <div className="col-span-12 md:col-span-4">
+                  <label
+                    htmlFor="levantamiento-ubicacion"
+                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                  >
+                    Ubicación
+                  </label>
                   <input
+                    id="levantamiento-ubicacion"
                     ref={locationInputRef}
                     value={location}
                     onChange={(event) => {
@@ -1704,18 +1701,112 @@ export default function CotizadorPreliminarPage() {
                       caretPositionsRef.current.location = event.target.selectionStart ?? null;
                       setLocation(nextValue);
                     }}
-                    placeholder="CDMX, GDL, MTY..."
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                    placeholder="CDMX, GDL, MTY…"
+                    className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                   />
-                </label>
-                <div className="md:col-span-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                    Tiempo de entrega (Semanas aproximadas)
+                </div>
+
+                {/* Fila md: ¿Con isla? | Medidas | Tiempo (3+5+4) */}
+                {isCocinasProjectTypeForConIsla(projectType) ? (
+                  <div className="col-span-12 md:col-span-3">
+                    <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                      ¿Con isla?
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "si" }))}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                          levantamiento.conIsla === "si"
+                            ? "bg-[#8B1C1C] text-white shadow-sm"
+                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                        }`}
+                      >
+                        Sí
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "no" }))}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                          levantamiento.conIsla === "no"
+                            ? "bg-[#8B1C1C] text-white shadow-sm"
+                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                        }`}
+                      >
+                        No
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div
+                  className="col-span-12 md:col-span-5"
+                  role="group"
+                  aria-label="Medidas generales en metros"
+                >
+                  <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Medidas generales (m)
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-3">
-                    <label className="min-w-[100px] flex-1 text-[11px] font-semibold text-secondary">
-                      Mín. semanas
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label
+                        htmlFor="levantamiento-largo"
+                        className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                      >
+                        Largo
+                      </label>
                       <input
+                        id="levantamiento-largo"
+                        ref={largoInputRef}
+                        value={largo}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          lastEditedFieldRef.current = "largo";
+                          caretPositionsRef.current.largo = event.target.selectionStart ?? null;
+                          setLargo(nextValue);
+                        }}
+                        inputMode="decimal"
+                        className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="levantamiento-alto"
+                        className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                      >
+                        Alto
+                      </label>
+                      <input
+                        id="levantamiento-alto"
+                        ref={altoInputRef}
+                        value={alto}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          lastEditedFieldRef.current = "alto";
+                          caretPositionsRef.current.alto = event.target.selectionStart ?? null;
+                          setAlto(nextValue);
+                        }}
+                        inputMode="decimal"
+                        className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="col-span-12 md:col-span-4" role="group" aria-label="Tiempo de entrega en semanas">
+                  <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Tiempo de entrega (sem)
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label
+                        htmlFor="levantamiento-semanas-min"
+                        className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                      >
+                        Mín.
+                      </label>
+                      <input
+                        id="levantamiento-semanas-min"
                         ref={deliveryWeeksMinInputRef}
                         value={deliveryWeeksMin}
                         onChange={(event) => {
@@ -1728,12 +1819,18 @@ export default function CotizadorPreliminarPage() {
                         min={1}
                         step={1}
                         placeholder="ej. 8"
-                        className="mt-1 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                        className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                       />
-                    </label>
-                    <label className="min-w-[100px] flex-1 text-[11px] font-semibold text-secondary">
-                      Máx. semanas
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="levantamiento-semanas-max"
+                        className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                      >
+                        Máx.
+                      </label>
                       <input
+                        id="levantamiento-semanas-max"
                         ref={deliveryWeeksMaxInputRef}
                         value={deliveryWeeksMax}
                         onChange={(event) => {
@@ -1746,62 +1843,30 @@ export default function CotizadorPreliminarPage() {
                         min={1}
                         step={1}
                         placeholder="ej. 9"
-                        className="mt-1 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                        className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                       />
-                    </label>
+                    </div>
                   </div>
+                </div>
+
+                <div className="col-span-12">
+                  <label
+                    htmlFor="levantamiento-comentarios-a"
+                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                  >
+                    Comentarios de esta sección
+                  </label>
+                  <textarea
+                    id="levantamiento-comentarios-a"
+                    value={levantamiento.sectionComments.a ?? ""}
+                    onChange={(e) => setSectionComment("a", e.target.value)}
+                    rows={3}
+                    placeholder="Notas del levantamiento (accesos, muros load-bearing, etc.)"
+                    className="w-full resize-y rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none placeholder:text-secondary/50"
+                  />
                 </div>
               </div>
             </div>
-
-            <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-                Medidas generales
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Largo
-                  <input
-                    ref={largoInputRef}
-                    value={largo}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      lastEditedFieldRef.current = "largo";
-                      caretPositionsRef.current.largo = event.target.selectionStart ?? null;
-                      setLargo(nextValue);
-                    }}
-                    inputMode="decimal"
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Alto
-                  <input
-                    ref={altoInputRef}
-                    value={alto}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      lastEditedFieldRef.current = "alto";
-                      caretPositionsRef.current.alto = event.target.selectionStart ?? null;
-                      setAlto(nextValue);
-                    }}
-                    inputMode="decimal"
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-              </div>
-            </div>
-            </div>
-            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-              Comentarios de esta sección
-              <textarea
-                value={levantamiento.sectionComments.a ?? ""}
-                onChange={(e) => setSectionComment("a", e.target.value)}
-                rows={3}
-                placeholder="Notas del levantamiento (accesos, muros load-bearing, etc.)"
-                className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none placeholder:text-secondary/50"
-              />
-            </label>
           </div>
         </SectionCard>
 

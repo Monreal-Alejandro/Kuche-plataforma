@@ -2,6 +2,15 @@ import type { LevantamientoDetalle } from "@/lib/levantamiento-catalog";
 import { parseDeliveryWeeksRangeFromLabel } from "@/lib/delivery-weeks";
 
 export type TaskStage = "citas" | "disenos" | "cotizacion" | "contrato";
+
+/** Borde izquierdo (con `border-l-4`) y badge de etapa — mismo criterio visual que el Kanban. */
+export const stageStyles: Record<TaskStage, { border: string; badge: string }> = {
+  citas: { border: "border-sky-500", badge: "bg-sky-50 text-sky-600" },
+  disenos: { border: "border-violet-500", badge: "bg-violet-50 text-violet-600" },
+  cotizacion: { border: "border-emerald-500", badge: "bg-emerald-50 text-emerald-600" },
+  contrato: { border: "border-amber-500", badge: "bg-amber-50 text-amber-700" },
+};
+
 export type TaskStatus = "pendiente" | "completada";
 export type TaskPriority = "alta" | "media" | "baja";
 export type FollowUpStatus = "pendiente" | "confirmado" | "descartado";

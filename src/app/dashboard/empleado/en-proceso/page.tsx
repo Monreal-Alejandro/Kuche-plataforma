@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, User, X } from "lucide-react";
-import { kanbanStorageKey, type KanbanTask } from "@/lib/kanban";
+import { kanbanStorageKey, stageStyles, type KanbanTask } from "@/lib/kanban";
 import { ClientDocuments } from "@/components/admin/ClientDocuments";
 import { splitIntoColumns } from "@/lib/split-into-columns";
 import { useClientCardColumns } from "@/hooks/useClientCardColumns";
@@ -130,7 +130,7 @@ export default function EmpleadoClientesEnProcesoPage() {
                   {col.map((task) => (
                     <div
                       key={task.id}
-                      className="min-w-0 rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm transition hover:border-sky-200/80 hover:shadow-md"
+                      className={`min-w-0 rounded-2xl border border-primary/10 bg-white p-5 shadow-sm transition hover:shadow-md border-l-4 ${stageStyles[task.stage].border}`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -149,7 +149,9 @@ export default function EmpleadoClientesEnProcesoPage() {
                             ) : null}
                           </div>
                         </div>
-                        <span className="shrink-0 rounded-full bg-sky-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                        <span
+                          className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${stageStyles[task.stage].badge}`}
+                        >
                           {stageLabel[task.stage] ?? task.stage}
                         </span>
                       </div>
