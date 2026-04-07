@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, Settings } from "lucide-react";
 
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
@@ -281,6 +282,24 @@ export default function PreciosPage() {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-gray-800">Actualización de costos base (piezas)</p>
+            <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
+              El rango del PDF de levantamiento usa otra pantalla (escenarios, IVA, gamas); no es esta tabla.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/configuracion-levantamiento"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-medium text-gray-700 shadow-sm transition hover:border-[#8B1C1C]/40 hover:bg-gray-50 hover:text-[#8B1C1C]"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            Configuración levantamiento
+          </Link>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Catálogo y Precios</h1>

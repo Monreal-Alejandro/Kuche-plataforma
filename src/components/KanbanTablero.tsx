@@ -4,7 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { FileUp, AlertTriangle, CheckCircle2, XCircle, Clock, Calendar, Trash2 } from "lucide-react";
+import {
+  FileUp,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Calendar,
+  Trash2,
+  CloudUpload,
+} from "lucide-react";
 
 import { DueDateInput } from "@/components/DueDateInput";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
@@ -274,7 +283,9 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   const [sortBy, setSortBy] = useState<"default" | "priority" | "date">("default");
   const [dragErrorMessage, setDragErrorMessage] = useState<string | null>(null);
   const [kanbanPersistError, setKanbanPersistError] = useState<string | null>(null);
-  const [confirmClientTaskId, setConfirmClientTaskId] = useState<string | null>(null);
+  const [uploadAcceptedDesignsTaskId, setUploadAcceptedDesignsTaskId] = useState<string | null>(null);
+  const [dropboxStagingFile, setDropboxStagingFile] = useState<File | null>(null);
+  const [dropboxUploading, setDropboxUploading] = useState(false);
   const [deleteConfirmTaskId, setDeleteConfirmTaskId] = useState<string | null>(null);
   const [cotizacionEntregadaTaskId, setCotizacionEntregadaTaskId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -282,7 +293,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
   const activeTaskRef = useRef<HTMLElement | null>(null);
   const panelScrollRef = useRef<HTMLElement | null>(null);
   const uploadTaskRef = useRef<HTMLDivElement | null>(null);
-  const confirmClientRef = useRef<HTMLDivElement | null>(null);
+  const uploadAcceptedDesignsRef = useRef<HTMLDivElement | null>(null);
   const deleteConfirmRef = useRef<HTMLDivElement | null>(null);
   const cotizacionEntregadaRef = useRef<HTMLDivElement | null>(null);
 
@@ -291,19 +302,23 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     setActiveTaskId(null);
     setDeleteConfirmTaskId(null);
     setUploadTaskId(null);
-    setConfirmClientTaskId(null);
+    setUploadAcceptedDesignsTaskId(null);
+    setDropboxStagingFile(null);
     setCotizacionEntregadaTaskId(null);
     setDragErrorMessage(null);
   }, []);
 
   useEscapeClose(Boolean(activeTaskId), () => setActiveTaskId(null));
   useEscapeClose(Boolean(uploadTaskId), () => setUploadTaskId(null));
-  useEscapeClose(Boolean(confirmClientTaskId), () => setConfirmClientTaskId(null));
+  useEscapeClose(Boolean(uploadAcceptedDesignsTaskId), () => {
+    setUploadAcceptedDesignsTaskId(null);
+    setDropboxStagingFile(null);
+  });
   useEscapeClose(Boolean(deleteConfirmTaskId), () => setDeleteConfirmTaskId(null));
   useEscapeClose(Boolean(cotizacionEntregadaTaskId), () => setCotizacionEntregadaTaskId(null));
   useFocusTrap(Boolean(activeTaskId), activeTaskRef);
   useFocusTrap(Boolean(uploadTaskId), uploadTaskRef);
-  useFocusTrap(Boolean(confirmClientTaskId), confirmClientRef);
+  useFocusTrap(Boolean(uploadAcceptedDesignsTaskId), uploadAcceptedDesignsRef);
   useFocusTrap(Boolean(deleteConfirmTaskId), deleteConfirmRef);
   useFocusTrap(Boolean(cotizacionEntregadaTaskId), cotizacionEntregadaRef);
   // Al abrir el panel de detalle, aseguramos que se muestre desde el inicio.
@@ -665,15 +680,24 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
     updateTask(taskId, (task) => ({ ...task, designApprovedByAdmin: true }));
   };
 
-  const approveDesignAsClient = (taskId: string) => {
-    updateTask(taskId, (task) => ({
-      ...task,
-      designApprovedByClient: true,
-      stage: "cotizacion" as TaskStage,
-      status: "pendiente" as TaskStatus,
-      citaStarted: false,
-      citaFinished: false,
-    }));
+  const handleDropboxUpload = async (taskId: string, file: File) => {
+    // TODO: Implementar llamada real a API de Dropbox (subir `file` y validar respuesta).
+    setDropboxUploading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      updateTask(taskId, (task) => ({
+        ...task,
+        designApprovedByClient: true,
+        stage: "cotizacion" as TaskStage,
+        status: "pendiente" as TaskStatus,
+        citaStarted: false,
+        citaFinished: false,
+      }));
+      setUploadAcceptedDesignsTaskId(null);
+      setDropboxStagingFile(null);
+    } finally {
+      setDropboxUploading(false);
+    }
   };
 
   const completeCotizacion = (taskId: string) => {
@@ -1078,9 +1102,9 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                   Cotización entregada
                                 </button>
                               ) : null}
-                              {/* Pasar a Seguimiento: manual vía botón (mismo estilo que «Cliente aceptó» en diseño) */}
+                              {/* Pasar a Seguimiento: manual vía botón */}
 
-                              {/* DISEÑOS: Subir → Admin aprueba → Cliente acepta */}
+                              {/* DISEÑOS: Subir → Admin aprueba → Subida Dropbox */}
                               {task.stage === "disenos" && task.status === "pendiente" && (!task.files || task.files.length === 0) ? (
                                 <button
                                   type="button"
@@ -1098,12 +1122,13 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    setConfirmClientTaskId(task.id);
+                                    setDropboxStagingFile(null);
+                                    setUploadAcceptedDesignsTaskId(task.id);
                                   }}
-                                  className="inline-flex min-h-[32px] w-auto items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold leading-tight text-white"
+                                  className="inline-flex min-h-[32px] w-auto items-center gap-1 rounded-full bg-sky-600 px-2.5 py-1 text-[11px] font-semibold leading-tight text-white"
                                 >
-                                  <CheckCircle2 className="h-3 w-3 shrink-0" />
-                                  Cliente aceptó
+                                  <CloudUpload className="h-3 w-3 shrink-0" />
+                                  Subir diseños aceptados
                                 </button>
                               ) : null}
 
@@ -1551,7 +1576,7 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                       </div>
                       <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.designApprovedByClient ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
                         {activeTask.designApprovedByClient ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
-                        <span>3. Cliente acepta</span>
+                        <span>3. Subida a Dropbox</span>
                       </div>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
@@ -1568,10 +1593,14 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
                       ) : !activeTask.designApprovedByClient ? (
                         <button
                           type="button"
-                          onClick={() => setConfirmClientTaskId(activeTask.id)}
-                          className="min-h-[36px] rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold leading-tight text-white"
+                          onClick={() => {
+                            setDropboxStagingFile(null);
+                            setUploadAcceptedDesignsTaskId(activeTask.id);
+                          }}
+                          className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold leading-tight text-white"
                         >
-                          Cliente aceptó
+                          <CloudUpload className="h-3.5 w-3.5 shrink-0" />
+                          Subir diseños aceptados
                         </button>
                       ) : (
                         <span className="text-sm text-emerald-600 font-medium">Diseño aprobado</span>
@@ -1879,56 +1908,84 @@ export function KanbanTablero(props: KanbanTableroProps = {}) {
       {mounted
         ? createPortal(
             <AnimatePresence mode="sync">
-              {confirmClientTaskId ? (
+              {uploadAcceptedDesignsTaskId ? (
                 <motion.div
-                  key={confirmClientTaskId}
+                  key={uploadAcceptedDesignsTaskId}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0, pointerEvents: "none" }}
                   transition={{ duration: 0.2 }}
                   className="pointer-events-auto fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4"
-                  onClick={() => setConfirmClientTaskId(null)}
-                >
-            <motion.div
-              ref={confirmClientRef}
-              tabIndex={-1}
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="pointer-events-auto w-full max-w-sm rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="flex items-center justify-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
-                  <CheckCircle2 className="h-7 w-7 text-emerald-600" />
-                </div>
-              </div>
-              <h3 className="mt-4 text-center text-lg font-semibold">
-                ¿Confirmar que el cliente aceptó?
-              </h3>
-              <p className="mt-2 text-center text-sm text-secondary">
-                Esta acción marcará el diseño como aprobado por el cliente y completará la tarea.
-              </p>
-              <div className="mt-6 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setConfirmClientTaskId(null)}
-                  className="flex-1 rounded-2xl border border-primary/10 bg-white py-3 text-sm font-semibold text-secondary"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
                   onClick={() => {
-                    approveDesignAsClient(confirmClientTaskId);
-                    setConfirmClientTaskId(null);
+                    setUploadAcceptedDesignsTaskId(null);
+                    setDropboxStagingFile(null);
                   }}
-                  className="flex-1 rounded-2xl bg-emerald-600 py-3 text-sm font-semibold text-white"
                 >
-                  Sí, confirmar
-                </button>
-              </div>
-            </motion.div>
+                  <motion.div
+                    ref={uploadAcceptedDesignsRef}
+                    tabIndex={-1}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="dropbox-upload-title"
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="pointer-events-auto w-full max-w-md rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-center">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-sky-100">
+                        <CloudUpload className="h-7 w-7 text-sky-600" />
+                      </div>
+                    </div>
+                    <h3 id="dropbox-upload-title" className="mt-4 text-center text-lg font-semibold text-gray-900">
+                      Subir diseños aceptados a Dropbox
+                    </h3>
+                    <p className="mt-2 text-center text-sm text-secondary">
+                      Selecciona el archivo con los diseños finales. Al completarse la subida, la tarea pasará a
+                      Cotización (no se guardará el archivo en el tablero).
+                    </p>
+                    <label className="mt-5 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-sky-50/50 px-4 py-8 text-center text-sm text-secondary transition hover:border-sky-300 hover:bg-sky-50">
+                      <CloudUpload className="h-5 w-5 text-sky-600" />
+                      <span className="font-medium text-primary">
+                        {dropboxStagingFile ? dropboxStagingFile.name : "Seleccionar archivo"}
+                      </span>
+                      <span className="text-xs text-secondary">PDF, imágenes u otros (un archivo)</span>
+                      <input
+                        type="file"
+                        className="sr-only"
+                        accept="image/*,.pdf,.dwg,.dxf"
+                        tabIndex={-1}
+                        onChange={(event) => {
+                          const f = event.target.files?.[0];
+                          setDropboxStagingFile(f ?? null);
+                        }}
+                      />
+                    </label>
+                    <div className="mt-6 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadAcceptedDesignsTaskId(null);
+                          setDropboxStagingFile(null);
+                        }}
+                        className="flex-1 rounded-2xl border border-primary/10 bg-white py-3 text-sm font-semibold text-secondary transition hover:bg-gray-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!dropboxStagingFile || dropboxUploading}
+                        onClick={() => {
+                          if (!uploadAcceptedDesignsTaskId || !dropboxStagingFile) return;
+                          void handleDropboxUpload(uploadAcceptedDesignsTaskId, dropboxStagingFile);
+                        }}
+                        className="flex-1 rounded-2xl bg-sky-600 py-3 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {dropboxUploading ? "Subiendo…" : "Subir y avanzar"}
+                      </button>
+                    </div>
+                  </motion.div>
                 </motion.div>
               ) : null}
             </AnimatePresence>,

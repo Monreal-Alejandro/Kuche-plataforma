@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Lock, User } from "lucide-react";
+import { ArrowLeft, Lock, User } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -76,6 +77,13 @@ export default function LoginPage() {
             className="w-full max-w-md rounded-3xl border border-white/60 bg-white/80 p-8 shadow-xl backdrop-blur-md"
           >
             <div className="mb-6">
+              <Link
+                href="/"
+                className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-accent transition hover:text-accent/90 hover:underline"
+              >
+                <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden />
+                Volver al sitio web (inicio)
+              </Link>
               <h2 className="text-2xl font-semibold">Inicia sesión</h2>
               <p className="mt-2 text-sm text-secondary">{helperText}</p>
             </div>

@@ -66,6 +66,13 @@ import {
   formatSeguimientoDateLong,
   normalizeEtapaForStorage,
 } from "@/lib/seguimiento-project";
+import {
+  createDefaultLevantamientoConfig,
+  getAveragePriceByTier,
+  getLevantamientoConfig,
+  type LevantamientoConfig,
+  type MaterialGama,
+} from "@/lib/config-levantamiento";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
@@ -129,23 +136,6 @@ type MaterialOption = {
 
 type MaterialCategory = "cubiertas" | "frentes" | "herrajes";
 type MaterialTierFilter = "Todos" | MaterialOption["tier"];
-
-/** Precio por metro lineal (MXN) según gama y categoría (Küche). */
-const MATERIAL_TIER_PRICE_PER_M: Record<
-  MaterialCategory,
-  Record<MaterialOption["tier"], number>
-> = {
-  cubiertas: { Estandar: 2000, Tendencia: 3500, Premium: 5000 },
-  frentes: { Estandar: 1000, Tendencia: 2000, Premium: 3500 },
-  herrajes: { Estandar: 800, Tendencia: 1500, Premium: 2500 },
-};
-
-/** Costo base por metro lineal según escenario de acabados. */
-const SCENARIO_PRICE_PER_M_MXN: Record<string, number> = {
-  esencial: 5000,
-  tendencia: 10000,
-  premium: 15000,
-};
 
 const materialImageMap: Record<MaterialCategory, { match: RegExp; src: string }[]> = {
   cubiertas: [
@@ -224,6 +214,8 @@ type MaterialGridProps = {
   largoLineal: number;
   materialSearch: string;
   tierFilter: MaterialTierFilter;
+  /** Promedios $/m por gama (desde configuración de levantamiento). */
+  tierPriceByTier: Record<MaterialOption["tier"], number>;
 } & (
   | { multiSelect?: false; selectedId: string; onSelect: (id: string) => void }
   | { multiSelect: true; selectedIds: string[]; onToggle: (id: string) => void }
@@ -238,6 +230,7 @@ const MaterialGrid = ({
   largoLineal,
   materialSearch,
   tierFilter,
+  tierPriceByTier,
   ...rest
 }: MaterialGridProps) => {
   const isMulti = rest.multiSelect === true;
@@ -265,7 +258,7 @@ const MaterialGrid = ({
         {paginated.map((option) => {
           const isActive = isMulti ? rest.selectedIds.includes(option.id) : option.id === rest.selectedId;
           const imageSrc = resolveMaterialImage(option.name, category, option.image);
-          const pricePerM = MATERIAL_TIER_PRICE_PER_M[category][option.tier];
+          const pricePerM = tierPriceByTier[option.tier];
           const optionPrice = Math.max(0, largoLineal * pricePerM);
           return (
             <button
@@ -787,6 +780,9 @@ export default function CotizadorPreliminarPage() {
   const [selectedCubierta, setSelectedCubierta] = useState(materialCatalog.cubiertas[0].id);
   const [selectedFrenteIds, setSelectedFrenteIds] = useState<string[]>(() => [materialCatalog.frentes[0].id]);
   const [selectedHerraje, setSelectedHerraje] = useState(materialCatalog.herrajes[0].id);
+  const [levantamientoConfig, setLevantamientoConfig] = useState<LevantamientoConfig>(() =>
+    createDefaultLevantamientoConfig(),
+  );
   const [selectedScenario, setSelectedScenario] = useState<AutoScenarioId>(() =>
     autoScenarioFromShowroom(
       materialCatalog.cubiertas[0].id,
@@ -873,6 +869,13 @@ export default function CotizadorPreliminarPage() {
     });
     setCurrentWallIndex(0);
   };
+
+  useEffect(() => {
+    setLevantamientoConfig(getLevantamientoConfig());
+    const onUpdate = () => setLevantamientoConfig(getLevantamientoConfig());
+    window.addEventListener("kuche:levantamiento-config-updated", onUpdate);
+    return () => window.removeEventListener("kuche:levantamiento-config-updated", onUpdate);
+  }, []);
 
   useEffect(() => {
     if (!confirmChangeWallCountOpen) return;
@@ -1347,24 +1350,27 @@ export default function CotizadorPreliminarPage() {
     const largoValue = Math.max(0, Number.parseFloat(largo) || 0);
     const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
     const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
-    const tierC = cubierta?.tier ?? "Estandar";
-    const tierH = herraje?.tier ?? "Estandar";
+    const tierC = (cubierta?.tier ?? "Estandar") as MaterialGama;
+    const tierH = (herraje?.tier ?? "Estandar") as MaterialGama;
+    const mats = levantamientoConfig.materiales;
     const sumPrecioFrentePorM = selectedFrenteIds.reduce((acc, fid) => {
       const f = materialCatalog.frentes.find((item) => item.id === fid);
-      const tierF = f?.tier ?? "Estandar";
-      return acc + MATERIAL_TIER_PRICE_PER_M.frentes[tierF];
+      const tierF = (f?.tier ?? "Estandar") as MaterialGama;
+      return acc + getAveragePriceByTier(mats, "frente", tierF);
     }, 0);
-    const costoMateriales =
-      largoValue *
-      (MATERIAL_TIER_PRICE_PER_M.cubiertas[tierC] + sumPrecioFrentePorM + MATERIAL_TIER_PRICE_PER_M.herrajes[tierH]);
+    const avgCubierta = getAveragePriceByTier(mats, "cubierta", tierC);
+    const avgHerraje = getAveragePriceByTier(mats, "herraje", tierH);
+    const costoMateriales = largoValue * (avgCubierta + sumPrecioFrentePorM + avgHerraje);
     const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
-    const precioEscenario = SCENARIO_PRICE_PER_M_MXN[selectedScenario] ?? 5000;
+    const precioEscenario =
+      levantamientoConfig.scenarioPrices[selectedScenario] ?? 5000;
     const costoBase = largoValue * precioEscenario;
     const subtotal = costoBase + costoMateriales + costoIluminacion;
-    const iva = subtotal * 0.16;
+    const iva = subtotal * levantamientoConfig.ivaPercent;
     const total = subtotal + iva;
-    const rangeMin = total * 0.92;
-    const rangeMax = total * 1.08;
+    const m = levantamientoConfig.marginPercent;
+    const rangeMin = total * (1 - m);
+    const rangeMax = total * (1 + m);
 
     return {
       largoValue,
@@ -1377,8 +1383,17 @@ export default function CotizadorPreliminarPage() {
       rangeMin,
       rangeMax,
       rangeLabel: `${formatCurrency(rangeMin)} - ${formatCurrency(rangeMax)}`,
+      marginPercent: m,
     };
-  }, [largo, selectedCubierta, selectedFrenteIds, selectedHerraje, levantamiento, selectedScenario]);
+  }, [
+    largo,
+    selectedCubierta,
+    selectedFrenteIds,
+    selectedHerraje,
+    levantamiento,
+    selectedScenario,
+    levantamientoConfig,
+  ]);
 
   const selectedSummary = useMemo(() => {
     const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
@@ -1424,23 +1439,51 @@ export default function CotizadorPreliminarPage() {
     const largoValue = Math.max(0, Number.parseFloat(largo) || 0);
     const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
     const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
-    const tierC = cubierta?.tier ?? "Estandar";
-    const tierH = herraje?.tier ?? "Estandar";
+    const tierC = (cubierta?.tier ?? "Estandar") as MaterialGama;
+    const tierH = (herraje?.tier ?? "Estandar") as MaterialGama;
+    const mats = levantamientoConfig.materiales;
     const sumPrecioFrentePorM = selectedFrenteIds.reduce((acc, fid) => {
       const f = materialCatalog.frentes.find((item) => item.id === fid);
-      const tierF = f?.tier ?? "Estandar";
-      return acc + MATERIAL_TIER_PRICE_PER_M.frentes[tierF];
+      const tierF = (f?.tier ?? "Estandar") as MaterialGama;
+      return acc + getAveragePriceByTier(mats, "frente", tierF);
     }, 0);
     const costoMateriales =
-      largoValue * (MATERIAL_TIER_PRICE_PER_M.cubiertas[tierC] + sumPrecioFrentePorM + MATERIAL_TIER_PRICE_PER_M.herrajes[tierH]);
+      largoValue *
+      (getAveragePriceByTier(mats, "cubierta", tierC) + sumPrecioFrentePorM + getAveragePriceByTier(mats, "herraje", tierH));
     const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
+    const ivaP = levantamientoConfig.ivaPercent;
+    const m = levantamientoConfig.marginPercent;
+    const def = createDefaultLevantamientoConfig().scenarioPrices;
     return scenarioOptions.map((s) => {
-      const costoBaseS = largoValue * (SCENARIO_PRICE_PER_M_MXN[s.id] ?? 5000);
+      const costoBaseS = largoValue * (levantamientoConfig.scenarioPrices[s.id as keyof typeof def] ?? def.esencial);
       const sub = costoBaseS + costoMateriales + costoIluminacion;
-      const tot = sub + sub * 0.16;
-      return { id: s.id, min: tot * 0.92, max: tot * 1.08 };
+      const tot = sub + sub * ivaP;
+      return { id: s.id, min: tot * (1 - m), max: tot * (1 + m) };
     });
-  }, [largo, selectedCubierta, selectedFrenteIds, selectedHerraje, levantamiento, scenarioOptions]);
+  }, [
+    largo,
+    selectedCubierta,
+    selectedFrenteIds,
+    selectedHerraje,
+    levantamiento,
+    scenarioOptions,
+    levantamientoConfig,
+  ]);
+
+  const materialTierAverages = useMemo(() => {
+    const m = levantamientoConfig.materiales;
+    const row = (c: "cubierta" | "frente" | "herraje") =>
+      ({
+        Estandar: getAveragePriceByTier(m, c, "Estandar"),
+        Tendencia: getAveragePriceByTier(m, c, "Tendencia"),
+        Premium: getAveragePriceByTier(m, c, "Premium"),
+      }) satisfies Record<MaterialOption["tier"], number>;
+    return {
+      cubiertas: row("cubierta"),
+      frentes: row("frente"),
+      herrajes: row("herraje"),
+    };
+  }, [levantamientoConfig.materiales]);
 
   /** Auto-escenario según moda de gamas en showroom; el usuario puede corregir con las tarjetas (se respeta hasta el próximo cambio de material). */
   useEffect(() => {
@@ -1606,6 +1649,20 @@ export default function CotizadorPreliminarPage() {
             Estimación rápida para prospectos. No sustituye una cotización formal.
           </p>
         </header>
+
+        <div className="rounded-2xl border-2 border-accent bg-white p-4 shadow-md ring-1 ring-accent/20">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-primary">
+              ¿Precios del rango, escenarios o materiales por gama? Configúralos aquí (admin).
+            </p>
+            <Link
+              href="/dashboard/configuracion-levantamiento"
+              className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 sm:w-auto"
+            >
+              Abrir configuración de levantamiento
+            </Link>
+          </div>
+        </div>
 
         {activeCitaTask ? (
           <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4">
@@ -2592,6 +2649,7 @@ export default function CotizadorPreliminarPage() {
               largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
               tierFilter={tierFilter}
+              tierPriceByTier={materialTierAverages.cubiertas}
             />
             <MaterialGrid
               title="Frentes / Material base"
@@ -2605,6 +2663,7 @@ export default function CotizadorPreliminarPage() {
               largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
               tierFilter={tierFilter}
+              tierPriceByTier={materialTierAverages.frentes}
             />
             <MaterialGrid
               title="Herrajes"
@@ -2617,6 +2676,7 @@ export default function CotizadorPreliminarPage() {
               largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
               tierFilter={tierFilter}
+              tierPriceByTier={materialTierAverages.herrajes}
             />
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
@@ -3155,7 +3215,9 @@ export default function CotizadorPreliminarPage() {
                     </span>
                   </div>
                   <div className="flex justify-end gap-4 text-sm text-secondary sm:gap-6">
-                    <span className="min-w-0 shrink">IVA (16%)</span>
+                    <span className="min-w-0 shrink">
+                      IVA ({Math.round(levantamientoConfig.ivaPercent * 100)}%)
+                    </span>
                     <span className="min-w-0 shrink-0 font-semibold tabular-nums text-primary">
                       {formatCurrency(metrics.iva)}
                     </span>
@@ -3168,7 +3230,7 @@ export default function CotizadorPreliminarPage() {
                   </div>
                 </div>
                 <div className="border-t border-primary/10 pt-3 text-xs text-secondary sm:text-right">
-                  Rango estimado (±8% sobre total):{" "}
+                  Rango estimado (±{Math.round(metrics.marginPercent * 100)}% sobre total):{" "}
                   <span className="font-semibold text-[#8B1C1C]">{scenarioRangeLabel}</span>
                 </div>
               </div>
