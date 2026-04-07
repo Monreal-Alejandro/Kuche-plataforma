@@ -107,8 +107,16 @@ export function buildPreliminarPdf(data: PreliminarData): string {
   return `%PDF-1.4\n${objects.join("\n\n")}\n${xref}\n${trailer}`;
 }
 
+const openRemotePdf = (url: string): void => {
+  window.open(url, "_blank", "noopener,noreferrer");
+};
+
 /** Abre el PDF en una nueva pestaña. */
 export function openPreliminarPdfInNewTab(data: PreliminarData): void {
+  if (data.levantamientoPdfUrl) {
+    openRemotePdf(data.levantamientoPdfUrl);
+    return;
+  }
   const pdf = buildPreliminarPdf(data);
   const blob = new Blob([pdf], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
@@ -118,6 +126,13 @@ export function openPreliminarPdfInNewTab(data: PreliminarData): void {
 
 /** Descarga el PDF con nombre sugerido. */
 export function downloadPreliminarPdf(data: PreliminarData, filename?: string): void {
+  if (data.levantamientoPdfUrl) {
+    const link = document.createElement("a");
+    link.href = data.levantamientoPdfUrl;
+    link.download = filename ?? `cotizacion-preliminar-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
+    link.click();
+    return;
+  }
   const pdf = buildPreliminarPdf(data);
   const blob = new Blob([pdf], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
@@ -130,6 +145,10 @@ export function downloadPreliminarPdf(data: PreliminarData, filename?: string): 
 
 /** Abre el PDF formal en una nueva pestaña. Busca en IndexedDB por formalPdfKey, o usa pdfDataUrl si existe; si no, genera el PDF preliminar como fallback. */
 export function openFormalPdfInNewTab(data: CotizacionFormalData): void {
+  if (data.formalPdfUrl) {
+    openRemotePdf(data.formalPdfUrl);
+    return;
+  }
   if (data.pdfDataUrl) {
     window.open(data.pdfDataUrl, "_blank", "noopener,noreferrer");
     return;
@@ -146,6 +165,13 @@ export function openFormalPdfInNewTab(data: CotizacionFormalData): void {
 
 /** Descarga el PDF formal. Busca en IndexedDB por formalPdfKey, o usa pdfDataUrl si existe; si no, genera el PDF preliminar como fallback. */
 export function downloadFormalPdf(data: CotizacionFormalData, filename?: string): void {
+  if (data.formalPdfUrl) {
+    const link = document.createElement("a");
+    link.href = data.formalPdfUrl;
+    link.download = filename ?? `cotizacion-formal-${(data.client || "cliente").replace(/\s+/g, "-")}.pdf`;
+    link.click();
+    return;
+  }
   if (data.pdfDataUrl) {
     const link = document.createElement("a");
     link.href = data.pdfDataUrl;

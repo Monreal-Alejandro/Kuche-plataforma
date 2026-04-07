@@ -29,6 +29,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Lock, User, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import Captcha from "@/components/Captcha";
+import { getLoginRedirectForUser } from "@/lib/role-routes";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -65,15 +66,7 @@ export default function LoginPage() {
       const result = await login(correo, password);
       
       if (result.success && result.user) {
-        // Redirigir según el rol del usuario
-        if (result.user.rol === 'admin') {
-          router.push("/admin");
-        } else if (result.user.rol === 'arquitecto' || result.user.rol === 'empleado') {
-          router.push("/dashboard/empleado");
-        } else {
-          // Por defecto ir a empleado si no está definido el rol
-          router.push("/dashboard/empleado");
-        }
+        router.push(getLoginRedirectForUser(result.user));
       } else {
         setStatus("error");
         setErrorMessage(result.error || "Credenciales inválidas");

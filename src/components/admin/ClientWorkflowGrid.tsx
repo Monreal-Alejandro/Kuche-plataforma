@@ -105,6 +105,39 @@ export default function ClientWorkflowGrid({
                 key={task.id}
                 className="rounded-3xl border border-primary/10 bg-white p-6 shadow-sm"
               >
+                {/** Lista de archivos relacionados al cliente desde ClienteArchivo */}
+                {(() => {
+                  const relatedClientFiles = task.clientFiles ?? [];
+                  return relatedClientFiles.length > 0 ? (
+                    <div className="mt-6 rounded-2xl bg-sky-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-sky-800">
+                        Archivos del cliente ({relatedClientFiles.length})
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        {relatedClientFiles.slice(0, 6).map((file) => (
+                          <a
+                            key={`${task.id}-cliente-file-${file.id}`}
+                            href={file.src}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center justify-between gap-2 rounded-xl bg-white/80 px-3 py-2 text-xs text-sky-900 transition hover:bg-white"
+                          >
+                            <span className="truncate font-medium">{file.name}</span>
+                            <span className="shrink-0 rounded-full bg-sky-100 px-2 py-1 font-semibold uppercase">
+                              {file.type}
+                            </span>
+                          </a>
+                        ))}
+                        {relatedClientFiles.length > 6 ? (
+                          <p className="text-[11px] font-semibold text-sky-700">
+                            + {relatedClientFiles.length - 6} archivo(s) más
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900">{task.project}</h3>
@@ -139,6 +172,11 @@ export default function ClientWorkflowGrid({
                         {getPreliminarList(task).map((data, index) => (
                           <div key={`${task.id}-preliminar-${index}`} className="flex flex-wrap items-center gap-2 rounded-xl bg-white/80 px-3 py-2">
                             <span className="text-xs font-medium text-emerald-800">{data.projectType}</span>
+                            {data.clienteId ? (
+                              <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                                Cliente vinculado
+                              </span>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => openPreliminarPdfInNewTab(data)}
@@ -160,6 +198,17 @@ export default function ClientWorkflowGrid({
                               <Download className="h-3 w-3" />
                               Descargar PDF
                             </button>
+                            {data.levantamientoPdfUrl ? (
+                              <a
+                                href={data.levantamientoPdfUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-100 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-200"
+                              >
+                                <FileText className="h-3 w-3" />
+                                Levantamiento subido
+                              </a>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -202,11 +251,11 @@ export default function ClientWorkflowGrid({
                     </div>
                   ) : null}
 
-                  {getPreliminarList(task).length === 0 && getCotizacionesFormalesList(task).length === 0 ? (
+                  {getPreliminarList(task).length === 0 && getCotizacionesFormalesList(task).length === 0 && (task.clientFiles?.length ?? 0) === 0 ? (
                     <div className="rounded-xl bg-gray-50 px-3 py-2 text-sm text-secondary">
                       <div className="flex items-center gap-2">
                         <FileText className="h-4 w-4" />
-                        Sin PDFs generados aún.
+                        Sin archivos vinculados aún.
                       </div>
                     </div>
                   ) : null}

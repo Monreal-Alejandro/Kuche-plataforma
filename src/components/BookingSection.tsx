@@ -61,6 +61,7 @@ export default function BookingSection() {
   const [horariosOcupados, setHorariosOcupados] = useState<string[]>([]);
   const [loadingCitas, setLoadingCitas] = useState(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+  const [successClientCode, setSuccessClientCode] = useState<string | null>(null);
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const successModalRef = useRef<HTMLDivElement | null>(null);
@@ -232,6 +233,7 @@ export default function BookingSection() {
     setIsSuccessModalOpen(false);
     setIsErrorModalOpen(false);
     setErrorMessage("");
+    setSuccessClientCode(null);
 
     try {
       // Formatear la fecha al formato que espera el backend
@@ -254,12 +256,32 @@ export default function BookingSection() {
 
       console.log("[BookingSection] crearCita response JSON:\n", prettyJson(response));
 
+      const responseData = response && "data" in response ? ((response.data as unknown) as Record<string, unknown> | undefined) : undefined;
+      const payload =
+        responseData && typeof responseData.data === "object" && responseData.data !== null
+          ? (responseData.data as Record<string, unknown>)
+          : responseData;
+      const codeCandidate =
+        (payload && typeof payload.clienteId === "string" && payload.clienteId) ||
+        (payload && typeof payload.codigo === "string" && payload.codigo) ||
+        (payload && typeof payload.cliente === "object" && payload.cliente !== null
+          ? (() => {
+              const cliente = payload.cliente as Record<string, unknown>;
+              return typeof cliente.codigo === "string" ? cliente.codigo : null;
+            })()
+          : null);
+
       // Verificar si la respuesta indica éxito
       const isSuccess = 
         (response && response.success === true) || 
         (response && 'data' in response && response.data !== null);
 
       if (isSuccess) {
+        setSuccessClientCode(
+          typeof codeCandidate === "string"
+            ? codeCandidate.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6)
+            : null,
+        );
         setIsSuccessModalOpen(true);
         resetForm();
       } else {
@@ -699,6 +721,11 @@ export default function BookingSection() {
               <p className="mt-4 text-sm text-secondary">
                 Tu solicitud ha sido registrada correctamente. Te contactaremos pronto a tu teléfono para confirmar los detalles de tu visita.
               </p>
+              {successClientCode ? (
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  Código de cliente: <span className="font-semibold">{successClientCode}</span>
+                </div>
+              ) : null}
 
               <div className="mt-6">
                 <button

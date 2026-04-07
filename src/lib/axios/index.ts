@@ -86,3 +86,27 @@ export type {
 
 // Exportar API de workflow admin
 export * as adminWorkflowApi from './adminWorkflowApi';
+
+// Exportar API de seguimiento cliente
+export * as seguimientoApi from './seguimientoApi';
+export type {
+  SeguimientoLoginResponse,
+  SeguimientoProyectoResponse,
+} from './seguimientoApi';
+
+// Exportar APIs de clientes
+export * as clientesApi from './clientesApi';
+export type {
+  ClienteResumen,
+  PanelClienteResponse,
+  PanelClienteCita,
+  PanelClienteProyecto,
+  PanelClienteTarea,
+} from './clientesApi';
+
+// Exportar API de archivos del cliente
+export * as archivosClienteApi from './archivosClienteApi';
+export type {
+  ClienteArchivo,
+  PanelArchivosResponse,
+} from './archivosClienteApi';

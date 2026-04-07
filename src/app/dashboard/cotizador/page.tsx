@@ -11,6 +11,8 @@ import * as XLSX from "xlsx";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useAdminWorkflow } from "@/contexts/AdminWorkflowContext";
+import { getReturnRouteForLoggedUser } from "@/lib/role-routes";
+import { agregarArchivos } from "@/lib/axios/tareasApi";
 import {
   activeCitaTaskStorageKey,
   activeCotizacionFormalTaskStorageKey,
@@ -23,8 +25,46 @@ import { buildWorkshopPdfDataUrl, type WorkshopPdfBuildInput } from "@/lib/cotiz
 import { createFormalPdfKey, createWorkshopPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
 import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
 import { generatePublicProjectCode } from "@/lib/project-code";
+import { subirPdfGeneradoConMetadata } from "@/lib/axios/uploadsApi";
+import {
+  buildFormalUploadMetadata,
+  getRequiredClientIdForFormalUpload,
+} from "@/lib/upload-formal-metadata";
+import {
+  actualizarHerraje,
+  actualizarMaterial,
+  crearHerraje,
+  crearMaterial,
+  eliminarHerraje,
+  eliminarMaterial,
+  obtenerHerrajes,
+  obtenerMateriales,
+  type Herraje,
+  type Material,
+  type UnidadMedida,
+} from "@/lib/axios/catalogosApi";
 
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
+
+const downloadDataUrlFile = (dataUrl: string, filename: string) => {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  link.click();
+};
+
+const alreadyRelatedToTask = (
+  relatedTaskId: string,
+  relacionadoA?: "tarea" | "proyecto" | "cotizacion" | "cliente",
+  relacionadoId?: string,
+  tareasId?: string,
+) => {
+  const normalizedTaskId = relatedTaskId.trim();
+  if (relacionadoA === "tarea" && relacionadoId?.trim() === normalizedTaskId) {
+    return true;
+  }
+  return tareasId?.trim() === normalizedTaskId;
+};
 /** Precio por metro lineal para material base (según ítem de ESTRUCTURA seleccionado). */
 const MATERIAL_BASE_PRICE_PER_METER: Record<string, number> = {
   est_mdf_natural: 6500,
@@ -77,6 +117,8 @@ export type CatalogoItem = {
   label: string;
   unitPrice: number;
   unitType?: string;
+  backendId?: string;
+  sourceKind?: "material" | "herraje";
 };
 
 type CatalogoCategoria = {
@@ -245,10 +287,90 @@ const initialCatalogoKuche: CatalogoCategoria[] = [
   },
 ];
 
+const emptyCatalogoTemplate: CatalogoCategoria[] = initialCatalogoKuche.map((category) => ({
+  category: category.category,
+  items: [],
+}));
+
+const DISPLAY_TO_SECTION: Record<string, string> = {
+  CUBIERTA: "cubierta",
+  ESTRUCTURA: "estructura",
+  VISTAS: "vistas",
+  ESPESOR: "espesor",
+  "CAJONES Y PUERTAS": "cajones_puertas",
+  "ACCESORIOS DE MÓDULO": "accesorios_modulo",
+  "EXTRAÍBLES Y PUERTAS ABATIBLES": "extraibles_puertas_abatibles",
+  "INSUMOS DE PRODUCCIÓN": "insumos_produccion",
+  EXTRAS: "extras",
+  "GASTOS FIJOS": "gastos_fijos",
+};
+
+const SECTION_TO_DISPLAY: Record<string, string> = {
+  cubierta: "CUBIERTA",
+  estructura: "ESTRUCTURA",
+  vistas: "VISTAS",
+  espesor: "ESPESOR",
+  cajones_puertas: "CAJONES Y PUERTAS",
+  accesorios_modulo: "ACCESORIOS DE MÓDULO",
+  extraibles_puertas_abatibles: "EXTRAÍBLES Y PUERTAS ABATIBLES",
+  insumos_produccion: "INSUMOS DE PRODUCCIÓN",
+  extras: "EXTRAS",
+  gastos_fijos: "GASTOS FIJOS",
+};
+
 function catalogItemUnitLabel(item: { unitType?: string }): string {
   const u = item.unitType?.trim();
   return u || "pieza";
 }
+
+function extractList<T>(input: unknown, keys: string[]): T[] {
+  if (Array.isArray(input)) return input as T[];
+  if (input && typeof input === "object") {
+    const record = input as Record<string, unknown>;
+    for (const key of keys) {
+      const value = record[key];
+      if (Array.isArray(value)) return value as T[];
+    }
+  }
+  return [];
+}
+
+const getDisplayCategoryFromApi = (raw: Record<string, unknown>) => {
+  const seccionRaw = typeof raw.seccion === "string" ? raw.seccion.trim().toLowerCase() : "";
+  if (seccionRaw && SECTION_TO_DISPLAY[seccionRaw]) return SECTION_TO_DISPLAY[seccionRaw];
+  const categoriaRaw = typeof raw.categoria === "string" ? raw.categoria.trim().toLowerCase() : "";
+  if (categoriaRaw === "herrajes") return "ACCESORIOS DE MÓDULO";
+  return "EXTRAS";
+};
+
+const inferItemKindFromDisplayCategory = (displayCategory: string): "material" | "herraje" => {
+  if (
+    displayCategory === "CAJONES Y PUERTAS" ||
+    displayCategory === "ACCESORIOS DE MÓDULO" ||
+    displayCategory === "EXTRAÍBLES Y PUERTAS ABATIBLES"
+  ) {
+    return "herraje";
+  }
+  return "material";
+};
+
+const normalizeUnitToApi = (unitType: string): UnidadMedida => {
+  const raw = unitType.trim().toLowerCase();
+  if (raw === "m2" || raw === "m²") return "m²";
+  if (raw === "m3" || raw === "m³") return "m³";
+  if (
+    raw === "m" ||
+    raw === "metro" ||
+    raw === "metros" ||
+    raw === "metro lineal" ||
+    raw === "mts"
+  ) {
+    return "m";
+  }
+  if (raw === "caja") return "caja";
+  if (raw === "paquete") return "paquete";
+  return "unidad";
+};
 
 function normalizeStoredCatalog(
   parsed: Array<{ category?: string; items?: unknown[] }>,
@@ -317,7 +439,7 @@ export default function CotizadorPage() {
     { name: "Arquitectura F4 Studio", phone: "", email: "" },
     { name: "Eduardo Pardo", phone: "", email: "" },
   ]);
-  const [catalogoKuche, setCatalogoKuche] = useState(initialCatalogoKuche);
+  const [catalogoKuche, setCatalogoKuche] = useState(emptyCatalogoTemplate);
   const [client, setClient] = useState("");
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [newClientName, setNewClientName] = useState("");
@@ -334,7 +456,7 @@ export default function CotizadorPage() {
   const [colorItemId, setColorItemId] = useState(getDefaultColorItemId);
   const [thicknessItemId, setThicknessItemId] = useState(getDefaultThicknessItemId);
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState(initialCatalogoKuche[0]?.category ?? "");
+  const [activeTab, setActiveTab] = useState(emptyCatalogoTemplate[0]?.category ?? "");
   const [materialSearch, setMaterialSearch] = useState("");
 
   const [utilidadPct, setUtilidadPct] = useState(30);
@@ -348,7 +470,9 @@ export default function CotizadorPage() {
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemUnitType, setNewItemUnitType] = useState("pieza");
-  const [newItemCategory, setNewItemCategory] = useState(initialCatalogoKuche[0]?.category ?? "");
+  const [newItemCategory, setNewItemCategory] = useState(emptyCatalogoTemplate[0]?.category ?? "");
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [isCatalogSaving, setIsCatalogSaving] = useState(false);
   const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
   const [activeCotizacionFormalTaskId, setActiveCotizacionFormalTaskId] = useState<string | null>(null);
   const [finishFormalError, setFinishFormalError] = useState("");
@@ -405,6 +529,99 @@ export default function CotizadorPage() {
       setClient(activeCotizacionFormalTask.project);
     }
   }, [activeCotizacionFormalTask?.project]);
+
+  const loadCatalogoFromBackend = useCallback(async () => {
+    try {
+      setCatalogError(null);
+      const [materialesResponse, herrajesResponse] = await Promise.all([obtenerMateriales(), obtenerHerrajes()]);
+      const backendItems: CatalogoItem[] = [];
+
+      if (materialesResponse.success && materialesResponse.data) {
+        const materiales = extractList<Material>(materialesResponse.data, ["materiales", "items", "data", "results"]);
+        for (const material of materiales) {
+          const raw = material as unknown as Record<string, unknown>;
+          const displayCategory = getDisplayCategoryFromApi(raw);
+          const id =
+            (typeof raw.idCotizador === "string" && raw.idCotizador.trim()) ||
+            (typeof raw._id === "string" && raw._id.trim()) ||
+            `mat-${Date.now()}`;
+          const price =
+            (typeof raw.precioUnitario === "number" ? raw.precioUnitario : Number(raw.precioUnitario)) ||
+            (typeof raw.precioPorMetro === "number" ? raw.precioPorMetro : Number(raw.precioPorMetro)) ||
+            (typeof raw.precioMetroLineal === "number" ? raw.precioMetroLineal : Number(raw.precioMetroLineal)) ||
+            0;
+          backendItems.push({
+            id,
+            label: typeof raw.nombre === "string" ? raw.nombre : "Material",
+            unitPrice: Number.isFinite(price) ? price : 0,
+            unitType: typeof raw.unidadMedida === "string" ? raw.unidadMedida : "unidad",
+            backendId: typeof raw._id === "string" ? raw._id : undefined,
+            sourceKind: "material",
+            category: displayCategory,
+          } as CatalogoItem & { category: string });
+        }
+      }
+
+      if (herrajesResponse.success && herrajesResponse.data) {
+        const herrajes = extractList<Herraje>(herrajesResponse.data, ["herrajes", "items", "data", "results"]);
+        for (const herraje of herrajes) {
+          const raw = herraje as unknown as Record<string, unknown>;
+          const displayCategory = getDisplayCategoryFromApi(raw);
+          const id =
+            (typeof raw.idCotizador === "string" && raw.idCotizador.trim()) ||
+            (typeof raw._id === "string" && raw._id.trim()) ||
+            `her-${Date.now()}`;
+          const price =
+            (typeof raw.precioUnitario === "number" ? raw.precioUnitario : Number(raw.precioUnitario)) ||
+            (typeof raw.precioPorMetro === "number" ? raw.precioPorMetro : Number(raw.precioPorMetro)) ||
+            (typeof raw.precioMetroLineal === "number" ? raw.precioMetroLineal : Number(raw.precioMetroLineal)) ||
+            0;
+          backendItems.push({
+            id,
+            label: typeof raw.nombre === "string" ? raw.nombre : "Herraje",
+            unitPrice: Number.isFinite(price) ? price : 0,
+            unitType: typeof raw.unidadMedida === "string" ? raw.unidadMedida : "unidad",
+            backendId: typeof raw._id === "string" ? raw._id : undefined,
+            sourceKind: "herraje",
+            category: displayCategory,
+          } as CatalogoItem & { category: string });
+        }
+      }
+
+      if (!materialesResponse.success && !herrajesResponse.success) {
+        setCatalogoKuche(emptyCatalogoTemplate.map((category) => ({ ...category, items: [] })));
+        return;
+      }
+
+      const nextCatalog = emptyCatalogoTemplate.map((category) => ({
+        ...category,
+        items: [] as CatalogoItem[],
+      }));
+      const byCategory = new Map(nextCatalog.map((category) => [category.category, category]));
+
+      for (const backendItem of backendItems as Array<CatalogoItem & { category: string }>) {
+        const targetCategory = byCategory.get(backendItem.category);
+        if (!targetCategory) continue;
+        const duplicate = targetCategory.items.some(
+          (item) =>
+            item.id === backendItem.id ||
+            (backendItem.backendId && item.backendId === backendItem.backendId),
+        );
+        if (!duplicate) {
+          targetCategory.items.push(backendItem);
+        }
+      }
+
+      setCatalogoKuche(nextCatalog);
+    } catch {
+      setCatalogoKuche(emptyCatalogoTemplate.map((category) => ({ ...category, items: [] })));
+      setCatalogError("No se pudo sincronizar el catálogo del backend. Se mostrarán los datos locales de respaldo.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCatalogoFromBackend();
+  }, [loadCatalogoFromBackend]);
 
   const metrosValue = Number.parseFloat(largo) || 0;
   const estructuraItems = catalogoKuche.find((c) => c.category === "ESTRUCTURA")?.items ?? [];
@@ -601,16 +818,17 @@ export default function CotizadorPage() {
   }, [activeCategory, catalogoKuche, normalizedSearch]);
 
   const resetCatalogToDefault = () => {
-    setCatalogoKuche(initialCatalogoKuche);
+    setCatalogoKuche(emptyCatalogoTemplate.map((category) => ({ ...category, items: [] })));
     setQuantities({});
     setExcelImportSummary(null);
     setExcelPreviewLines([]);
     setIsExcelViewActive(false);
     setMaterialSearch("");
-    setActiveTab(initialCatalogoKuche[0]?.category ?? "");
+    setActiveTab(emptyCatalogoTemplate[0]?.category ?? "");
     setMaterialBaseItemId(getDefaultMaterialBaseItemId());
     setColorItemId(getDefaultColorItemId());
     setThicknessItemId(getDefaultThicknessItemId());
+    void loadCatalogoFromBackend();
   };
 
   const handleExcelImport = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -743,40 +961,44 @@ export default function CotizadorPage() {
     }
   };
 
-  const handleAddMaterial = () => {
+  const handleAddMaterial = async () => {
     const trimmedName = newItemName.trim();
     const parsedPrice = Number.parseFloat(newItemPrice);
     if (!trimmedName || Number.isNaN(parsedPrice)) {
       return;
     }
 
-    const nextIdBase = toCatalogId(trimmedName) || "nuevo";
-    const nextId = `${nextIdBase}_${Date.now().toString(36)}`;
+    try {
+      setIsCatalogSaving(true);
+      setCatalogError(null);
+      const kind = inferItemKindFromDisplayCategory(newItemCategory);
+      const section = DISPLAY_TO_SECTION[newItemCategory];
+      const categoriaValue: "Herrajes" | "Otro" = kind === "herraje" ? "Herrajes" : "Otro";
+      const payload = {
+        nombre: trimmedName,
+        idCotizador: toCatalogId(trimmedName),
+        precioUnitario: parsedPrice,
+        unidadMedida: normalizeUnitToApi(newItemUnitType),
+        categoria: categoriaValue,
+        seccion: section as any,
+        disponible: true,
+      };
 
-    setCatalogoKuche((prev) =>
-      prev.map((category) =>
-        category.category === newItemCategory
-          ? {
-              ...category,
-              items: [
-                ...category.items,
-                {
-                  id: nextId,
-                  label: trimmedName,
-                  unitPrice: parsedPrice,
-                  unitType: newItemUnitType.trim() || "pieza",
-                },
-              ],
-            }
-          : category,
-      ),
-    );
+      const response = kind === "herraje" ? await crearHerraje(payload) : await crearMaterial(payload);
+      if (!response.success) {
+        setCatalogError(response.message || "No se pudo crear el material en backend.");
+        return;
+      }
 
-    setNewItemName("");
-    setNewItemPrice("");
-    setNewItemUnitType("pieza");
-    setEditingItemId(null);
-    setIsAddModalOpen(false);
+      await loadCatalogoFromBackend();
+      setNewItemName("");
+      setNewItemPrice("");
+      setNewItemUnitType("pieza");
+      setEditingItemId(null);
+      setIsAddModalOpen(false);
+    } finally {
+      setIsCatalogSaving(false);
+    }
   };
 
   const handleAddClient = () => {
@@ -819,7 +1041,7 @@ export default function CotizadorPage() {
     setIsAddModalOpen(true);
   };
 
-  const handleSaveMaterial = () => {
+  const handleSaveMaterial = async () => {
     const trimmedName = newItemName.trim();
     const parsedPrice = Number.parseFloat(newItemPrice);
     if (!trimmedName || Number.isNaN(parsedPrice)) {
@@ -827,36 +1049,53 @@ export default function CotizadorPage() {
     }
 
     if (!editingItemId) {
-      handleAddMaterial();
+      await handleAddMaterial();
       return;
     }
 
-    setCatalogoKuche((prev) =>
-      prev.map((category) => {
-        const withoutItem = category.items.filter((item) => item.id !== editingItemId);
-        if (category.category !== newItemCategory) {
-          return { ...category, items: withoutItem };
-        }
-        return {
-          ...category,
-          items: [
-            ...withoutItem,
-            {
-              id: editingItemId,
-              label: trimmedName,
-              unitPrice: parsedPrice,
-              unitType: newItemUnitType.trim() || "pieza",
-            },
-          ],
-        };
-      }),
-    );
+    const selected = catalogoKuche
+      .flatMap((category) => category.items)
+      .find((item) => item.id === editingItemId || item.backendId === editingItemId);
 
-    setNewItemName("");
-    setNewItemPrice("");
-    setNewItemUnitType("pieza");
-    setEditingItemId(null);
-    setIsAddModalOpen(false);
+    if (!selected?.backendId || !selected.sourceKind) {
+      setCatalogError("Solo se pueden editar desde backend los materiales sincronizados.");
+      return;
+    }
+
+    try {
+      setIsCatalogSaving(true);
+      setCatalogError(null);
+      const kind = inferItemKindFromDisplayCategory(newItemCategory);
+      const section = DISPLAY_TO_SECTION[newItemCategory];
+      const categoriaValue: "Herrajes" | "Otro" = kind === "herraje" ? "Herrajes" : "Otro";
+      const payload = {
+        nombre: trimmedName,
+        idCotizador: toCatalogId(trimmedName),
+        precioUnitario: parsedPrice,
+        unidadMedida: normalizeUnitToApi(newItemUnitType),
+        categoria: categoriaValue,
+        seccion: section as any,
+        disponible: true,
+      };
+
+      const response =
+        selected.sourceKind === "herraje"
+          ? await actualizarHerraje(selected.backendId, payload)
+          : await actualizarMaterial(selected.backendId, payload);
+      if (!response.success) {
+        setCatalogError(response.message || "No se pudo actualizar el material en backend.");
+        return;
+      }
+
+      await loadCatalogoFromBackend();
+      setNewItemName("");
+      setNewItemPrice("");
+      setNewItemUnitType("pieza");
+      setEditingItemId(null);
+      setIsAddModalOpen(false);
+    } finally {
+      setIsCatalogSaving(false);
+    }
   };
 
   const handleReferenceImagesUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -896,26 +1135,45 @@ export default function CotizadorPage() {
     setReferenceImages((prev) => prev.filter((image) => image.id !== imageId));
   };
 
-  const handleDeleteMaterial = (itemId: string) => {
-    setCatalogoKuche((prev) =>
-      prev.map((category) => ({
-        ...category,
-        items: category.items.filter((item) => item.id !== itemId),
-      })),
-    );
-    setQuantities((prev) => {
-      if (!(itemId in prev)) {
-        return prev;
+  const handleDeleteMaterial = async (itemId: string) => {
+    const selected = catalogoKuche
+      .flatMap((category) => category.items)
+      .find((item) => item.id === itemId);
+
+    if (!selected?.backendId || !selected.sourceKind) {
+      setCatalogError("Solo se pueden eliminar desde backend los materiales sincronizados.");
+      return;
+    }
+
+    try {
+      setIsCatalogSaving(true);
+      setCatalogError(null);
+      const response =
+        selected.sourceKind === "herraje"
+          ? await eliminarHerraje(selected.backendId)
+          : await eliminarMaterial(selected.backendId);
+      if (!response.success) {
+        setCatalogError(response.message || "No se pudo eliminar el material en backend.");
+        return;
       }
-      const next = { ...prev };
-      delete next[itemId];
-      return next;
-    });
+
+      await loadCatalogoFromBackend();
+      setQuantities((prev) => {
+        if (!(itemId in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+    } finally {
+      setIsCatalogSaving(false);
+    }
   };
 
   const handleFinishCita = async () => {
     if (!activeCitaTask) {
-      router.push("/dashboard/empleado");
+      router.push(getReturnRouteForLoggedUser());
       return;
     }
 
@@ -928,7 +1186,7 @@ export default function CotizadorPage() {
       });
       runtimeStore.removeItem(activeCitaTaskStorageKey);
       setActiveCitaTaskId(null);
-      router.push("/dashboard/empleado");
+      router.push(getReturnRouteForLoggedUser());
     } catch {
       setFinishFormalError("No se pudo completar la cita. Intenta de nuevo.");
     }
@@ -951,6 +1209,7 @@ export default function CotizadorPage() {
 
   const buildCotizacionFormalDataFromForm = (): CotizacionFormalData => ({
     client: client.trim() || "—",
+    ...(activeCotizacionFormalTask?.clientId ? { clienteId: activeCotizacionFormalTask.clientId } : {}),
     projectType: projectType || "—",
     location: location.trim() || "—",
     date: formatDeliveryWeeksLabel(deliveryWeeksMin, deliveryWeeksMax) || "—",
@@ -980,10 +1239,64 @@ export default function CotizadorPage() {
     return { codigoProyecto };
   };
 
+  const uploadFormalArtifacts = async (
+    relatedTaskId: string,
+    clientId: string,
+    formalFilename: string,
+    workshopFilename: string,
+    formalDataUrl: string,
+    workshopDataUrl: string,
+  ) => {
+    const formalUpload = await subirPdfGeneradoConMetadata(
+      formalDataUrl,
+      formalFilename,
+      buildFormalUploadMetadata("cotizacion_formal", clientId, relatedTaskId),
+    );
+
+    const workshopUpload = await subirPdfGeneradoConMetadata(
+      workshopDataUrl,
+      workshopFilename,
+      buildFormalUploadMetadata("hoja_taller", clientId, relatedTaskId),
+    );
+
+    const needsFallbackTaskSync =
+      !alreadyRelatedToTask(relatedTaskId, formalUpload.relacionadoA, formalUpload.relacionadoId, formalUpload.tareasId) ||
+      !alreadyRelatedToTask(relatedTaskId, workshopUpload.relacionadoA, workshopUpload.relacionadoId, workshopUpload.tareasId);
+
+    if (needsFallbackTaskSync) {
+      try {
+        const syncResponse = await agregarArchivos(relatedTaskId, [
+          {
+            nombre: formalFilename,
+            tipo: "cotizacion_formal",
+            url: formalUpload.url,
+          },
+          {
+            nombre: workshopFilename,
+            tipo: "hoja_taller",
+            url: workshopUpload.url,
+          },
+        ]);
+
+        if (!syncResponse.success) {
+          throw new Error("No se pudo registrar la cotizacion formal en la tarea.");
+        }
+      } catch (error) {
+        // ClienteArchivo es la fuente de verdad. Si el fallback legado falla, no bloqueamos el cierre.
+        console.warn("[cotizador] fallback de sync en tarea omitido:", error);
+      }
+    }
+
+    return {
+      formalPdfUrl: formalUpload.url,
+      workshopPdfUrl: workshopUpload.url,
+    };
+  };
+
   const handleTerminarCotizacion = async () => {
     setFinishFormalError("");
     if (!activeCotizacionFormalTaskId || !activeCotizacionFormalTask) {
-      router.push("/dashboard/empleado");
+      router.push(getReturnRouteForLoggedUser());
       return;
     }
     if (!validateFormalSections()) {
@@ -1014,6 +1327,43 @@ export default function CotizadorPage() {
     const existingCount = getCotizacionesFormalesList(activeCotizacionFormalTask).length;
     const formalPdfKey = createFormalPdfKey(activeCotizacionFormalTaskId, existingCount);
     const workshopPdfKey = createWorkshopPdfKey(activeCotizacionFormalTaskId, existingCount);
+    const relatedTaskId =
+      activeCotizacionFormalTask.sourceId?.trim() ||
+      activeCotizacionFormalTask.id?.trim() ||
+      activeCotizacionFormalTaskId;
+    const formalFilename = `cotizacion-formal-${relatedTaskId}.pdf`;
+    const workshopFilename = `hoja-taller-${relatedTaskId}.pdf`;
+    let clientId: string;
+    try {
+      clientId = getRequiredClientIdForFormalUpload(
+        activeCotizacionFormalTask,
+        "cotizacion formal",
+      );
+    } catch (error) {
+      setFinishFormalError(error instanceof Error ? error.message : "No se encontro clienteId para cotizacion formal.");
+      return;
+    }
+
+    let formalPdfUrl: string;
+    let workshopPdfUrl: string;
+
+    try {
+      downloadDataUrlFile(dataUrl, formalFilename);
+      downloadDataUrlFile(workshopUrl, workshopFilename);
+      const uploadedArtifacts = await uploadFormalArtifacts(
+        relatedTaskId,
+        clientId,
+        formalFilename,
+        workshopFilename,
+        dataUrl,
+        workshopUrl,
+      );
+      formalPdfUrl = uploadedArtifacts.formalPdfUrl;
+      workshopPdfUrl = uploadedArtifacts.workshopPdfUrl;
+    } catch {
+      setFinishFormalError("No se pudieron subir o sincronizar los PDFs en backend. Intenta de nuevo.");
+      return;
+    }
 
     try {
       await saveFormalPdf(formalPdfKey, dataUrl);
@@ -1025,6 +1375,8 @@ export default function CotizadorPage() {
 
     data.formalPdfKey = formalPdfKey;
     data.workshopPdfKey = workshopPdfKey;
+    data.formalPdfUrl = formalPdfUrl;
+    data.workshopPdfUrl = workshopPdfUrl;
 
     try {
       const result = await saveFormalInActiveTask(data);
@@ -1039,7 +1391,7 @@ export default function CotizadorPage() {
 
       runtimeStore.removeItem(activeCotizacionFormalTaskStorageKey);
       setActiveCotizacionFormalTaskId(null);
-      const returnUrl = runtimeStore.getItem(citaReturnUrlStorageKey) || "/dashboard/empleado";
+      const returnUrl = runtimeStore.getItem(citaReturnUrlStorageKey) || getReturnRouteForLoggedUser();
       runtimeStore.removeItem(citaReturnUrlStorageKey);
       router.push(returnUrl);
     } catch {
@@ -1078,10 +1430,49 @@ export default function CotizadorPage() {
     const existingCount = getCotizacionesFormalesList(activeCotizacionFormalTask).length;
     const formalPdfKey = createFormalPdfKey(activeCotizacionFormalTaskId, existingCount);
     const workshopPdfKey = createWorkshopPdfKey(activeCotizacionFormalTaskId, existingCount);
+    const relatedTaskId =
+      activeCotizacionFormalTask.sourceId?.trim() ||
+      activeCotizacionFormalTask.id?.trim() ||
+      activeCotizacionFormalTaskId;
+    const formalFilename = `cotizacion-formal-${relatedTaskId}.pdf`;
+    const workshopFilename = `hoja-taller-${relatedTaskId}.pdf`;
+    let clientId: string;
+    try {
+      clientId = getRequiredClientIdForFormalUpload(
+        activeCotizacionFormalTask,
+        "cotizacion formal",
+      );
+    } catch (error) {
+      setFinishFormalError(error instanceof Error ? error.message : "No se encontro clienteId para cotizacion formal.");
+      return;
+    }
+
+    let formalPdfUrl: string;
+    let workshopPdfUrl: string;
+
+    try {
+      downloadDataUrlFile(dataUrl, formalFilename);
+      downloadDataUrlFile(workshopUrl, workshopFilename);
+      const uploadedArtifacts = await uploadFormalArtifacts(
+        relatedTaskId,
+        clientId,
+        formalFilename,
+        workshopFilename,
+        dataUrl,
+        workshopUrl,
+      );
+      formalPdfUrl = uploadedArtifacts.formalPdfUrl;
+      workshopPdfUrl = uploadedArtifacts.workshopPdfUrl;
+    } catch {
+      setFinishFormalError("No se pudieron subir o sincronizar los PDFs en backend. Intenta de nuevo.");
+      return;
+    }
 
     try {
       await saveFormalPdf(formalPdfKey, dataUrl);
       await saveFormalPdf(workshopPdfKey, workshopUrl);
+      data.formalPdfUrl = formalPdfUrl;
+      data.workshopPdfUrl = workshopPdfUrl;
       data.formalPdfKey = formalPdfKey;
       data.workshopPdfKey = workshopPdfKey;
       const result = await saveFormalInActiveTask(data);

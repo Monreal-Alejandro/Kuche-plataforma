@@ -5,6 +5,7 @@ import {
   obtenerKanbanContrato,
   type KanbanItem,
 } from "@/lib/axios/kanbanApi";
+import { obtenerArchivosCliente, obtenerArchivosTarea, type ClienteArchivo } from "@/lib/axios/archivosClienteApi";
 import type { Usuario } from "@/lib/axios/usuariosApi";
 import {
   type EtapaTarea,
@@ -16,6 +17,7 @@ import {
   getPreliminarList,
   type FollowUpStatus,
   type KanbanTask,
+  type TaskFile,
   type TaskPriority,
   type TaskStage,
   type TaskStatus,
@@ -23,6 +25,7 @@ import {
 
 export type AdminWorkflowTask = KanbanTask & {
   sourceId: string;
+  clientId?: string;
   assignedToIds: string[];
   backendSource: "tarea" | "cita";
   scheduledAt?: string;
@@ -42,6 +45,7 @@ export type AdminWorkflowTask = KanbanTask & {
   };
   sourceCitaId?: string;
   sourceDisenoId?: string;
+  clientFiles?: TaskFile[];
 };
 
 export type AdminWorkflowLoadResult = {
@@ -164,7 +168,35 @@ const extractCitaPayload = (raw: Record<string, unknown>) => {
   return null;
 };
 
+const extractClientId = (raw: Record<string, unknown>, citaPayload: Record<string, unknown> | null): string | undefined => {
+  const clienteFromCita = asRecord(citaPayload?.cliente);
+  const clienteFromRaw = asRecord(raw.cliente);
+  return (
+    toString(citaPayload?.clienteRef) ??
+    toString(citaPayload?.codigoCliente) ??
+    toString(citaPayload?.codigo) ??
+    toString(clienteFromCita?._id) ??
+    toString(clienteFromCita?.id) ??
+    toString(clienteFromCita?.clienteId) ??
+    toString(clienteFromCita?.codigo) ??
+    toString(citaPayload?.clienteId) ??
+    toString(raw.clienteRef) ??
+    toString(raw.codigoCliente) ??
+    toString(raw.codigo) ??
+    toString(clienteFromRaw?._id) ??
+    toString(clienteFromRaw?.id) ??
+    toString(clienteFromRaw?.clienteId) ??
+    toString(clienteFromRaw?.codigo) ??
+    toString(raw.clienteId)
+  );
+};
+
 const isCitaCard = (item: KanbanItem, raw: Record<string, unknown>, citaPayload: Record<string, unknown> | null) => {
+  const stage = normalizeStage(raw.etapa ?? item.etapa ?? "citas");
+  if (stage !== "citas") {
+    return false;
+  }
+
   const sourceType = toString(raw.sourceType)?.toLowerCase();
   if (sourceType === "cita") return true;
 
@@ -177,14 +209,32 @@ const isCitaCard = (item: KanbanItem, raw: Record<string, unknown>, citaPayload:
 const getCitaClientName = (
   raw: Record<string, unknown>,
   citaPayload: Record<string, unknown> | null,
-  fallbackTitle: string,
 ) => {
   const cliente = citaPayload?.cliente ?? raw.cliente;
   if (typeof cliente === "object" && cliente !== null && "nombre" in cliente) {
     const nombre = toString((cliente as Record<string, unknown>).nombre);
     if (nombre) return nombre;
   }
-  return toString(citaPayload?.nombreCliente ?? raw.nombreCliente) ?? fallbackTitle;
+  return toString(citaPayload?.nombreCliente ?? raw.nombreCliente);
+};
+
+const getTaskProjectName = (
+  item: KanbanItem,
+  raw: Record<string, unknown>,
+  citaPayload: Record<string, unknown> | null,
+  fallbackTitle: string,
+) => {
+  const clientName = getCitaClientName(raw, citaPayload);
+  if (clientName) return clientName;
+
+  return (
+    toString(raw.nombreCliente) ??
+    toString(raw.nombreProyecto) ??
+    toString(raw.proyecto) ??
+    toString((item as unknown as Record<string, unknown>).nombreProyecto) ??
+    toString(item.titulo) ??
+    fallbackTitle
+  );
 };
 
 const getAssignedFromTask = (item: KanbanItem, raw: Record<string, unknown>) => {
@@ -249,18 +299,19 @@ export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask =>
   const raw = (item.raw ?? item) as Record<string, unknown>;
   const citaPayload = extractCitaPayload(raw);
   const visitaPayload = extractVisitaPayload(raw);
+  const fallbackTitle = toString((item as unknown as Record<string, unknown>).title) ?? "Cita";
+  const clientName = getCitaClientName(raw, citaPayload) ?? fallbackTitle;
 
   if (isCitaCard(item, raw, citaPayload)) {
     const stage = normalizeStage(raw.etapa ?? item.etapa ?? "citas");
     const isCitasStage = stage === "citas";
-    const fallbackTitle = toString((item as unknown as Record<string, unknown>).title) ?? "Cita";
-    const clientName = getCitaClientName(raw, citaPayload, fallbackTitle);
     const { assignedTo, assignedToIds } = getAssignedFromTask(item, raw);
     const scheduledAt = toIsoString(citaPayload?.fechaAgendada ?? raw.fechaAgendada);
     const citaStatus = normalizeCitaStatus(item.estado ?? raw.estado);
     const citaSourceId = toString(raw.sourceId) ?? toString(raw.sourceCitaId) ?? item._id;
     const citaInfo = toString(citaPayload?.informacionAdicional ?? raw.informacionAdicional ?? item.notas);
     const visitScheduledAt = visitaPayload?.fechaProgramada ?? toIsoString(raw.visitScheduledAt);
+    const clientId = extractClientId(raw, citaPayload);
     const designApprovedByAdmin =
       visitaPayload?.aprobadaPorAdmin ?? toBoolean(raw.designApprovedByAdmin) ?? false;
     const designApprovedByClient =
@@ -274,6 +325,7 @@ export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask =>
     return {
       id: item._id,
       sourceId: isCitasStage ? citaSourceId : item._id,
+      clientId,
       title: citaInfo ?? fallbackTitle,
       stage,
       status: citaStatus,
@@ -284,7 +336,7 @@ export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask =>
       files: (archivosFuente || []).map((file) => ({
         id: file.id,
         name: file.nombre,
-        type: file.tipo,
+        type: mapArchivoTipoToTaskFileType(file.tipo),
         src: file.url,
       })),
       priority: citaStatus === "completada" ? "alta" : normalizePriority(raw.prioridad ?? item.prioridad),
@@ -333,17 +385,18 @@ export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask =>
   return {
     id: item._id,
     sourceId: item._id,
+    clientId: extractClientId(raw, asRecord(raw.cita)),
     title: item.titulo || item.notas || "Tarea",
     stage: normalizeStage(item.etapa),
     status: normalizeStatus(item.estado),
     assignedTo: assignedTo.length > 0 ? assignedTo : ["Sin asignar"],
     assignedToIds,
-    project: item.nombreProyecto || item.titulo || "Proyecto sin nombre",
+    project: getTaskProjectName(item, raw, citaPayload, fallbackTitle),
     notes: item.notas || "",
     files: (item.archivos || []).map((file) => ({
       id: file.id,
       name: file.nombre,
-      type: file.tipo,
+      type: mapArchivoTipoToTaskFileType(file.tipo),
       src: file.url,
     })),
     priority: normalizePriority(raw.prioridad ?? raw.priority),
@@ -352,7 +405,10 @@ export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask =>
     mapsUrl: toString(raw.mapsUrl),
     createdAt: toTimestamp(item.createdAt),
     followUpEnteredAt: toTimestamp(raw.followUpEnteredAt),
-    followUpStatus: normalizeFollowUpStatus(raw.followUpStatus) as SeguimientoTarea,
+    // Compatibilidad: algunos backends exponen aliases legacy para seguimiento.
+    followUpStatus: normalizeFollowUpStatus(
+      raw.followUpStatus ?? raw.seguimiento ?? raw.estadoSeguimiento ?? item.followUpStatus,
+    ) as SeguimientoTarea,
     citaStarted: toBoolean(raw.citaStarted) ?? false,
     citaFinished: toBoolean(raw.citaFinished) ?? false,
     designApprovedByAdmin:
@@ -398,6 +454,41 @@ export const mapKanbanItemToAdminTask = (item: KanbanItem): AdminWorkflowTask =>
   };
 };
 
+const mapArchivoTipoToTaskFileType = (tipo: string): "pdf" | "render" | "otro" => {
+  const normalized = tipo.toLowerCase();
+  if (normalized.includes("pdf")) return "pdf";
+  if (
+    normalized === "diseno"
+    || normalized === "diseno_preliminar"
+    || normalized === "diseno_final"
+    || normalized === "render"
+    || normalized === "modelo_3d"
+    || normalized === "sketchup"
+  ) {
+    return "render";
+  }
+  return "otro";
+};
+
+const mapClienteArchivoToTaskFile = (archivo: ClienteArchivo): TaskFile => ({
+  id: archivo._id,
+  name: archivo.nombre,
+  type: mapArchivoTipoToTaskFileType(archivo.tipo),
+  src: archivo.url,
+});
+
+const isDesignArchivo = (archivo: ClienteArchivo): boolean => {
+  const tipo = archivo.tipo.toLowerCase();
+  return (
+    tipo === "diseno"
+    || tipo === "diseno_preliminar"
+    || tipo === "diseno_final"
+    || tipo === "render"
+    || tipo === "modelo_3d"
+    || tipo === "sketchup"
+  );
+};
+
 export const buildTaskUpdatePayload = (task: AdminWorkflowTask): Partial<KanbanItem> & Record<string, unknown> => {
   const approvedByAdmin = task.designApprovedByAdmin ?? task.visita?.aprobadaPorAdmin ?? false;
   const approvedByClient = task.designApprovedByClient ?? task.visita?.aprobadaPorCliente ?? false;
@@ -435,7 +526,7 @@ export const buildTaskUpdatePayload = (task: AdminWorkflowTask): Partial<KanbanI
     cita: task.sourceType === "cita" && task.cita
       ? {
           ...task.cita,
-          nombreCliente: task.project || task.cita.nombreCliente,
+          nombreCliente: task.cita.nombreCliente || task.project,
           informacionAdicional: task.notes || task.title || task.cita.informacionAdicional,
           ubicacion: task.location ?? task.cita.ubicacion,
         }
@@ -469,5 +560,66 @@ export async function fetchAdminWorkflowTasksSequentially(): Promise<AdminWorkfl
     }
   }
 
-  return { tasks, errors };
+  const clientFilesCache = new Map<string, TaskFile[]>();
+
+  const hydratedTasks = await Promise.all(
+    tasks.map(async (task) => {
+      let nextTask: AdminWorkflowTask = task;
+
+      if (task.clientId) {
+        try {
+          let cached = clientFilesCache.get(task.clientId);
+          if (!cached) {
+            const clientFilesResponse = await obtenerArchivosCliente(task.clientId);
+            cached = clientFilesResponse.success
+              ? (clientFilesResponse.data ?? []).map(mapClienteArchivoToTaskFile)
+              : [];
+            clientFilesCache.set(task.clientId, cached);
+          }
+
+          nextTask = {
+            ...nextTask,
+            clientFiles: cached,
+          };
+        } catch (error) {
+          errors.push(
+            `cliente-archivos (${task.id}): ${error instanceof Error ? error.message : "Error desconocido"}`,
+          );
+        }
+      }
+
+      if (task.stage !== "disenos") {
+        return nextTask;
+      }
+
+      try {
+        const response = await obtenerArchivosTarea(task.sourceId || task.id);
+        if (!response.success) {
+          return nextTask;
+        }
+
+        const archivosDiseno = (response.data ?? []).filter(isDesignArchivo);
+        if (archivosDiseno.length === 0) {
+          return nextTask;
+        }
+
+        return {
+          ...nextTask,
+          files: archivosDiseno.map((archivo) => ({
+            id: archivo._id,
+            name: archivo.nombre,
+            type: mapArchivoTipoToTaskFileType(archivo.tipo),
+            src: archivo.url,
+          })),
+        };
+      } catch (error) {
+        errors.push(
+          `disenos-archivos (${task.id}): ${error instanceof Error ? error.message : "Error desconocido"}`,
+        );
+        return nextTask;
+      }
+    }),
+  );
+
+  return { tasks: hydratedTasks, errors };
 }

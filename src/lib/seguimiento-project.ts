@@ -97,6 +97,13 @@ export function isPagoRegistrado(p: SeguimientoPago): boolean {
 /** Proyecto tal como lo consume la vista `/seguimiento` (más campos opcionales desde el cotizador). */
 export type SeguimientoClienteProject = {
   codigo: string;
+  clienteId?: string;
+  clienteRef?: string;
+  clienteMeta?: {
+    nombre?: string;
+    correo?: string;
+    telefono?: string;
+  };
   cliente: string;
   isProspect: boolean;
   inversion: number;
@@ -139,10 +146,24 @@ export function mergeSeguimientoFromStorage(parsed: Record<string, unknown>): Se
 
   const codigo = String(parsed.codigo ?? "").trim() || "—";
   const cliente = String(parsed.cliente ?? "Cliente").trim() || "Cliente";
+  const clienteId = typeof parsed.clienteId === "string" ? parsed.clienteId.trim() : "";
+  const clienteRef = typeof parsed.clienteRef === "string" ? parsed.clienteRef.trim() : "";
+  const clienteMetaRaw = parsed.clienteMeta && typeof parsed.clienteMeta === "object"
+    ? (parsed.clienteMeta as Record<string, unknown>)
+    : null;
 
   return {
     ...parsed,
     codigo,
+    clienteId: clienteId || undefined,
+    clienteRef: clienteRef || undefined,
+    clienteMeta: clienteMetaRaw
+      ? {
+          nombre: typeof clienteMetaRaw.nombre === "string" ? clienteMetaRaw.nombre : undefined,
+          correo: typeof clienteMetaRaw.correo === "string" ? clienteMetaRaw.correo : undefined,
+          telefono: typeof clienteMetaRaw.telefono === "string" ? clienteMetaRaw.telefono : undefined,
+        }
+      : undefined,
     cliente,
     isProspect: Boolean(parsed.isProspect),
     inversion,

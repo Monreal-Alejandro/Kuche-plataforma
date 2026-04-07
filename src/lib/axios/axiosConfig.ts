@@ -6,6 +6,11 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { runtimeStore } from '@/lib/runtime-store';
 
+type AxiosInternalFlags = {
+  skipAuthToken?: boolean;
+  skipAuthRedirect?: boolean;
+};
+
 // URL base del backend
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -22,10 +27,13 @@ const axiosInstance: AxiosInstance = axios.create({
 // Interceptor de request - Agrega el token JWT si existe
 axiosInstance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    const flags = config as InternalAxiosRequestConfig & AxiosInternalFlags;
+    const skipAuthToken = flags.skipAuthToken === true;
+
     // Token en memoria de ejecucion (sin dependencia de localStorage)
     const token = runtimeStore.getItem('authToken');
     
-    if (token && config.headers) {
+    if (!skipAuthToken && token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     
@@ -56,9 +64,11 @@ axiosInstance.interceptors.response.use(
     // Manejo de errores común
     if (error.response) {
       const { status, data } = error.response;
+      const flags = (error.config ?? {}) as AxiosInternalFlags;
+      const skipAuthRedirect = flags.skipAuthRedirect === true;
       
       // Token expirado o no autorizado
-      if (status === 401) {
+      if (status === 401 && !skipAuthRedirect) {
         runtimeStore.removeItem('authToken');
         runtimeStore.removeItem('user');
         

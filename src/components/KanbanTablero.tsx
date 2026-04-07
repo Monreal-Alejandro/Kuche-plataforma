@@ -86,6 +86,21 @@ const formatDate = (timestamp: number | undefined): string => {
   return date.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
 };
 
+const toString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim().length > 0 ? value : undefined;
+
+const getClientNameFromTask = (task: Partial<KanbanTask> & Record<string, unknown>): string | undefined => {
+  const rawCita = task.cita && typeof task.cita === "object" ? (task.cita as Record<string, unknown>) : null;
+  const nestedClient = rawCita?.cliente && typeof rawCita.cliente === "object" ? (rawCita.cliente as Record<string, unknown>) : null;
+  return (
+    toString(nestedClient?.nombre) ??
+    toString(rawCita?.nombreCliente) ??
+    toString(task.nombreCliente) ??
+    toString(task.clientName) ??
+    toString(task.project)
+  );
+};
+
 /**
  * Convierte el valor guardado en "Enlace de Google Maps" en una URL que abra correctamente.
  * - Si ya es un enlace (http/https o contiene google.com/maps), se normaliza con protocolo.
@@ -129,10 +144,11 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
       : ["Sin asignar"];
   const priority: TaskPriority =
     task.priority === "alta" || task.priority === "baja" ? task.priority : "media";
+  const rawFollowUp = (task as { followUpStatus?: string }).followUpStatus;
   const followUpStatus: FollowUpStatus =
-    task.followUpStatus === "confirmado"
+    rawFollowUp === "confirmado"
       ? "confirmado"
-      : task.followUpStatus === "inactivo" || task.followUpStatus === "descartado"
+      : rawFollowUp === "inactivo" || rawFollowUp === "descartado"
         ? "inactivo"
       : "pendiente";
   const preliminarData =
@@ -164,6 +180,10 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
       : cotizacionFormalData
         ? [cotizacionFormalData]
         : [];
+  const sourceType = typeof task.sourceType === "string" ? task.sourceType : undefined;
+  const clientName = sourceType === "cita" || task.cita || task.nombreCliente || task.clientName
+    ? getClientNameFromTask(task)
+    : undefined;
 
   return {
     id: typeof task.id === "string" ? task.id : `task-${Date.now()}`,
@@ -171,7 +191,7 @@ const normalizeTask = (task: Partial<KanbanTask> & Record<string, unknown>): Kan
     stage,
     status,
     assignedTo,
-    project: typeof task.project === "string" ? task.project : "General",
+    project: clientName ?? (typeof task.project === "string" ? task.project : "General"),
     notes: typeof task.notes === "string" ? task.notes : "",
     files: Array.isArray(task.files) ? (task.files as TaskFile[]) : [],
     priority,

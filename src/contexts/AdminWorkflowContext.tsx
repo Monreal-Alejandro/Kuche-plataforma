@@ -14,7 +14,7 @@ import {
   obtenerAlertasSeguimiento,
   promoverCitaATarea,
 } from "@/lib/axios/adminWorkflowApi";
-import type { CrearTareaData } from "@/lib/axios/tareasApi";
+import type { ActualizarTareaData, CrearTareaData } from "@/lib/axios/tareasApi";
 import type { TaskStage } from "@/lib/kanban";
 
 type WorkflowTaskPatch = Partial<AdminWorkflowTask>;
@@ -35,6 +35,18 @@ type AdminWorkflowContextValue = {
 const AdminWorkflowContext = createContext<AdminWorkflowContextValue | null>(null);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const getResponseMessage = (response: unknown): string | undefined => {
+  if (
+    typeof response === "object" &&
+    response !== null &&
+    "message" in response &&
+    typeof (response as { message?: unknown }).message === "string"
+  ) {
+    return (response as { message: string }).message;
+  }
+  return undefined;
+};
 
 export function AdminWorkflowProvider({ children }: { children: React.ReactNode }) {
   const [tasks, setTasks] = useState<AdminWorkflowTask[]>([]);
@@ -57,12 +69,20 @@ export function AdminWorkflowProvider({ children }: { children: React.ReactNode 
     async (task: AdminWorkflowTask, stage: TaskStage) => {
       if (task.stage === stage) return;
 
+      if (task.stage === "disenos" && stage !== "disenos") {
+        const approvedByAdmin = task.designApprovedByAdmin ?? task.visita?.aprobadaPorAdmin ?? false;
+        const approvedByClient = task.designApprovedByClient ?? task.visita?.aprobadaPorCliente ?? false;
+        if (!approvedByAdmin || !approvedByClient) {
+          throw new Error("No se puede avanzar la tarea: el diseño debe estar aprobado por admin y por cliente.");
+        }
+      }
+
       if (task.backendSource === "cita") {
         if (stage === "citas") {
           const estado = task.citaFinished ? "completada" : task.citaStarted ? "en_proceso" : "programada";
           const response = await actualizarTarjetaCita(task.sourceId, { estado });
           if (!response.success) {
-            throw new Error(response.message || "No se pudo actualizar la cita");
+            throw new Error(getResponseMessage(response) || "No se pudo actualizar la cita");
           }
           await refresh();
           return;
@@ -78,7 +98,7 @@ export function AdminWorkflowProvider({ children }: { children: React.ReactNode 
 
       const response = await moverTarjetaTarea(task.sourceId, stage);
       if (!response.success) {
-        throw new Error(response.message || "No se pudo mover la tarea");
+        throw new Error(getResponseMessage(response) || "No se pudo mover la tarea");
       }
       await refresh();
     },
@@ -150,7 +170,7 @@ export function AdminWorkflowProvider({ children }: { children: React.ReactNode 
         });
 
         if (!response.success) {
-          throw new Error(response.message || "No se pudo actualizar la cita");
+          throw new Error(getResponseMessage(response) || "No se pudo actualizar la cita");
         }
         await refresh();
         return;
@@ -159,33 +179,103 @@ export function AdminWorkflowProvider({ children }: { children: React.ReactNode 
       // Algunos backends ignoran followUpStatus cuando llega en un payload "full".
       // Para confirmar/inactivar/reactivar, enviamos payload minimo y estable.
       if (isFollowUpOnlyPatch) {
-        const minimalPayload: Record<string, unknown> = {};
-        if (typeof patch.followUpStatus === "string") minimalPayload.followUpStatus = patch.followUpStatus;
-        if (typeof patch.status === "string") minimalPayload.estado = patch.status;
-        if (typeof patch.followUpEnteredAt === "number") {
-          minimalPayload.followUpEnteredAt = patch.followUpEnteredAt;
+        const followUp = typeof patch.followUpStatus === "string" ? patch.followUpStatus : undefined;
+        const estado = typeof patch.status === "string" ? patch.status : undefined;
+        const followUpEnteredAt =
+          typeof patch.followUpEnteredAt === "number" ? patch.followUpEnteredAt : undefined;
+
+        const basePayload: Record<string, unknown> = {};
+        if (followUp) basePayload.followUpStatus = followUp;
+        if (estado) basePayload.estado = estado;
+        if (followUpEnteredAt !== undefined) basePayload.followUpEnteredAt = followUpEnteredAt;
+
+        const candidatePayloads: Array<Record<string, unknown>> = [basePayload];
+        if (followUp === "inactivo") {
+          candidatePayloads.push({ ...basePayload, followUpStatus: "descartado" });
+        }
+        if (followUp) {
+          candidatePayloads.push({ ...basePayload, seguimiento: followUp });
+          candidatePayloads.push({ ...basePayload, estadoSeguimiento: followUp });
         }
 
-        const response = await actualizarTarjetaTarea(task.sourceId, minimalPayload);
-        if (!response.success) {
-          throw new Error(response.message || "No se pudo actualizar seguimiento de la tarea");
+        const seen = new Set<string>();
+        const uniquePayloads = candidatePayloads.filter((candidate) => {
+          const fingerprint = JSON.stringify(candidate);
+          if (seen.has(fingerprint)) return false;
+          seen.add(fingerprint);
+          return true;
+        });
+
+        let lastErrorMessage = "No se pudo actualizar seguimiento de la tarea";
+        let hadSuccessfulWrite = false;
+
+        for (const candidate of uniquePayloads) {
+          const response = await actualizarTarjetaTarea(task.sourceId, candidate as ActualizarTareaData);
+          if (!response.success) {
+            lastErrorMessage = getResponseMessage(response) || lastErrorMessage;
+            continue;
+          }
+
+          hadSuccessfulWrite = true;
+
+          const rawResponseData = (response as { data?: unknown }).data;
+          const responseData =
+            typeof rawResponseData === "object" && rawResponseData !== null
+              ? (rawResponseData as Record<string, unknown>)
+              : null;
+
+          const followUpInResponse = responseData
+            ? (responseData.followUpStatus ?? responseData.seguimiento ?? responseData.estadoSeguimiento)
+            : undefined;
+
+          if (followUp && typeof followUpInResponse === "string") {
+            const normalized = followUpInResponse === "descartado" ? "inactivo" : followUpInResponse;
+            if (normalized === followUp) {
+              await refresh();
+              return;
+            }
+          }
+
+          const refreshed = await refresh();
+          if (!followUp) return;
+
+          const updated = refreshed.find(
+            (item) => item.id === task.id || item.sourceId === task.sourceId,
+          );
+          if (updated?.followUpStatus === followUp) {
+            return;
+          }
+
+          if (followUp === "inactivo" && updated?.followUpStatus === "inactivo") {
+            return;
+          }
         }
-        await refresh();
-        return;
+
+        if (hadSuccessfulWrite) {
+          // Evita falso negativo cuando backend persiste pero no expone follow-up en el shape esperado.
+          await refresh();
+          return;
+        }
+
+        throw new Error(lastErrorMessage);
       }
 
       const payload = buildTaskUpdatePayload(mergedTask);
+      const payloadForApi = { ...payload } as Record<string, unknown>;
+      if (payloadForApi.sourceId == null) {
+        delete payloadForApi.sourceId;
+      }
       console.log("[AdminWorkflowContext] updateTask payload:", {
         taskId: task.id,
         sourceId: task.sourceId,
         backendSource: task.backendSource,
         patch,
-        payload,
+        payload: payloadForApi,
       });
-      const response = await actualizarTarjetaTarea(task.sourceId, payload);
+      const response = await actualizarTarjetaTarea(task.sourceId, payloadForApi as ActualizarTareaData);
       console.log("[AdminWorkflowContext] updateTask response:", response);
       if (!response.success) {
-        throw new Error(response.message || "No se pudo actualizar la tarea");
+        throw new Error(getResponseMessage(response) || "No se pudo actualizar la tarea");
       }
       await refresh();
     },
@@ -196,7 +286,7 @@ export function AdminWorkflowProvider({ children }: { children: React.ReactNode 
     async (data: CrearTareaData) => {
       const response = await crearTareaWorkflow(data);
       if (!response.success) {
-        throw new Error(response.message || "No se pudo crear la tarea");
+        throw new Error(getResponseMessage(response) || "No se pudo crear la tarea");
       }
       await refresh();
     },
@@ -210,7 +300,7 @@ export function AdminWorkflowProvider({ children }: { children: React.ReactNode 
         : await eliminarTarjetaTarea(task.sourceId);
 
       if (!response.success) {
-        throw new Error(response.message || "No se pudo eliminar la tarjeta");
+        throw new Error(getResponseMessage(response) || "No se pudo eliminar la tarjeta");
       }
       await refresh();
     },

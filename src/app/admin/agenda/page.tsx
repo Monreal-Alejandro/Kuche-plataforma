@@ -27,6 +27,7 @@ type Appointment = {
   id: string;
   title: string;
   client: string;
+  clientCode?: string;
   clientEmail: string;
   clientPhone: string;
   location: string;
@@ -96,6 +97,9 @@ const citaToAppointment = (cita: Cita): Appointment => {
     id: cita._id,
     title: cita.informacionAdicional || "Levantamiento / Medidas",
     client: cita.nombreCliente,
+    clientCode:
+      cita.clienteId ||
+      (typeof cita.cliente === "object" && cita.cliente ? cita.cliente.clienteId : undefined),
     clientEmail: cita.correoCliente,
     clientPhone: cita.telefonoCliente,
     location: cita.ubicacion || "",
@@ -123,6 +127,7 @@ export default function AgendaPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedDateForDayView, setSelectedDateForDayView] = useState<string | null>(null);
   const [formState, setFormState] = useState<Appointment>({
     id: "",
     title: "",
@@ -138,9 +143,13 @@ export default function AgendaPage() {
     backendState: "programada",
   });
   const modalRef = useRef<HTMLDivElement | null>(null);
+  const dayViewRef = useRef<HTMLDivElement | null>(null);
 
   useEscapeClose(isModalOpen, () => setIsModalOpen(false));
   useFocusTrap(isModalOpen, modalRef);
+
+  useEscapeClose(selectedDateForDayView !== null, () => setSelectedDateForDayView(null));
+  useFocusTrap(selectedDateForDayView !== null, dayViewRef);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -228,6 +237,10 @@ export default function AgendaPage() {
       backendState: "programada",
     });
     setIsModalOpen(true);
+  };
+
+  const openDayView = (date: string) => {
+    setSelectedDateForDayView(date);
   };
 
   const openEditModal = (appointment: Appointment) => {
@@ -335,7 +348,7 @@ export default function AgendaPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-2rem)] flex-col gap-6 overflow-hidden">
+    <div className="flex h-[calc(100vh-2rem)] flex-col gap-6 overflow-y-auto">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Agenda de Citas y Visitas</h1>
@@ -395,55 +408,220 @@ export default function AgendaPage() {
             </div>
           ))}
         </div>
-        <div className="grid flex-1 min-h-0 grid-cols-7 grid-rows-6 gap-2">
+        <div className="grid flex-1 min-h-0 grid-cols-7 grid-rows-[repeat(6,minmax(120px,1fr))] gap-2">
           {calendarCells.map((date, index) => {
             if (!date) {
               return <div key={`empty-${index}`} className="rounded-2xl border border-transparent p-1" />;
             }
             const dateKey = toDateInput(date);
             const dayAppointments = filteredAppointments.filter((item) => item.date === dateKey);
+            const hasAppointments = dayAppointments.length > 0;
+
             return (
               <button
                 key={dateKey}
                 type="button"
-                onClick={() => openNewModal(dateKey)}
-                className={`flex min-h-0 flex-col rounded-2xl border p-2 text-left transition-colors hover:bg-gray-50 ${
-                  dayAppointments.length > 0 ? "border-primary/20 bg-primary/5" : "border-gray-100 bg-white"
+                onClick={() => openDayView(dateKey)}
+                className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border p-2 text-left transition-colors hover:bg-[#8B1C1C]/5 ${
+                  hasAppointments ? "border-[#8B1C1C]/20 bg-[#8B1C1C]/5" : "border-gray-100 bg-white"
                 }`}
               >
-                <div className="text-xs font-semibold text-gray-500">{date.getDate()}</div>
-                <div className="mt-2 flex flex-wrap items-center gap-1">
-                  {(() => {
-                    const programadas = dayAppointments.filter((item) => item.backendState === "programada").length;
-                    const enProceso = dayAppointments.filter((item) => item.backendState === "en_proceso").length;
-                    const completadas = dayAppointments.filter((item) => item.backendState === "completada").length;
+                <div className="text-xs font-bold text-[#8B1C1C]">{date.getDate()}</div>
+                <div className="mt-1 min-h-0 flex-1 overflow-hidden">
+                  {hasAppointments ? (
+                    <>
+                      <div className="mb-1 text-[11px] font-semibold text-[#8B1C1C]">
+                        {dayAppointments.length} {dayAppointments.length === 1 ? "cita" : "citas"}
+                      </div>
+                      <div className="space-y-1 overflow-hidden">
+                        {dayAppointments.slice(0, 2).map((appointment, idx) => {
+                          const statusColor =
+                            appointment.backendState === "programada"
+                              ? "bg-[#8B1C1C]/10 text-[#8B1C1C]"
+                              : appointment.backendState === "en_proceso"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-green-100 text-green-700";
 
-                    return (
-                      <>
-                        {programadas > 0 ? (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                            P {programadas}
-                          </span>
+                          return (
+                            <div key={idx} className={`rounded-md px-2 py-1 text-[11px] font-semibold ${statusColor} leading-tight`}>
+                              <div className="truncate">
+                                {appointment.time} - {appointment.type.split("/")[0].trim()}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {dayAppointments.length > 2 ? (
+                          <div className="text-[10px] font-semibold text-[#8B1C1C]">
+                            +{dayAppointments.length - 2} pendientes
+                          </div>
                         ) : null}
-                        {enProceso > 0 ? (
-                          <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                            EP {enProceso}
-                          </span>
-                        ) : null}
-                        {completadas > 0 ? (
-                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                            C {completadas}
-                          </span>
-                        ) : null}
-                      </>
-                    );
-                  })()}
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               </button>
             );
           })}
         </div>
       </div>
+
+      {selectedDateForDayView ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+          onClick={() => setSelectedDateForDayView(null)}
+        >
+          <div
+            ref={dayViewRef}
+            tabIndex={-1}
+            className="w-full max-w-2xl max-h-[90vh] overflow-y-auto custom-scrollbar rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-[#8B1C1C]">
+                {new Date(`${selectedDateForDayView}T00:00`).toLocaleDateString("es-MX", {
+                  weekday: "long",
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSelectedDateForDayView(null)}
+                className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            {(() => {
+              const dayAppointments = filteredAppointments.filter((item) => item.date === selectedDateForDayView);
+
+              if (dayAppointments.length === 0) {
+                return (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500 text-sm mb-4">No hay citas agendadas para este día</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedDateForDayView(null);
+                        openNewModal(selectedDateForDayView!);
+                      }}
+                      className="rounded-2xl bg-[#8B1C1C] px-5 py-2 text-xs font-semibold text-white hover:bg-[#6B1515]"
+                    >
+                      Crear cita
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3 mb-6">
+                  {dayAppointments.map((appointment) => (
+                    <div
+                      key={appointment.id}
+                      className="rounded-2xl border border-[#8B1C1C]/20 bg-white p-4 hover:border-[#8B1C1C]/50 hover:bg-[#8B1C1C]/3 transition cursor-pointer hover:shadow-md"
+                      onClick={() => {
+                        setSelectedDateForDayView(null);
+                        openEditModal(appointment);
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <span
+                              className={`rounded-full px-2 py-1 text-[11px] font-bold ${
+                                appointment.backendState === "programada"
+                                  ? "bg-[#8B1C1C]/15 text-[#8B1C1C]"
+                                  : appointment.backendState === "en_proceso"
+                                    ? "bg-blue-100 text-blue-700"
+                                    : "bg-green-100 text-green-700"
+                              }`}
+                            >
+                              {appointment.backendState === "programada"
+                                ? "Programada"
+                                : appointment.backendState === "en_proceso"
+                                  ? "En proceso"
+                                  : "Completada"}
+                            </span>
+                            <span className={`text-[11px] font-semibold rounded px-2 py-1 ${typeStyles[appointment.type]}`}>
+                              {appointment.type.split("/")[0].trim()}
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-[#8B1C1C] text-base mb-2">{appointment.title}</h4>
+                          <div className="space-y-1 text-sm text-gray-700">
+                            <div>
+                              <span className="font-semibold text-[#8B1C1C]">Cliente:</span> {appointment.client}
+                            </div>
+                            {appointment.clientCode ? (
+                              <div>
+                                <span className="font-semibold text-[#8B1C1C]">Código:</span> {appointment.clientCode}
+                              </div>
+                            ) : null}
+                            <div>
+                              <span className="font-semibold text-[#8B1C1C]">Email:</span> {appointment.clientEmail}
+                            </div>
+                            <div>
+                              <span className="font-semibold text-[#8B1C1C]">Teléfono:</span> {appointment.clientPhone}
+                            </div>
+                            {appointment.location ? (
+                              <div>
+                                <span className="font-semibold text-[#8B1C1C]">Ubicación:</span> {appointment.location}
+                              </div>
+                            ) : null}
+                            <div>
+                              <span className="font-semibold text-[#8B1C1C]">Hora:</span> {appointment.time}
+                            </div>
+                            {appointment.assignedTo ? (
+                              <div>
+                                <span className="font-semibold text-[#8B1C1C]">Asignado a:</span>{" "}
+                                {teamMembers.find((member) => member.id === appointment.assignedTo)?.name || "Desconocido"}
+                              </div>
+                            ) : (
+                              <div className="text-orange-600">
+                                <span className="font-semibold">Asignado a:</span> Sin asignar
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <button
+                            type="button"
+                            className="text-[#8B1C1C]/40 hover:text-[#8B1C1C] text-2xl font-light"
+                            title="Ver detalles"
+                          >
+                            →
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            <div className="flex gap-3 pt-4 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => setSelectedDateForDayView(null)}
+                className="flex-1 rounded-2xl border border-[#8B1C1C]/30 bg-white px-5 py-2 text-xs font-semibold text-[#8B1C1C] hover:bg-[#8B1C1C]/5"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDateForDayView(null);
+                  openNewModal(selectedDateForDayView!);
+                }}
+                className="flex-1 rounded-2xl bg-[#8B1C1C] px-5 py-2 text-xs font-semibold text-white hover:bg-[#6B1515]"
+              >
+                Crear nueva cita
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4" onClick={() => setIsModalOpen(false)}>

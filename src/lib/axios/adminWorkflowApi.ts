@@ -112,10 +112,12 @@ export const promoverCitaATarea = async (task: AdminWorkflowTask, stageDestino: 
     }
   }
 
+  const clientName = task.cita?.nombreCliente || task.project || task.title;
+
   const createResponse = await crearTarea({
-    titulo: task.title || task.project,
-    proyecto: task.project || task.title,
-    nombreProyecto: task.project || task.title,
+    titulo: task.title || clientName,
+    proyecto: clientName,
+    nombreProyecto: clientName,
     etapa: stageDestino,
     estado: task.status,
     asignadoA: task.assignedToIds,

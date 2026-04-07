@@ -19,8 +19,8 @@ import {
   obtenerKanbanDisenos,
   type KanbanItem,
 } from "@/lib/axios/kanbanApi";
-import { agregarArchivos } from "@/lib/axios/tareasApi";
-import { subirArchivoYObtenerUrl } from "@/lib/axios/uploadsApi";
+import { obtenerArchivosCliente, obtenerArchivosTarea, type ClienteArchivo } from "@/lib/axios/archivosClienteApi";
+import { subirArchivoConMetadata, type UploadTipo } from "@/lib/axios/uploadsApi";
 import {
   activeCitaTaskStorageKey,
   activeCotizacionFormalTaskStorageKey,
@@ -37,9 +37,40 @@ import { runtimeStore } from "@/lib/runtime-store";
 type DashboardFlowItem = Omit<KanbanTask, "assignedTo"> & {
   assignedTo: string;
   assignedToId?: string;
+  clientId?: string;
   sourceId: string;
   backendSource: "tarea" | "cita";
   raw?: Record<string, unknown>;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+
+const asNonEmptyString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+
+const extractTaskClientId = (task: KanbanItem, cita: Record<string, unknown> | null): string | undefined => {
+  const raw = asRecord(task.raw);
+  const citaCliente = asRecord(cita?.cliente);
+  const rawCliente = asRecord(raw?.cliente);
+  return (
+    asNonEmptyString(cita?.clienteRef) ??
+    asNonEmptyString(cita?.codigoCliente) ??
+    asNonEmptyString(cita?.codigo) ??
+    asNonEmptyString(citaCliente?._id) ??
+    asNonEmptyString(citaCliente?.id) ??
+    asNonEmptyString(citaCliente?.clienteId) ??
+    asNonEmptyString(citaCliente?.codigo) ??
+    asNonEmptyString(cita?.clienteId) ??
+    asNonEmptyString(raw?.clienteRef) ??
+    asNonEmptyString(raw?.codigoCliente) ??
+    asNonEmptyString(raw?.codigo) ??
+    asNonEmptyString(rawCliente?._id) ??
+    asNonEmptyString(rawCliente?.id) ??
+    asNonEmptyString(rawCliente?.clienteId) ??
+    asNonEmptyString(rawCliente?.codigo) ??
+    asNonEmptyString(raw?.clienteId)
+  );
 };
 
 const publicTimelineSteps = [
@@ -123,6 +154,7 @@ const getCitaString = (cita: Record<string, unknown> | null, key: string) => {
 
 const mapTaskFromApi = (task: KanbanItem): DashboardFlowItem => {
   const cita = extractCitaPayload(task);
+  const clientId = extractTaskClientId(task, cita);
   const isCitaSource = task.sourceType === "cita" || (task.etapa === "citas" && Boolean(cita));
   const citaNombre = getCitaString(cita, "nombreCliente");
   const citaInfo = getCitaString(cita, "informacionAdicional");
@@ -154,6 +186,7 @@ const mapTaskFromApi = (task: KanbanItem): DashboardFlowItem => {
   return {
     id: task._id,
     sourceId: (isCitaSource ? task.sourceId : undefined) || task.sourceCitaId || task._id,
+    clientId,
     backendSource: isCitaSource ? "cita" : "tarea",
     title: clientName,
     stage: normalizeStage(task.etapa),
@@ -175,8 +208,9 @@ const mapTaskFromApi = (task: KanbanItem): DashboardFlowItem => {
     location: citaUbicacion || task.ubicacion || undefined,
     dueDate: citaFecha ? citaFecha.slice(0, 10) : undefined,
     raw: task.raw,
-    files: (task.archivos || []).map((file) => ({
-      id: file.id,
+    // Compatibilidad temporal: mostrar archivos embebidos si el backend legado los incluye.
+    files: (task.archivos || []).map((file, index) => ({
+      id: file.id || `${task._id}-embedded-${index}`,
       name: file.nombre,
       type: file.tipo,
     })),
@@ -356,52 +390,141 @@ export default function EmpleadoDashboard() {
     return "otro";
   };
 
+  const isDropboxUrl = (value: string) => /dropbox\.com|dropboxusercontent\.com/i.test(value);
+
+  const mapArchivoToTaskFile = (archivo: ClienteArchivo): TaskFile => {
+    const tipo = archivo.tipo.toLowerCase();
+    if (tipo.includes("render")) {
+      return { id: archivo._id, name: archivo.nombre, type: "render" };
+    }
+    if (tipo.includes("pdf") || archivo.nombre.toLowerCase().endsWith(".pdf")) {
+      return { id: archivo._id, name: archivo.nombre, type: "pdf" };
+    }
+    if (tipo.includes("diseno") || tipo.includes("diseno_preliminar") || tipo.includes("diseno_final") || tipo.includes("modelo_3d") || tipo.includes("sketchup")) {
+      return { id: archivo._id, name: archivo.nombre, type: "render" };
+    }
+    return { id: archivo._id, name: archivo.nombre, type: "otro" };
+  };
+
+  const pickFilesForStage = (archivos: ClienteArchivo[], stage: TaskStage): ClienteArchivo[] => {
+    if (stage === "disenos") {
+      return archivos.filter((archivo) => {
+        const tipo = archivo.tipo.toLowerCase();
+        return tipo === "diseno"
+          || tipo === "diseno_preliminar"
+          || tipo === "diseno_final"
+          || tipo === "render"
+          || tipo === "modelo_3d"
+          || tipo === "sketchup";
+      });
+    }
+
+    if (stage === "contrato") {
+      return archivos.filter((archivo) => {
+        const tipo = archivo.tipo.toLowerCase();
+        return tipo === "contrato" || tipo.startsWith("recibo_");
+      });
+    }
+
+    return archivos;
+  };
+
+  const refreshTaskFilesFromSourceOfTruth = async (task: DashboardFlowItem): Promise<void> => {
+    try {
+      const backendTaskId = task.backendSource === "tarea" ? task.sourceId?.trim() || task.id?.trim() : "";
+      const clientId = task.clientId?.trim() || "";
+
+      let archivos: ClienteArchivo[] = [];
+      if (backendTaskId) {
+        const response = await obtenerArchivosTarea(backendTaskId);
+        archivos = response.data ?? [];
+      } else if (clientId) {
+        const response = await obtenerArchivosCliente(clientId);
+        archivos = response.data ?? [];
+      }
+
+      const mapped = pickFilesForStage(archivos, task.stage).map(mapArchivoToTaskFile);
+      updateTask(task.id, (current) => ({ ...current, files: mapped }));
+    } catch (error) {
+      console.warn("[EmpleadoDashboard] No se pudieron refrescar archivos desde ClienteArchivo:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!activeTask) return;
+    void refreshTaskFilesFromSourceOfTruth(activeTask);
+  }, [activeTaskId]);
+
   const handleFilesUpload = async (taskId: string, files: FileList | null) => {
     if (!files?.length) return;
 
+    const targetTask = kanbanTasks.find((task) => task.id === taskId);
+    if (!targetTask) {
+      setUploadError("No se encontro la tarjeta para subir archivos.");
+      return;
+    }
+
     setUploadError(null);
 
-    const filesArray = Array.from(files);
-    const nextFiles: TaskFile[] = filesArray.map((file) => ({
-      id: `file-${Date.now()}-${file.name}`,
-      name: file.name,
-      type: inferFileType(file.name),
-    }));
+    const clientId = targetTask.clientId?.trim();
+    if (!clientId) {
+      setUploadError("No se encontro clienteId para relacionar los archivos con cliente/tarea.");
+      return;
+    }
 
-    const previousTasks = kanbanTasks;
-    updateTask(taskId, (task) => ({
-      ...task,
-      files: [...(task.files ?? []), ...nextFiles],
-    }));
+    const filesArray = Array.from(files);
+    const backendTaskId =
+      targetTask.backendSource === "tarea"
+        ? targetTask.sourceId?.trim() || targetTask.id?.trim() || null
+        : null;
+
+    if (targetTask.stage === "disenos" && !backendTaskId) {
+      setUploadError("No se encontro ID real de tarea para el diseño. Este upload requiere relacion con tarea para mostrarse correctamente.");
+      return;
+    }
 
     try {
-      const archivosPayload = await Promise.all(
-        filesArray.map(async (file, index) => {
-          const uploadedUrl = await subirArchivoYObtenerUrl(file);
-          return {
-            nombre: nextFiles[index].name,
-            tipo: nextFiles[index].type,
-            url: uploadedUrl,
-          };
+      await Promise.all(
+        filesArray.map(async (file) => {
+          const uploadTipo: UploadTipo = targetTask.stage === "disenos" ? "diseno" : "otro";
+          const relationContext = backendTaskId
+            ? { relacionadoA: "tarea" as const, relacionadoId: backendTaskId }
+            : { relacionadoA: "cliente" as const, relacionadoId: clientId };
+          const uploadInfo = await subirArchivoConMetadata(file, {
+            tipo: uploadTipo,
+            ...relationContext,
+            clienteId: clientId,
+            ...(backendTaskId ? { tareasId: backendTaskId } : {}),
+          });
+
+          if (targetTask.stage === "disenos") {
+            if (uploadInfo.provider !== "dropbox") {
+              throw new Error("El backend no devolvio Dropbox para un archivo de diseño. Verifica reglas de provider y metadata.");
+            }
+            if (!uploadInfo.key || !uploadInfo.key.toLowerCase().includes("dropbox")) {
+              console.warn("[EmpleadoDashboard] upload diseno con key no estandar:", uploadInfo.key);
+            }
+            if (!isDropboxUrl(uploadInfo.url)) {
+              console.warn("[EmpleadoDashboard] upload diseno con URL no-dropbox (posible proxy backend):", uploadInfo.url);
+            }
+          }
+
+          if (backendTaskId) {
+            const isLinkedToTask =
+              uploadInfo.tareasId?.trim() === backendTaskId ||
+              (uploadInfo.relacionadoA === "tarea" && uploadInfo.relacionadoId?.trim() === backendTaskId);
+
+            if (!isLinkedToTask) {
+              throw new Error("El archivo se subio, pero no quedo relacionado con la tarea correcta en ClienteArchivo.");
+            }
+          }
         }),
       );
 
-      console.log("[EmpleadoDashboard] agregarArchivos payload:", {
-        taskId,
-        archivos: archivosPayload,
-      });
-
-      const response = await agregarArchivos(
-        taskId,
-        archivosPayload,
-      );
-      if (!response.success) {
-        setKanbanTasks(previousTasks);
-      }
+      await refreshTaskFilesFromSourceOfTruth(targetTask);
     } catch (error) {
       console.error("Error al subir archivos:", error);
       setUploadError(error instanceof Error ? error.message : "No se pudieron subir los archivos.");
-      setKanbanTasks(previousTasks);
     }
   };
 

@@ -2,15 +2,57 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, CheckCircle2, Download, FileText, Image as ImageIcon } from "lucide-react";
+import { Bell, CheckCircle2, Download, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type { CotizacionFormalData, PreliminarData } from "@/lib/kanban";
 import { openPreliminarPdfInNewTab, downloadPreliminarPdf, openFormalPdfInNewTab, downloadFormalPdf } from "@/lib/pdf-preliminar";
+import { seguimientoApi } from "@/lib/axios";
+import { mergeSeguimientoFromStorage } from "@/lib/seguimiento-project";
 
-const baseMockProject = {
-  codigo: "K-8821",
+type SeguimientoArchivo = {
+  id: string;
+  name: string;
+  type: "pdf" | "jpg";
+  src: string;
+};
+
+type SeguimientoPayment = {
+  amount: number;
+  date?: string;
+  receiptLabel?: string;
+  receiptImage?: string;
+};
+
+type SeguimientoProject = {
+  codigo: string;
+  clienteId?: string;
+  clienteRef?: string;
+  cliente: string;
+  isProspect: boolean;
+  estadoProyecto: string;
+  inversion: number;
+  fechaInicio: string;
+  fechaEntrega: string;
+  garantiaInicio: string;
+  cotizacionPreliminarImage: string;
+  cotizacionFormalImage: string;
+  etapaActual: string;
+  pagos: {
+    anticipo: SeguimientoPayment;
+    segundoPago: SeguimientoPayment;
+    liquidacion: SeguimientoPayment;
+  };
+  archivos: SeguimientoArchivo[];
+  preliminarData?: PreliminarData;
+  cotizacionFormalData?: CotizacionFormalData;
+  preliminarCotizaciones?: PreliminarData[];
+  cotizacionesFormales?: CotizacionFormalData[];
+};
+
+const baseMockProject: SeguimientoProject = {
+  codigo: "K8821A",
   cliente: "Residencial Navarro",
   isProspect: true,
   estadoProyecto: "Completado/Entregado",
@@ -51,14 +93,6 @@ const baseMockProject = {
       src: "/images/render4.jpg",
     },
   ],
-} as const;
-
-/** Proyecto guardado para seguimiento; puede venir del cotizador (preliminar/formal) o ser mock. */
-type SeguimientoProject = typeof baseMockProject & {
-  preliminarData?: PreliminarData;
-  cotizacionFormalData?: CotizacionFormalData;
-  preliminarCotizaciones?: PreliminarData[];
-  cotizacionesFormales?: CotizacionFormalData[];
 };
 
 function getPreliminarListFromProject(p: SeguimientoProject): PreliminarData[] {
@@ -121,6 +155,12 @@ const installments = [
   { key: "liquidacion", label: "Liquidación" },
 ] as const;
 
+const MAX_FAILED_ATTEMPTS = 5;
+const LOGIN_LOCK_MS = 5 * 60 * 1000;
+
+const normalizeTrackingCode = (value: string) =>
+  value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6);
+
 const formatPayment = (payment: { amount: number; date?: string }) => {
   const formatted = formatCurrency(payment.amount);
   return payment.date ? `${formatted} - ${payment.date}` : formatted;
@@ -160,6 +200,9 @@ export default function SeguimientoPage() {
   const [hasAccess, setHasAccess] = useState(false);
   const [project, setProject] = useState<SeguimientoProject | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockUntil, setLockUntil] = useState<number | null>(null);
   const [selectedImage, setSelectedImage] = useState<null | { name: string; src: string }>(
     null,
   );
@@ -172,7 +215,7 @@ export default function SeguimientoPage() {
   const isProspect = currentProject.isProspect;
   const currentIndex = useMemo(
     () => Math.max(0, timelineSteps.indexOf(currentProject.etapaActual)),
-    [],
+    [currentProject.etapaActual],
   );
   const totalPagado =
     currentProject.pagos.anticipo.amount +
@@ -187,6 +230,27 @@ export default function SeguimientoPage() {
   const quoteImageSrc = isProspect
     ? currentProject.cotizacionPreliminarImage
     : currentProject.cotizacionFormalImage;
+
+  const lockRemainingSeconds = useMemo(() => {
+    if (!lockUntil) return 0;
+    return Math.max(0, Math.ceil((lockUntil - Date.now()) / 1000));
+  }, [lockUntil]);
+
+  useEffect(() => {
+    if (!lockUntil) return;
+    if (Date.now() >= lockUntil) {
+      setLockUntil(null);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      if (Date.now() >= lockUntil) {
+        setLockUntil(null);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [lockUntil]);
 
   useEffect(() => {
     // Sin dependencia de localStorage: el proyecto base se carga en memoria.
@@ -211,20 +275,167 @@ export default function SeguimientoPage() {
                   Ingresa tu código único para ver el avance de tu cocina.
                 </p>
                 <form
-                  onSubmit={(event) => {
+                  onSubmit={async (event) => {
                     event.preventDefault();
-                    if (!codigo.trim()) {
-                      setCodeError("Ingresa un código de proyecto.");
+
+                    if (lockUntil && Date.now() < lockUntil) {
+                      setCodeError(`Acceso bloqueado temporalmente. Intenta de nuevo en ${lockRemainingSeconds}s.`);
                       return;
                     }
-                    const codeKey = codigo.trim();
-                    if (codeKey !== baseMockProject.codigo) {
-                      setCodeError("No encontramos un proyecto con ese código.");
+
+                    const normalizedInput = normalizeTrackingCode(codigo);
+                    if (normalizedInput.length !== 6) {
+                      setCodeError("Ingresa un codigo valido de 6 caracteres.");
                       return;
                     }
-                    setProject(baseMockProject);
-                    setHasAccess(true);
-                    setCodeError(null);
+
+                    try {
+                      setIsAuthenticating(true);
+                      const response = await seguimientoApi.autenticarSeguimientoCliente(normalizedInput);
+
+                      if (!response.success) {
+                        throw new Error(response.message || "No encontramos un proyecto con ese codigo.");
+                      }
+
+                      const payload = response.data as Record<string, unknown>;
+                      const trackingToken =
+                        typeof payload.token === "string" && payload.token.trim().length > 0
+                          ? payload.token
+                          : null;
+
+                      const maybeProject =
+                        payload && typeof payload === "object"
+                          ? (payload.proyecto ?? payload.project ?? payload)
+                          : payload;
+
+                      let backendProject: unknown = maybeProject;
+                      if ((!backendProject || typeof backendProject !== "object") && trackingToken) {
+                        const projectResponse = await seguimientoApi.obtenerProyectoSeguimiento(
+                          trackingToken,
+                          normalizedInput,
+                        );
+
+                        if (!projectResponse.success) {
+                          throw new Error(projectResponse.message || "No se pudo cargar el proyecto de seguimiento.");
+                        }
+
+                        const projectPayload = projectResponse.data as Record<string, unknown>;
+                        backendProject =
+                          projectPayload && typeof projectPayload === "object"
+                            ? (projectPayload.proyecto ?? projectPayload.project ?? projectPayload)
+                            : projectPayload;
+                      }
+
+                      if (!backendProject || typeof backendProject !== "object") {
+                        throw new Error("Respuesta de backend invalida para seguimiento.");
+                      }
+
+                      const normalizedProject = mergeSeguimientoFromStorage(
+                        backendProject as Record<string, unknown>,
+                      );
+
+                      const expectedCode = normalizeTrackingCode(
+                        normalizedProject.codigo || normalizedProject.clienteId || "",
+                      );
+                      if (normalizedInput !== expectedCode) {
+                        throw new Error("Codigo invalido para este proyecto.");
+                      }
+
+                      const archivosFromBackend = Array.isArray(normalizedProject.archivos)
+                        ? normalizedProject.archivos
+                        : [];
+
+                      const mappedArchivos = archivosFromBackend
+                        .map((item, idx) => {
+                          if (!item || typeof item !== "object") return null;
+                          const raw = item as Record<string, unknown>;
+                          const nombre = typeof raw.nombre === "string" ? raw.nombre : `Archivo ${idx + 1}`;
+                          const src =
+                            typeof raw.src === "string"
+                              ? raw.src
+                              : typeof raw.url === "string"
+                                ? raw.url
+                                : "";
+                          const tipoRaw =
+                            typeof raw.tipo === "string"
+                              ? raw.tipo
+                              : typeof raw.type === "string"
+                                ? raw.type
+                                : "otro";
+
+                          const lower = tipoRaw.toLowerCase();
+                          const type =
+                            lower.includes("pdf")
+                              ? "pdf"
+                              : lower.includes("jpg") || lower.includes("jpeg") || lower.includes("png") || lower.includes("render")
+                                ? "jpg"
+                                : "pdf";
+
+                          return {
+                            id: typeof raw.id === "string" ? raw.id : `file-${idx}`,
+                            name: nombre,
+                            type,
+                            src,
+                          };
+                        })
+                        .filter((item): item is { id: string; name: string; type: "pdf" | "jpg"; src: string } => Boolean(item));
+
+                      const mergedProject: SeguimientoProject = {
+                        ...baseMockProject,
+                        codigo: expectedCode,
+                        clienteId: normalizedProject.clienteId,
+                        clienteRef: normalizedProject.clienteRef,
+                        cliente: normalizedProject.cliente,
+                        isProspect: normalizedProject.isProspect,
+                        inversion: normalizedProject.inversion,
+                        fechaInicio: normalizedProject.fechaInicio,
+                        fechaEntrega: normalizedProject.fechaEntrega,
+                        garantiaInicio: normalizedProject.garantiaInicio,
+                        estadoProyecto: normalizedProject.estadoProyecto,
+                        etapaActual: normalizedProject.etapaActual,
+                        pagos: normalizedProject.pagos,
+                        archivos: mappedArchivos.length > 0 ? mappedArchivos : baseMockProject.archivos,
+                        cotizacionPreliminarImage:
+                          normalizedProject.cotizacionPreliminarImage || baseMockProject.cotizacionPreliminarImage,
+                        cotizacionFormalImage:
+                          normalizedProject.cotizacionFormalImage || baseMockProject.cotizacionFormalImage,
+                      };
+
+                      setProject(mergedProject);
+                      setHasAccess(true);
+                      setCodeError(null);
+                      setFailedAttempts(0);
+                      setLockUntil(null);
+                    } catch (error) {
+                      const nextAttempts = failedAttempts + 1;
+                      setFailedAttempts(nextAttempts);
+                      const backendMessage =
+                        error && typeof error === "object" && "response" in error
+                          ? (() => {
+                              const response = (error as { response?: { data?: unknown } }).response;
+                              if (response && response.data && typeof response.data === "object") {
+                                const data = response.data as Record<string, unknown>;
+                                return typeof data.message === "string" ? data.message : null;
+                              }
+                              return null;
+                            })()
+                          : null;
+
+                      if (nextAttempts >= MAX_FAILED_ATTEMPTS) {
+                        const blockedUntil = Date.now() + LOGIN_LOCK_MS;
+                        setLockUntil(blockedUntil);
+                        setCodeError("Demasiados intentos fallidos. Acceso bloqueado por 5 minutos.");
+                      } else {
+                        setCodeError(
+                          backendMessage ||
+                            (error instanceof Error
+                              ? error.message
+                              : "No pudimos validar el codigo. Intenta de nuevo."),
+                        );
+                      }
+                    } finally {
+                      setIsAuthenticating(false);
+                    }
                   }}
                 >
                   <label className="mt-6 block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
@@ -235,7 +446,7 @@ export default function SeguimientoPage() {
                         setCodigo(event.target.value);
                         setCodeError(null);
                       }}
-                      placeholder="K-8821"
+                      placeholder="ABC123"
                       className="mt-3 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                     />
                   </label>
@@ -244,9 +455,19 @@ export default function SeguimientoPage() {
                   ) : null}
                   <button
                     type="submit"
+                    disabled={isAuthenticating || (lockUntil !== null && Date.now() < lockUntil)}
                     className="mt-6 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
                   >
-                    Ver Progreso
+                    {isAuthenticating ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Validando codigo...
+                      </span>
+                    ) : lockUntil !== null && Date.now() < lockUntil ? (
+                      `Bloqueado (${lockRemainingSeconds}s)`
+                    ) : (
+                      "Ver Progreso"
+                    )}
                   </button>
                 </form>
               </div>
@@ -266,6 +487,14 @@ export default function SeguimientoPage() {
                   <h1 className="mt-2 text-3xl font-semibold">
                     Proyecto Residencial {currentProject.cliente}
                   </h1>
+                  <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B1C1C]">
+                    Codigo de seguimiento: {currentProject.codigo}
+                  </p>
+                  {currentProject.clienteId && currentProject.clienteId !== currentProject.codigo ? (
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-secondary">
+                      Codigo de cliente: {currentProject.clienteId}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="grid gap-4 md:grid-cols-3">
                   {[
@@ -415,7 +644,7 @@ export default function SeguimientoPage() {
                             <button
                               className="rounded-full border border-primary/10 px-3 py-1 text-[10px] font-semibold text-primary transition hover:border-accent hover:text-accent"
                               onClick={() => {
-                                if ("receiptImage" in payment) {
+                                if (typeof payment.receiptImage === "string" && payment.receiptImage.trim().length > 0) {
                                   setSelectedImage({
                                     name: `${item.label} - Recibo`,
                                     src: payment.receiptImage,

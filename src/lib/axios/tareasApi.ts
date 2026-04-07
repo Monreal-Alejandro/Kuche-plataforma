@@ -15,7 +15,20 @@ import axiosInstance, { ApiResponse } from './axiosConfig';
 export interface ArchivoTarea {
   id: string;
   nombre: string;
-  tipo: "pdf" | "render" | "otro";
+  tipo:
+    | "levantamiento_detallado"
+    | "diseno"
+    | "cotizacion_formal"
+    | "hoja_taller"
+    | "recibo_1"
+    | "recibo_2"
+    | "recibo_3"
+    | "contrato"
+    | "fotos_proyecto"
+    | "pdf"
+    | "render"
+    | "otro"
+    | string;
   url?: string;
   createdAt?: Date | string;
 }

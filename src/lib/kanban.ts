@@ -28,6 +28,8 @@ export type PreliminarWallSpec = {
 
 export type PreliminarData = {
   client: string;
+  /** Identificador estable del cliente para relacionar archivos y seguimientos. */
+  clienteId?: string;
   projectType: string;
   location: string;
   date: string;
@@ -37,6 +39,8 @@ export type PreliminarData = {
   herraje: string;
   wallSpecs?: PreliminarWallSpec[];
   wallCostEstimate?: number;
+  /** URL remota del PDF generado al terminar el levantamiento detallado. */
+  levantamientoPdfUrl?: string;
 };
 
 /** Datos del cotizador formal guardados en la tarjeta del cliente. */
@@ -45,6 +49,10 @@ export type CotizacionFormalData = PreliminarData & {
   formalPdfKey?: string;
   /** Clave en IndexedDB para la hoja de taller asociada. */
   workshopPdfKey?: string;
+  /** URL remota del PDF formal guardado en Cloudinary. */
+  formalPdfUrl?: string;
+  /** URL remota de la hoja de taller guardada en Cloudinary. */
+  workshopPdfUrl?: string;
   /** @deprecated PDF en data URL; ya no se persiste en la tarea (usa formalPdfKey + IndexedDB). */
   pdfDataUrl?: string;
 };

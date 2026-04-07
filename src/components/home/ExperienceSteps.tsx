@@ -103,7 +103,7 @@ const steps: Step[] = [
 
 type ExperienceCardProps = {
   step: Step;
-  rootRef: React.RefObject<HTMLDivElement>;
+  rootRef: React.RefObject<HTMLDivElement | null>;
 };
 
 function ExperienceCard({ step, rootRef }: ExperienceCardProps) {

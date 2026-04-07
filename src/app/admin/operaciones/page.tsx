@@ -3,26 +3,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { UserPlus, Calculator, FileText, MapPin, Calendar, Loader2, CheckCircle2, Clock, PencilLine } from "lucide-react";
+import { AlertCircle, UserPlus, Calculator, FileText, MapPin, Calendar, Loader2, CheckCircle2, Clock, PencilLine, Upload } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useAdminWorkflow } from "@/contexts/AdminWorkflowContext";
+import { subirArchivoConMetadata } from "@/lib/axios/uploadsApi";
+import { agregarArchivos } from "@/lib/axios/tareasApi";
 import {
   activeCitaTaskStorageKey,
   activeCotizacionFormalTaskStorageKey,
   citaReturnUrlStorageKey,
   finishedCitaTaskStorageKey,
   kanbanColumns,
-  kanbanStorageKey,
   type TaskStage,
   type TaskPriority,
   type TaskStatus,
 } from "@/lib/kanban";
 import { runtimeStore } from "@/lib/runtime-store";
 import { crearUsuario, listarEmpleados, listarUsuarios, type Usuario } from "@/lib/axios/usuariosApi";
-import type { AdminWorkflowTask } from "@/lib/admin-workflow";
+import { isTaskInProgress, type AdminWorkflowTask } from "@/lib/admin-workflow";
 import { VisitScheduleModal } from "@/components/admin/VisitScheduleModal";
+import { FinalDesignUploadModal } from "@/components/admin/FinalDesignUploadModal";
 
 const stageStyles: Record<TaskStage, { border: string; badge: string }> = {
   citas: { border: "border-sky-500", badge: "bg-sky-50 text-sky-600" },
@@ -121,44 +123,73 @@ const prettyJson = (value: unknown) => {
   }
 };
 
+type ActionFeedbackTone = "success" | "error" | "warning" | "info";
+
+type ActionFeedbackState = {
+  message: string;
+  tone: ActionFeedbackTone;
+} | null;
+
+const buildTrackingCodeFromTask = (task: AdminWorkflowTask) => {
+  const rawTask = task as unknown as Record<string, unknown>;
+  const citaRecord = rawTask.cita && typeof rawTask.cita === "object"
+    ? (rawTask.cita as Record<string, unknown>)
+    : null;
+
+  const clientIdFromCita = citaRecord?.cliente && typeof citaRecord.cliente === "object"
+    ? ((citaRecord.cliente as Record<string, unknown>)._id as string | undefined)
+    : undefined;
+
+  const candidates = [
+    task.clientId,
+    clientIdFromCita,
+    typeof citaRecord?.clienteId === "string" ? citaRecord.clienteId : undefined,
+    task.sourceCitaId,
+    task.sourceId,
+    task.id,
+  ];
+
+  const base = candidates.find((value): value is string => Boolean(value && value.trim().length > 0)) ?? task.id;
+  const cleaned = base.replace(/[^a-zA-Z0-9]/g, "");
+  return (cleaned || base).slice(0, 6).toUpperCase();
+};
+
 export default function OperacionesPage() {
   const router = useRouter();
-  const { tasks, isLoading, refresh, moveTask, updateTask, createTask } = useAdminWorkflow();
-  
+  const { tasks, refresh, updateTask, moveTask, createTask, isLoading } = useAdminWorkflow();
+
   const [employees, setEmployees] = useState<Usuario[]>([]);
-  const [selectedEmployeeFilter, setSelectedEmployeeFilter] = useState<string>("Todos");
+  const [selectedEmployeeFilter, setSelectedEmployeeFilter] = useState("Todos");
+  const [isSaving, setIsSaving] = useState(false);
+  const [clockNow, setClockNow] = useState(Date.now());
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [visitModalTaskId, setVisitModalTaskId] = useState<string | null>(null);
+  const [finalDesignUploadTaskId, setFinalDesignUploadTaskId] = useState<string | null>(null);
+  const [pendingUploadTaskId, setPendingUploadTaskId] = useState<string | null>(null);
+  const [uploadingTaskId, setUploadingTaskId] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<ActionFeedbackState>(null);
+  const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyDraft);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskModalError, setTaskModalError] = useState<string | null>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [assignError, setAssignError] = useState("");
+  const [newTaskProject, setNewTaskProject] = useState("");
+  const [newTaskStage, setNewTaskStage] = useState<TaskStage>("citas");
+  const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("media");
+  const [newTaskAssignedToIds, setNewTaskAssignedToIds] = useState<string[]>([]);
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [teamError, setTeamError] = useState("");
   const [newMemberName, setNewMemberName] = useState("");
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [newMemberRole, setNewMemberRole] = useState<Usuario["rol"]>("empleado");
   const [newMemberPassword, setNewMemberPassword] = useState("");
-  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [newTaskProject, setNewTaskProject] = useState("");
-  const [newTaskStage, setNewTaskStage] = useState<TaskStage>("citas");
-  const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("media");
-  const [newTaskAssignedToIds, setNewTaskAssignedToIds] = useState<string[]>([]);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [visitModalTaskId, setVisitModalTaskId] = useState<string | null>(null);
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyDraft);
-  const [taskModalError, setTaskModalError] = useState<string | null>(null);
-  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [isApplyingFinishedCita, setIsApplyingFinishedCita] = useState(false);
-  const [clockNow, setClockNow] = useState(() => Date.now());
+
+  const designUploadInputRef = useRef<HTMLInputElement | null>(null);
   const assignModalRef = useRef<HTMLDivElement | null>(null);
   const teamModalRef = useRef<HTMLDivElement | null>(null);
   const taskModalRef = useRef<HTMLDivElement | null>(null);
-
-  useEscapeClose(isAssignModalOpen, () => setIsAssignModalOpen(false));
-  useEscapeClose(isTeamModalOpen, () => setIsTeamModalOpen(false));
-  useEscapeClose(isTaskModalOpen, () => setIsTaskModalOpen(false));
-  useFocusTrap(isAssignModalOpen, assignModalRef);
-  useFocusTrap(isTeamModalOpen, teamModalRef);
-  useFocusTrap(isTaskModalOpen, taskModalRef);
 
   const loadEmployees = async () => {
     const usersResponse = await listarUsuarios().catch(() => null);
@@ -171,17 +202,33 @@ export default function OperacionesPage() {
           ? employeesResponse.data
           : [];
 
-    const activeUsers = source.filter((user) => user.activo !== false);
-    setEmployees(activeUsers);
-
-    if (activeUsers.length > 0) {
-      console.log("[Operaciones] users for assignment JSON:\n", prettyJson(activeUsers));
-    }
+    setEmployees(source.filter((user) => user.activo !== false));
   };
+
+  useEscapeClose(Boolean(isTaskModalOpen), () => setIsTaskModalOpen(false));
+  useEscapeClose(Boolean(isAssignModalOpen), () => setIsAssignModalOpen(false));
+  useEscapeClose(Boolean(isTeamModalOpen), () => setIsTeamModalOpen(false));
+  useEscapeClose(Boolean(visitModalTaskId), () => setVisitModalTaskId(null));
+
+  useFocusTrap(Boolean(isTaskModalOpen), taskModalRef);
+  useFocusTrap(Boolean(isAssignModalOpen), assignModalRef);
+  useFocusTrap(Boolean(isTeamModalOpen), teamModalRef);
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
     void loadEmployees();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setClockNow(Date.now());
+      void refresh();
+    }, 60_000);
+
+    return () => clearInterval(interval);
   }, [refresh]);
 
   useEffect(() => {
@@ -264,23 +311,40 @@ export default function OperacionesPage() {
   };
 
   const handleTaskAction = async (task: AdminWorkflowTask, action: string) => {
+    const hasAssignedPeople = (task.assignedToIds?.length ?? 0) > 0;
+
+    if (action === "start-cita" && !hasAssignedPeople) {
+      showActionFeedback("No puedes iniciar la cita sin asignar al menos una persona responsable.", "warning");
+      return;
+    }
+
+    if (action === "pass-to-seguimiento" && !task.citaFinished) {
+      showActionFeedback("No puedes pasar a seguimiento si la cita no está completada.", "warning");
+      return;
+    }
+
     try {
       setIsSaving(true);
       setActionFeedback(null);
 
       if (action === "start-cita") {
         await updateTask(task, { citaStarted: true, status: "pendiente" });
-        runtimeStore.setItem(kanbanStorageKey, JSON.stringify(tasks));
-        runtimeStore.setItem(activeCitaTaskStorageKey, task.id);
-        runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
-        router.push("/dashboard/cotizador-preliminar");
+        showActionFeedback("Cita iniciada. Abriendo cotizador preliminar...", "success");
+        window.setTimeout(() => {
+          runtimeStore.setItem(activeCitaTaskStorageKey, task.id);
+          runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
+          router.push("/dashboard/cotizador-preliminar");
+        }, 220);
+        return;
       }
       if (action === "finish-cita") {
         await updateTask(task, { citaFinished: true, status: "completada", priority: "alta" });
+        showActionFeedback("Cita completada correctamente.", "success");
       }
       if (action === "approve-design-admin") {
         await updateTask(task, { designApprovedByAdmin: true });
         setVisitModalTaskId(task.id);
+        showActionFeedback("Diseño aprobado por admin. Ahora puedes agendar la visita.", "success");
       }
       if (action === "approve-design-client") {
         await updateTask(task, {
@@ -290,15 +354,21 @@ export default function OperacionesPage() {
           citaStarted: false,
           citaFinished: false,
         });
+        showActionFeedback("Diseño aprobado por cliente. Se movió a cotización formal.", "success");
       }
       if (action === "start-cotizacion") {
         await updateTask(task, { citaStarted: true, citaFinished: false, status: "pendiente" });
-        runtimeStore.setItem(activeCotizacionFormalTaskStorageKey, task.id);
-        runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
-        router.push("/dashboard/cotizador");
+        showActionFeedback("Cotización formal iniciada. Abriendo cotizador...", "success");
+        window.setTimeout(() => {
+          runtimeStore.setItem(activeCotizacionFormalTaskStorageKey, task.id);
+          runtimeStore.setItem(citaReturnUrlStorageKey, window.location.pathname);
+          router.push("/dashboard/cotizador");
+        }, 220);
+        return;
       }
       if (action === "finish-cotizacion") {
         await updateTask(task, { citaFinished: true, status: "completada", priority: "alta" });
+        showActionFeedback("Cotización terminada correctamente.", "success");
       }
       if (action === "pass-to-seguimiento") {
         await updateTask(task, {
@@ -309,15 +379,16 @@ export default function OperacionesPage() {
           citaStarted: false,
           citaFinished: false,
         });
+        showActionFeedback("Proyecto movido a seguimiento.", "success");
       }
       if (action === "confirm-client") {
         await updateTask(task, { followUpStatus: "confirmado", status: "completada" });
         const reloaded = await refresh();
         const updated = reloaded.find((item) => item.id === task.id);
         if (updated?.followUpStatus !== "confirmado") {
-          setActionFeedback("El backend no guardo 'confirmado'. Revisa el contrato del endpoint PATCH /api/tareas/:id.");
+          showActionFeedback("El backend no guardó 'confirmado'. Revisa el contrato del endpoint PATCH /api/tareas/:id.", "warning");
         } else {
-          setActionFeedback("Cliente confirmado correctamente.");
+          showActionFeedback("Cliente confirmado correctamente.", "success");
         }
       }
       if (action === "discard-client") {
@@ -325,9 +396,9 @@ export default function OperacionesPage() {
         const reloaded = await refresh();
         const updated = reloaded.find((item) => item.id === task.id);
         if (updated?.followUpStatus !== "inactivo") {
-          setActionFeedback("El backend no guardo 'inactivo'. Revisa el contrato del endpoint PATCH /api/tareas/:id.");
+          showActionFeedback("El backend no guardó 'inactivo'. Revisa el contrato del endpoint PATCH /api/tareas/:id.", "warning");
         } else {
-          setActionFeedback("Proyecto marcado como inactivo correctamente.");
+          showActionFeedback("Proyecto marcado como inactivo correctamente.", "success");
         }
       }
       if (action === "reactivate-client") {
@@ -336,11 +407,11 @@ export default function OperacionesPage() {
           status: "pendiente",
           followUpEnteredAt: Date.now(),
         });
-        setActionFeedback("Seguimiento reactivado.");
+        showActionFeedback("Seguimiento reactivado.", "success");
       }
     } catch (error) {
       console.error("Error de acción de tarjeta:", error);
-      setActionFeedback(error instanceof Error ? error.message : "No se pudo completar la accion.");
+      showActionFeedback(error instanceof Error ? error.message : "No se pudo completar la acción.", "error");
     } finally {
       setIsSaving(false);
     }
@@ -415,7 +486,11 @@ export default function OperacionesPage() {
 
   const columns = kanbanColumns.map((column) => ({
     ...column,
-    tasks: filteredTasks.filter((task) => task.stage === column.id),
+    tasks: filteredTasks.filter((task) => {
+      if (task.stage !== column.id) return false;
+      if (column.id === "contrato") return isTaskInProgress(task);
+      return true;
+    }),
   }));
 
   const activeTask = useMemo(
@@ -426,6 +501,11 @@ export default function OperacionesPage() {
   const visitModalTask = useMemo(
     () => tasks.find((task) => task.id === visitModalTaskId) ?? null,
     [tasks, visitModalTaskId],
+  );
+
+  const finalDesignUploadTask = useMemo(
+    () => tasks.find((task) => task.id === finalDesignUploadTaskId) ?? null,
+    [tasks, finalDesignUploadTaskId],
   );
 
   const occupiedVisitSlots = useMemo(
@@ -450,6 +530,20 @@ export default function OperacionesPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  useEffect(() => {
+    if (!actionFeedback) return;
+
+    const timeout = window.setTimeout(() => {
+      setActionFeedback(null);
+    }, actionFeedback.tone === "error" ? 6000 : 3500);
+
+    return () => window.clearTimeout(timeout);
+  }, [actionFeedback]);
+
+  const showActionFeedback = (message: string, tone: ActionFeedbackTone = "info") => {
+    setActionFeedback({ message, tone });
   };
 
   useEffect(() => {
@@ -509,6 +603,149 @@ export default function OperacionesPage() {
     }
   };
 
+  const requestDesignUpload = (taskId: string) => {
+    setPendingUploadTaskId(taskId);
+    designUploadInputRef.current?.click();
+  };
+
+  const handleDesignUpload = async (task: AdminWorkflowTask, file: File) => {
+    try {
+      setIsSaving(true);
+      setUploadingTaskId(task.id);
+      if (task.stage === "disenos" && task.backendSource !== "tarea") {
+        throw new Error("No se encontro tarea backend valida para este diseño. No se puede subir sin tareasId real.");
+      }
+      const backendTaskId = task.sourceId || task.id;
+      const uploadInfo = await subirArchivoConMetadata(file, {
+        tipo: task.stage === "disenos" ? "diseno" : "otro",
+        relacionadoA: "tarea",
+        relacionadoId: backendTaskId,
+        clienteId: task.clientId,
+        tareasId: backendTaskId,
+      });
+
+      if (task.stage === "disenos") {
+        if (uploadInfo.provider !== "dropbox") {
+          throw new Error("El backend no devolvio Dropbox para un archivo de diseño. Verifica metadata y reglas de provider.");
+        }
+        if (!uploadInfo.key || !uploadInfo.key.toLowerCase().includes("dropbox")) {
+          console.warn("[admin/operaciones] upload diseno con key no estandar:", uploadInfo.key);
+        }
+        if (!/dropbox\.com|dropboxusercontent\.com/i.test(uploadInfo.url)) {
+          console.warn("[admin/operaciones] upload diseno con URL no-dropbox (posible proxy backend):", uploadInfo.url);
+        }
+
+        const isLinkedToTask =
+          uploadInfo.tareasId?.trim() === backendTaskId ||
+          (uploadInfo.relacionadoA === "tarea" && uploadInfo.relacionadoId?.trim() === backendTaskId);
+        if (!isLinkedToTask) {
+          throw new Error("El archivo se subio, pero no quedo relacionado con la tarea correcta en ClienteArchivo.");
+        }
+      }
+
+      const tipo = task.stage === "disenos" ? "diseno" : "otro";
+
+      try {
+        const response = await agregarArchivos(backendTaskId, [
+          {
+            nombre: file.name,
+            tipo,
+            url: uploadInfo.url,
+          },
+        ]);
+
+        if (!response.success) {
+          throw new Error(response.message || "No se pudo adjuntar el diseño");
+        }
+      } catch (syncError) {
+        // ClienteArchivo es la fuente principal. El sync legado no debe bloquear el flujo.
+        console.warn("[admin/operaciones] fallback agregarArchivos omitido:", syncError);
+      }
+
+      await refresh();
+      showActionFeedback("Diseño subido correctamente.", "success");
+    } catch (error) {
+      console.error("Error subiendo diseño:", error);
+      showActionFeedback(error instanceof Error ? error.message : "No se pudo subir el diseño", "error");
+    } finally {
+      setIsSaving(false);
+      setUploadingTaskId(null);
+      setPendingUploadTaskId(null);
+    }
+  };
+
+  const handleFinalDesignUpload = async (task: AdminWorkflowTask, file: File) => {
+    try {
+      setIsSaving(true);
+      if (task.stage !== "disenos" || task.backendSource !== "tarea") {
+        throw new Error("No se encontro tarea backend valida para este diseño final. No se puede subir sin tareasId real.");
+      }
+      const backendTaskId = task.sourceId || task.id;
+      
+      const uploadInfo = await subirArchivoConMetadata(file, {
+        tipo: "diseno",
+        nivel: "final",
+        relacionadoA: "tarea",
+        relacionadoId: backendTaskId,
+        clienteId: task.clientId,
+        tareasId: backendTaskId,
+      });
+
+      if (uploadInfo.provider !== "dropbox") {
+        throw new Error("El backend no devolvio Dropbox para un archivo de diseño final. Verifica metadata y reglas de provider.");
+      }
+
+      if (!uploadInfo.key || !uploadInfo.key.toLowerCase().includes("dropbox")) {
+        console.warn("[admin/operaciones] upload diseno final con key no estandar:", uploadInfo.key);
+      }
+
+      if (!/dropbox\.com|dropboxusercontent\.com/i.test(uploadInfo.url)) {
+        console.warn("[admin/operaciones] upload diseno final con URL no-dropbox (posible proxy backend):", uploadInfo.url);
+      }
+
+      const isLinkedToTask =
+        uploadInfo.tareasId?.trim() === backendTaskId ||
+        (uploadInfo.relacionadoA === "tarea" && uploadInfo.relacionadoId?.trim() === backendTaskId);
+      if (!isLinkedToTask) {
+        throw new Error("El archivo se subio, pero no quedo relacionado con la tarea correcta en ClienteArchivo.");
+      }
+
+      try {
+        const response = await agregarArchivos(backendTaskId, [
+          {
+            nombre: file.name,
+            tipo: "diseno",
+            url: uploadInfo.url,
+          },
+        ]);
+
+        if (!response.success) {
+          throw new Error(response.message || "No se pudo adjuntar el diseño final");
+        }
+      } catch (syncError) {
+        console.warn("[admin/operaciones] fallback agregarArchivos omitido en diseño final:", syncError);
+      }
+
+      // Actualizar la tarea para pasar a cotizacion
+      await updateTask(task, {
+        designApprovedByClient: true,
+        stage: "cotizacion",
+        status: "pendiente",
+        citaStarted: false,
+        citaFinished: false,
+      });
+
+      await refresh();
+      setFinalDesignUploadTaskId(null);
+      showActionFeedback("Diseño final cargado. Tarjeta movida a cotización formal.", "success");
+    } catch (error) {
+      console.error("Error subiendo diseño final:", error);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleDrop = async (stage: TaskStage) => {
     if (!draggedTaskId) return;
     const task = tasks.find((t) => t.id === draggedTaskId);
@@ -518,8 +755,10 @@ export default function OperacionesPage() {
     try {
       setIsSaving(true);
       await moveTask(task, stage);
+      showActionFeedback("Tarjeta movida correctamente.", "success");
     } catch (error) {
       console.error("Error al mover tarea:", error);
+      showActionFeedback(error instanceof Error ? error.message : "No se pudo mover la tarjeta.", "error");
     } finally {
       setIsSaving(false);
     }
@@ -527,47 +766,121 @@ export default function OperacionesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">
-            Operaciones y taller
-          </p>
-          <h1 className="mt-2 text-2xl font-semibold text-gray-900">
-            Control de tareas y citas
-          </h1>
-          <p className="mt-2 text-sm text-secondary">
-            Flujo: Citas → Diseño → Cotización formal → Seguimiento.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <select
-            value={selectedEmployeeFilter}
-            onChange={(e) => setSelectedEmployeeFilter(e.target.value)}
-            className="rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm font-medium text-secondary shadow-sm outline-none"
+      <AnimatePresence>
+        {actionFeedback ? (
+          <motion.div
+            key={actionFeedback.message}
+            initial={{ opacity: 0, y: -12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.98 }}
+            transition={{ duration: 0.22 }}
+            className="fixed left-4 right-4 top-4 z-50 mx-auto w-[min(92vw,42rem)]"
           >
-            <option value="Todos">Ver todo</option>
-            {employees.map((emp) => (
-              <option key={emp._id} value={emp._id}>
-                {emp.nombre}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={openTeamModal}
-            className="flex items-center gap-2 rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm font-semibold text-secondary shadow-sm transition hover:bg-primary/5"
-          >
-            <UserPlus className="h-4 w-4" />
-            Integrantes
-          </button>
-          <button
-            type="button"
-            onClick={openAssignModal}
-            className="rounded-2xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
-          >
-            Asignar pendiente
-          </button>
-        </div>
+            <div
+              className={`overflow-hidden rounded-2xl border px-4 py-2 shadow-md ${
+                actionFeedback.tone === "success"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : actionFeedback.tone === "warning"
+                    ? "border-amber-200 bg-amber-50 text-amber-900"
+                    : actionFeedback.tone === "error"
+                      ? "border-rose-200 bg-rose-50 text-rose-900"
+                      : "border-sky-200 bg-sky-50 text-sky-900"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={`mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl ${
+                    actionFeedback.tone === "success"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : actionFeedback.tone === "warning"
+                        ? "bg-amber-100 text-amber-700"
+                        : actionFeedback.tone === "error"
+                          ? "bg-rose-100 text-rose-700"
+                          : "bg-sky-100 text-sky-700"
+                  }`}
+                >
+                  {actionFeedback.tone === "success" ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold leading-5">{actionFeedback.message}</p>
+                  <p className="mt-1 text-xs opacity-80">
+                    {actionFeedback.tone === "success"
+                      ? "La acción se aplicó y el tablero se actualizará automáticamente."
+                      : actionFeedback.tone === "warning"
+                        ? "Corrige la condición indicada y vuelve a intentarlo."
+                        : actionFeedback.tone === "error"
+                          ? "Revisa el detalle del error o prueba nuevamente."
+                          : "Estado informativo."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActionFeedback(null)}
+                  className="rounded-full px-2 py-1 text-xs font-semibold opacity-70 transition hover:opacity-100"
+                  aria-label="Cerrar alerta"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <input
+        ref={designUploadInputRef}
+        type="file"
+        accept="image/*,.pdf"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          const taskId = pendingUploadTaskId;
+          event.currentTarget.value = "";
+          if (!file || !taskId) return;
+          const task = tasks.find((item) => item.id === taskId);
+          if (!task) return;
+          void handleDesignUpload(task, file);
+        }}
+      />
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-secondary">Operaciones y taller</p>
+        <h1 className="mt-2 text-2xl font-semibold text-gray-900">Control de tareas y citas</h1>
+        <p className="mt-2 text-sm text-secondary">Flujo: Citas → Diseño → Cotización formal → Seguimiento.</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={selectedEmployeeFilter}
+          onChange={(e) => setSelectedEmployeeFilter(e.target.value)}
+          className="rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm font-medium text-secondary shadow-sm outline-none"
+        >
+          <option value="Todos">Ver todo</option>
+          {employees.map((emp) => (
+            <option key={emp._id} value={emp._id}>
+              {emp.nombre}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={openTeamModal}
+          className="flex items-center gap-2 rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm font-semibold text-secondary shadow-sm transition hover:bg-primary/5"
+        >
+          <UserPlus className="h-4 w-4" />
+          Integrantes
+        </button>
+        <button
+          type="button"
+          onClick={openAssignModal}
+          className="rounded-2xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+        >
+          Asignar pendiente
+        </button>
       </div>
 
       {isLoading ? (
@@ -665,6 +978,11 @@ export default function OperacionesPage() {
                           <p className="line-clamp-2 break-words text-base font-semibold leading-6 text-gray-900" title={task.project}>
                             {task.project}
                           </p>
+                          {task.stage === "disenos" || task.stage === "cotizacion" ? (
+                            <p className="mt-1 line-clamp-1 break-words text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B1C1C]">
+                              Codigo: {buildTrackingCodeFromTask(task)}
+                            </p>
+                          ) : null}
                           {task.location || task.mapsUrl ? (
                             <p className="mt-1 line-clamp-1 break-words text-xs leading-4 text-secondary">
                               {task.location}
@@ -693,9 +1011,10 @@ export default function OperacionesPage() {
                                   void handleTaskAction(task, "start-cita");
                                 }}
                                 className="inline-flex items-center rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-white"
-                                disabled={isSaving}
+                                disabled={isSaving || (task.assignedTo?.length ?? 0) === 0}
+                                title={(task.assignedTo?.length ?? 0) === 0 ? "Asigna al menos una persona para iniciar la cita" : undefined}
                               >
-                                Iniciar cita
+                                {(task.assignedTo?.length ?? 0) === 0 ? "Asigna responsable" : "Iniciar cita"}
                               </button>
                             ) : null}
                             {task.stage === "citas" && task.citaStarted && !task.citaFinished ? (
@@ -718,40 +1037,45 @@ export default function OperacionesPage() {
                               </span>
                             ) : null}
 
-                            {task.stage === "disenos" && !task.designApprovedByAdmin ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleTaskAction(task, "approve-design-admin");
-                                }}
-                                className="inline-flex items-center rounded-full bg-violet-600 px-3 py-1 text-[11px] font-semibold text-white"
-                                disabled={isSaving}
-                              >
-                                Aprobar admin
-                              </button>
+                            {task.stage === "disenos" ? (
+                              (task.files?.length ?? 0) === 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    requestDesignUpload(task.id);
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-[11px] font-semibold text-violet-700"
+                                  disabled={isSaving || uploadingTaskId === task.id}
+                                >
+                                  <Upload className="h-3.5 w-3.5" />
+                                  {uploadingTaskId === task.id ? "Subiendo..." : "Subir diseño"}
+                                </button>
+                              ) : !(task.designApprovedByAdmin ?? task.visita?.aprobadaPorAdmin ?? false) ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleTaskAction(task, "approve-design-admin");
+                                  }}
+                                  className="inline-flex items-center rounded-full bg-violet-600 px-3 py-1 text-[11px] font-semibold text-white"
+                                  disabled={isSaving}
+                                >
+                                  Aprobar admin
+                                </button>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  Aprobado
+                                </span>
+                              )
                             ) : null}
-                            {task.stage === "disenos" && task.designApprovedByAdmin && !task.designApprovedByClient ? (
+                            {task.stage === "disenos" && (task.designApprovedByAdmin ?? task.visita?.aprobadaPorAdmin ?? false) && !(task.designApprovedByClient ?? task.visita?.aprobadaPorCliente ?? false) ? (
                               <button
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  setVisitModalTaskId(task.id);
-                                }}
-                                className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${
-                                  task.visitScheduledAt ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                                }`}
-                                disabled={isSaving}
-                              >
-                                {task.visitScheduledAt ? `Visita: ${formatDateTime(task.visitScheduledAt)}` : "Falta agendar visita"}
-                              </button>
-                            ) : null}
-                            {task.stage === "disenos" && task.designApprovedByAdmin && !task.designApprovedByClient ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleTaskAction(task, "approve-design-client");
+                                  setFinalDesignUploadTaskId(task.id);
                                 }}
                                 className="inline-flex items-center rounded-full bg-violet-700 px-3 py-1 text-[11px] font-semibold text-white"
                                 disabled={isSaving}
@@ -794,7 +1118,8 @@ export default function OperacionesPage() {
                                   void handleTaskAction(task, "pass-to-seguimiento");
                                 }}
                                 className="inline-flex items-center rounded-full bg-emerald-700 px-3 py-1 text-[11px] font-semibold text-white"
-                                disabled={isSaving}
+                                disabled={isSaving || !task.citaFinished}
+                                title={!task.citaFinished ? "La cita debe estar completada para pasar a seguimiento" : undefined}
                               >
                                 Pasar a seguimiento
                               </button>
@@ -862,11 +1187,70 @@ export default function OperacionesPage() {
         </motion.section>
       )}
 
-      {actionFeedback ? (
-        <div className="rounded-2xl border border-primary/20 bg-white/90 px-4 py-3 text-sm text-primary shadow-sm">
-          {actionFeedback}
-        </div>
-      ) : null}
+      <AnimatePresence>
+        {actionFeedback ? (
+          <motion.div
+            key={actionFeedback.message}
+            initial={{ opacity: 0, y: -12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.98 }}
+            transition={{ duration: 0.22 }}
+            className="fixed left-4 right-4 top-4 z-50 mx-auto w-[min(92vw,42rem)]"
+          >
+            <div
+              className={`overflow-hidden rounded-3xl border px-4 py-3 shadow-2xl backdrop-blur-md ${
+                actionFeedback.tone === "success"
+                  ? "border-emerald-200 bg-emerald-50/95 text-emerald-900"
+                  : actionFeedback.tone === "warning"
+                    ? "border-amber-200 bg-amber-50/95 text-amber-900"
+                    : actionFeedback.tone === "error"
+                      ? "border-rose-200 bg-rose-50/95 text-rose-900"
+                      : "border-sky-200 bg-sky-50/95 text-sky-900"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={`mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl ${
+                    actionFeedback.tone === "success"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : actionFeedback.tone === "warning"
+                        ? "bg-amber-100 text-amber-700"
+                        : actionFeedback.tone === "error"
+                          ? "bg-rose-100 text-rose-700"
+                          : "bg-sky-100 text-sky-700"
+                  }`}
+                >
+                  {actionFeedback.tone === "success" ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold leading-5">{actionFeedback.message}</p>
+                  <p className="mt-1 text-xs opacity-80">
+                    {actionFeedback.tone === "success"
+                      ? "La acción se aplicó y el tablero se actualizará automáticamente."
+                      : actionFeedback.tone === "warning"
+                        ? "Corrige la condición indicada y vuelve a intentarlo."
+                        : actionFeedback.tone === "error"
+                          ? "Revisa el detalle del error o prueba nuevamente."
+                          : "Estado informativo."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActionFeedback(null)}
+                  className="rounded-full px-2 py-1 text-xs font-semibold opacity-70 transition hover:opacity-100"
+                  aria-label="Cerrar alerta"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
@@ -924,6 +1308,17 @@ export default function OperacionesPage() {
         onConfirm={async (isoDateTime) => {
           if (!visitModalTask) return;
           await handleSaveVisitForTask(visitModalTask, isoDateTime);
+        }}
+      />
+
+      <FinalDesignUploadModal
+        isOpen={Boolean(finalDesignUploadTaskId)}
+        taskLabel={finalDesignUploadTask?.project ?? "Proyecto"}
+        isSaving={isSaving}
+        onClose={() => setFinalDesignUploadTaskId(null)}
+        onConfirm={async (file) => {
+          if (!finalDesignUploadTask) return;
+          await handleFinalDesignUpload(finalDesignUploadTask, file);
         }}
       />
 
@@ -1168,6 +1563,11 @@ export default function OperacionesPage() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.3em] text-secondary">Detalle de tarea</p>
                   <h3 className="mt-1 text-xl font-semibold text-gray-900">{activeTask.project}</h3>
+                  {activeTask.stage === "disenos" ? (
+                    <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B1C1C]">
+                      Codigo de seguimiento: {buildTrackingCodeFromTask(activeTask)}
+                    </p>
+                  ) : null}
                   <p className="mt-0.5 text-sm text-secondary">{activeTask.title}</p>
                 </div>
                 <button

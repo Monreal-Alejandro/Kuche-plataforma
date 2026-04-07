@@ -104,6 +104,20 @@ const buildItemKey = (item: Pick<CatalogItem, "kind" | "_id">) => `${item.kind}:
 const inferKindFromCategory = (categoria: string): "material" | "herraje" =>
   categoria.trim().toLowerCase() === "herrajes" ? "herraje" : "material";
 
+/** Todas las categorías disponibles en el cotizador y catálogo */
+const ALL_CATALOG_CATEGORIES = [
+  "CUBIERTA",
+  "ESTRUCTURA",
+  "VISTAS",
+  "ESPESOR",
+  "CAJONES Y PUERTAS",
+  "ACCESORIOS DE MÓDULO",
+  "EXTRAÍBLES Y PUERTAS ABATIBLES",
+  "INSUMOS DE PRODUCCIÓN",
+  "EXTRAS",
+  "Herrajes",
+];
+
 const currencyFormatter = new Intl.NumberFormat("es-MX", {
   style: "currency",
   currency: "MXN",
@@ -687,7 +701,7 @@ export default function PreciosPage() {
                   className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
                 >
                   <option value="">Selecciona categoría</option>
-                  {categories.filter((category) => category !== "Todas").map((category) => (
+                  {ALL_CATALOG_CATEGORIES.map((category) => (
                     <option key={category} value={category}>
                       {category}
                     </option>

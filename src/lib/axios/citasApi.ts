@@ -10,6 +10,8 @@ export interface ClienteCita {
   nombre: string;
   correo: string;
   telefono: string;
+  clienteId?: string;
+  clienteRef?: string;
 }
 
 export interface EspecificacionesInicio {
@@ -24,6 +26,8 @@ export interface CitaCreate {
   nombreCliente: string;
   correoCliente: string;
   telefonoCliente: string;
+  clienteId?: string;
+  clienteRef?: string;
   ubicacion?: string;
   diseno?: string;
   informacionAdicional?: string;
@@ -37,6 +41,9 @@ export interface Cita {
   nombreCliente: string;
   correoCliente: string;
   telefonoCliente: string;
+  clienteId?: string;
+  clienteRef?: string;
+  cliente?: ClienteCita;
   ubicacion?: string;
   diseno?: {
     _id: string;
