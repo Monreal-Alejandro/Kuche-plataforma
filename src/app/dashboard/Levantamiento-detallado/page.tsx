@@ -55,6 +55,7 @@ import {
 } from "@/lib/pdf-preliminar";
 import { createPreliminarSeguimientoPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
 import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
+import { emptyWhenZeroIntString, emptyWhenZeroNumericString } from "@/lib/numeric-input-empty-zero";
 import ApplianceTypeImage from "@/components/levantamiento/ApplianceTypeImage";
 import LightingTypeImage from "@/components/levantamiento/LightingTypeImage";
 import { WallTypeIcon } from "@/components/levantamiento/WallTypeIcons";
@@ -73,6 +74,7 @@ import {
   type LevantamientoConfig,
   type MaterialGama,
 } from "@/lib/config-levantamiento";
+import { DashboardBackButton } from "@/components/dashboard/DashboardBackButton";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-MX", {
@@ -217,7 +219,7 @@ type MaterialGridProps = {
   /** Promedios $/m por gama (desde configuración de levantamiento). */
   tierPriceByTier: Record<MaterialOption["tier"], number>;
 } & (
-  | { multiSelect?: false; selectedId: string; onSelect: (id: string) => void }
+  | { multiSelect?: false; selectedId: string | null; onSelect: (id: string) => void }
   | { multiSelect: true; selectedIds: string[]; onToggle: (id: string) => void }
 );
 
@@ -256,7 +258,9 @@ const MaterialGrid = ({
       </div>
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         {paginated.map((option) => {
-          const isActive = isMulti ? rest.selectedIds.includes(option.id) : option.id === rest.selectedId;
+          const isActive = isMulti
+            ? rest.selectedIds.includes(option.id)
+            : rest.selectedId !== null && option.id === rest.selectedId;
           const imageSrc = resolveMaterialImage(option.name, category, option.image);
           const pricePerM = tierPriceByTier[option.tier];
           const optionPrice = Math.max(0, largoLineal * pricePerM);
@@ -747,9 +751,9 @@ function predominantShowroomTier(votes: ShowroomMaterialTier[]): ShowroomMateria
  * Frentes: moda entre los seleccionados; luego moda entre las tres familias.
  */
 function autoScenarioFromShowroom(
-  cubiertaId: string,
+  cubiertaId: string | null,
   frenteIds: string[],
-  herrajeId: string,
+  herrajeId: string | null,
 ): AutoScenarioId {
   const tierC =
     materialCatalog.cubiertas.find((item) => item.id === cubiertaId)?.tier ?? "Estandar";
@@ -760,7 +764,8 @@ function autoScenarioFromShowroom(
           (id) => materialCatalog.frentes.find((item) => item.id === id)?.tier ?? "Estandar",
         );
   const tierF = tiersF.length === 0 ? "Estandar" : predominantShowroomTier(tiersF);
-  const tierH = materialCatalog.herrajes.find((item) => item.id === herrajeId)?.tier ?? "Estandar";
+  const tierH =
+    materialCatalog.herrajes.find((item) => item.id === herrajeId)?.tier ?? "Estandar";
   const winner = predominantShowroomTier([tierC, tierF, tierH]);
   return tierToScenario(winner);
 }
@@ -776,19 +781,15 @@ export default function CotizadorPreliminarPage() {
   const [deliveryWeeksMax, setDeliveryWeeksMax] = useState("");
   const [largo, setLargo] = useState("");
   const [alto, setAlto] = useState("");
-  /** Sección D · showroom: materiales y escenario de inversión (derivado + ajuste manual opcional). */
-  const [selectedCubierta, setSelectedCubierta] = useState(materialCatalog.cubiertas[0].id);
-  const [selectedFrenteIds, setSelectedFrenteIds] = useState<string[]>(() => [materialCatalog.frentes[0].id]);
-  const [selectedHerraje, setSelectedHerraje] = useState(materialCatalog.herrajes[0].id);
+  /** Sección D · showroom: sin selección por defecto; el usuario elige cubierta, frente(s) y herraje. */
+  const [selectedCubierta, setSelectedCubierta] = useState<string | null>(null);
+  const [selectedFrenteIds, setSelectedFrenteIds] = useState<string[]>([]);
+  const [selectedHerraje, setSelectedHerraje] = useState<string | null>(null);
   const [levantamientoConfig, setLevantamientoConfig] = useState<LevantamientoConfig>(() =>
     createDefaultLevantamientoConfig(),
   );
   const [selectedScenario, setSelectedScenario] = useState<AutoScenarioId>(() =>
-    autoScenarioFromShowroom(
-      materialCatalog.cubiertas[0].id,
-      [materialCatalog.frentes[0].id],
-      materialCatalog.herrajes[0].id,
-    ),
+    autoScenarioFromShowroom(null, [], null),
   );
   const [materialSearch, setMaterialSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<"Todos" | "Estandar" | "Tendencia" | "Premium">(
@@ -960,13 +961,9 @@ export default function CotizadorPreliminarPage() {
   };
 
   const toggleFrente = useCallback((id: string) => {
-    setSelectedFrenteIds((prev) => {
-      if (prev.includes(id)) {
-        if (prev.length <= 1) return prev;
-        return prev.filter((x) => x !== id);
-      }
-      return [...prev, id];
-    });
+    setSelectedFrenteIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
   }, []);
 
   const patchOtro = (
@@ -1331,9 +1328,9 @@ export default function CotizadorPreliminarPage() {
     setDeliveryWeeksMax("");
     setLargo("");
     setAlto("");
-    setSelectedCubierta(materialCatalog.cubiertas[0].id);
-    setSelectedFrenteIds([materialCatalog.frentes[0].id]);
-    setSelectedHerraje(materialCatalog.herrajes[0].id);
+    setSelectedCubierta(null);
+    setSelectedFrenteIds([]);
+    setSelectedHerraje(null);
     setLevantamiento(defaultLevantamientoDetalle());
     setCurrentWallIndex(0);
     setWallSearch("");
@@ -1358,8 +1355,11 @@ export default function CotizadorPreliminarPage() {
       const tierF = (f?.tier ?? "Estandar") as MaterialGama;
       return acc + getAveragePriceByTier(mats, "frente", tierF);
     }, 0);
-    const avgCubierta = getAveragePriceByTier(mats, "cubierta", tierC);
-    const avgHerraje = getAveragePriceByTier(mats, "herraje", tierH);
+    /** Sin selección en showroom → no se imputan promedios de gama (evita “materiales fantasma”). */
+    const avgCubierta =
+      selectedCubierta !== null ? getAveragePriceByTier(mats, "cubierta", tierC) : 0;
+    const avgHerraje =
+      selectedHerraje !== null ? getAveragePriceByTier(mats, "herraje", tierH) : 0;
     const costoMateriales = largoValue * (avgCubierta + sumPrecioFrentePorM + avgHerraje);
     const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
     const precioEscenario =
@@ -1447,9 +1447,11 @@ export default function CotizadorPreliminarPage() {
       const tierF = (f?.tier ?? "Estandar") as MaterialGama;
       return acc + getAveragePriceByTier(mats, "frente", tierF);
     }, 0);
-    const costoMateriales =
-      largoValue *
-      (getAveragePriceByTier(mats, "cubierta", tierC) + sumPrecioFrentePorM + getAveragePriceByTier(mats, "herraje", tierH));
+    const avgCubierta =
+      selectedCubierta !== null ? getAveragePriceByTier(mats, "cubierta", tierC) : 0;
+    const avgHerraje =
+      selectedHerraje !== null ? getAveragePriceByTier(mats, "herraje", tierH) : 0;
+    const costoMateriales = largoValue * (avgCubierta + sumPrecioFrentePorM + avgHerraje);
     const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
     const ivaP = levantamientoConfig.ivaPercent;
     const m = levantamientoConfig.marginPercent;
@@ -1642,6 +1644,7 @@ export default function CotizadorPreliminarPage() {
       className={`min-h-screen bg-background px-4 py-10 text-primary ${activeCitaTask ? "pb-36 sm:pb-32" : "pb-10"}`}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+        <DashboardBackButton href="/admin" preferCitaReturnUrl />
         <header>
           <p className="text-xs uppercase tracking-[0.3em] text-secondary">Levantamiento</p>
           <h1 className="mt-2 text-3xl font-semibold">Levantamiento Detallado</h1>
@@ -1649,20 +1652,6 @@ export default function CotizadorPreliminarPage() {
             Estimación rápida para prospectos. No sustituye una cotización formal.
           </p>
         </header>
-
-        <div className="rounded-2xl border-2 border-accent bg-white p-4 shadow-md ring-1 ring-accent/20">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm font-semibold text-primary">
-              ¿Precios del rango, escenarios o materiales por gama? Configúralos aquí (admin).
-            </p>
-            <Link
-              href="/dashboard/configuracion-levantamiento"
-              className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 sm:w-auto"
-            >
-              Abrir configuración de levantamiento
-            </Link>
-          </div>
-        </div>
 
         {activeCitaTask ? (
           <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4">
@@ -1815,14 +1804,25 @@ export default function CotizadorPreliminarPage() {
                       <input
                         id="levantamiento-largo"
                         ref={largoInputRef}
-                        value={largo}
+                        value={emptyWhenZeroNumericString(largo)}
                         onChange={(event) => {
-                          const nextValue = event.target.value;
+                          const val = event.target.value;
                           lastEditedFieldRef.current = "largo";
                           caretPositionsRef.current.largo = event.target.selectionStart ?? null;
-                          setLargo(nextValue);
+                          if (val === "") {
+                            setLargo("");
+                            return;
+                          }
+                          const parsed = Number.parseFloat(val);
+                          if (!Number.isNaN(parsed)) {
+                            setLargo(val);
+                          }
                         }}
                         inputMode="decimal"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        placeholder="0"
                         className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                       />
                     </div>
@@ -1836,14 +1836,25 @@ export default function CotizadorPreliminarPage() {
                       <input
                         id="levantamiento-alto"
                         ref={altoInputRef}
-                        value={alto}
+                        value={emptyWhenZeroNumericString(alto)}
                         onChange={(event) => {
-                          const nextValue = event.target.value;
+                          const val = event.target.value;
                           lastEditedFieldRef.current = "alto";
                           caretPositionsRef.current.alto = event.target.selectionStart ?? null;
-                          setAlto(nextValue);
+                          if (val === "") {
+                            setAlto("");
+                            return;
+                          }
+                          const parsed = Number.parseFloat(val);
+                          if (!Number.isNaN(parsed)) {
+                            setAlto(val);
+                          }
                         }}
                         inputMode="decimal"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        placeholder="0"
                         className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                       />
                     </div>
@@ -1865,17 +1876,24 @@ export default function CotizadorPreliminarPage() {
                       <input
                         id="levantamiento-semanas-min"
                         ref={deliveryWeeksMinInputRef}
-                        value={deliveryWeeksMin}
+                        value={emptyWhenZeroIntString(deliveryWeeksMin)}
                         onChange={(event) => {
-                          const nextValue = event.target.value;
+                          const val = event.target.value;
                           lastEditedFieldRef.current = "deliveryWeeksMin";
                           caretPositionsRef.current.deliveryWeeksMin = event.target.selectionStart ?? null;
-                          setDeliveryWeeksMin(nextValue);
+                          if (val === "") {
+                            setDeliveryWeeksMin("");
+                            return;
+                          }
+                          const parsed = Number.parseInt(val, 10);
+                          if (!Number.isNaN(parsed)) {
+                            setDeliveryWeeksMin(String(parsed));
+                          }
                         }}
                         type="number"
                         min={1}
                         step={1}
-                        placeholder="ej. 8"
+                        placeholder="0"
                         className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                       />
                     </div>
@@ -1889,17 +1907,24 @@ export default function CotizadorPreliminarPage() {
                       <input
                         id="levantamiento-semanas-max"
                         ref={deliveryWeeksMaxInputRef}
-                        value={deliveryWeeksMax}
+                        value={emptyWhenZeroIntString(deliveryWeeksMax)}
                         onChange={(event) => {
-                          const nextValue = event.target.value;
+                          const val = event.target.value;
                           lastEditedFieldRef.current = "deliveryWeeksMax";
                           caretPositionsRef.current.deliveryWeeksMax = event.target.selectionStart ?? null;
-                          setDeliveryWeeksMax(nextValue);
+                          if (val === "") {
+                            setDeliveryWeeksMax("");
+                            return;
+                          }
+                          const parsed = Number.parseInt(val, 10);
+                          if (!Number.isNaN(parsed)) {
+                            setDeliveryWeeksMax(String(parsed));
+                          }
                         }}
                         type="number"
                         min={1}
                         step={1}
-                        placeholder="ej. 9"
+                        placeholder="0"
                         className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                       />
                     </div>

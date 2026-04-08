@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RotateCcw, Save, Search, Trash2, X } from "lucide-react";
 import { DashboardBackButton } from "@/components/dashboard/DashboardBackButton";
+import { NumericInputEmptyZero } from "@/components/NumericInputEmptyZero";
 import {
   createDefaultLevantamientoConfig,
   getLevantamientoConfig,
@@ -18,8 +19,80 @@ const CATEGORIAS: MaterialCategoria[] = ["cubierta", "frente", "herraje"];
 const GAMAS: MaterialGama[] = ["Estandar", "Tendencia", "Premium"];
 type FiltroCategoria = "todas" | MaterialCategoria;
 
+/** Fracción 0–0.5 → puntos porcentuales para mostrar (p. ej. 0.16 → 16). */
+function fractionToPercentUi(fraction: number): number {
+  return Math.round(Math.max(0, fraction) * 10000) / 100;
+}
+
 function pctLabel(p: number) {
-  return `${Math.round(p * 1000) / 10}%`;
+  return `${fractionToPercentUi(p)}%`;
+}
+
+/** Valor almacenado (0–0.5) → texto del input; 0 = vacío + placeholder. */
+function fractionToDraftString(f: number): string {
+  if (f === 0) return "";
+  return String(Math.round(Math.max(0, f) * 10000) / 10000);
+}
+
+/**
+ * Acepta fracción decimal (0.08) o número “humano” como % si es > 0.5 y ≤ 50 (8 → 0.08, 16 → 0.16).
+ */
+function parseFlexibleFraction(raw: string, maxFraction = 0.5): number {
+  const t = raw.trim().replace(",", ".");
+  if (t === "") return 0;
+  const p = Number.parseFloat(t);
+  if (Number.isNaN(p)) return 0;
+  if (p > maxFraction && p <= maxFraction * 100) {
+    return Math.min(maxFraction, Math.max(0, p / 100));
+  }
+  return Math.min(maxFraction, Math.max(0, p));
+}
+
+type DecimalFractionInputProps = {
+  id?: string;
+  className?: string;
+  value: number;
+  onCommit: (fraction: number) => void;
+  placeholder?: string;
+  "aria-label"?: string;
+};
+
+function DecimalFractionInput({
+  id,
+  className,
+  value,
+  onCommit,
+  placeholder = "0",
+  "aria-label": ariaLabel,
+}: DecimalFractionInputProps) {
+  const [draft, setDraft] = useState(() => fractionToDraftString(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(fractionToDraftString(value));
+    }
+  }, [value, focused]);
+
+  return (
+    <input
+      id={id}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      placeholder={placeholder}
+      className={className}
+      aria-label={ariaLabel}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        const next = parseFlexibleFraction(draft);
+        onCommit(next);
+      }}
+    />
+  );
 }
 
 export default function ConfiguracionLevantamientoPage() {
@@ -30,7 +103,7 @@ export default function ConfiguracionLevantamientoPage() {
     nombre: "",
     categoria: "cubierta" as MaterialCategoria,
     gama: "Estandar" as MaterialGama,
-    precioPorMetro: "",
+    precioPorMetro: 0,
   });
   const [materialSearch, setMaterialSearch] = useState("");
   const [filterCategoria, setFilterCategoria] = useState<FiltroCategoria>("todas");
@@ -102,7 +175,7 @@ export default function ConfiguracionLevantamientoPage() {
   const addMaterial = () => {
     const nombre = newMat.nombre.trim();
     if (!nombre) return;
-    const precio = Math.max(0, Number.parseFloat(newMat.precioPorMetro.replace(",", ".")) || 0);
+    const precio = Math.max(0, newMat.precioPorMetro);
     const id = `custom-${Date.now()}`;
     setConfig((prev) => ({
       ...prev,
@@ -117,7 +190,7 @@ export default function ConfiguracionLevantamientoPage() {
         },
       ],
     }));
-    setNewMat((n) => ({ ...n, nombre: "", precioPorMetro: "" }));
+    setNewMat((n) => ({ ...n, nombre: "", precioPorMetro: 0 }));
   };
 
   if (!mounted) {
@@ -190,18 +263,20 @@ export default function ConfiguracionLevantamientoPage() {
                 ).map(([key, label]) => (
                   <label key={key} className="block">
                     <span className="text-xs font-medium text-secondary">{label}</span>
-                    <input
+                    <NumericInputEmptyZero
                       type="number"
                       min={0}
                       step={100}
+                      parseAs="float"
+                      placeholder="0"
                       className="mt-1 w-full rounded-xl border border-primary/15 bg-white px-3 py-2 text-sm font-semibold text-primary outline-none ring-primary/20 focus:ring-2"
                       value={config.scenarioPrices[key]}
-                      onChange={(e) =>
+                      onValueChange={(n) =>
                         setConfig((c) => ({
                           ...c,
                           scenarioPrices: {
                             ...c.scenarioPrices,
-                            [key]: Math.max(0, Number.parseFloat(e.target.value) || 0),
+                            [key]: Math.max(0, n),
                           },
                         }))
                       }
@@ -218,41 +293,39 @@ export default function ConfiguracionLevantamientoPage() {
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="text-xs font-medium text-secondary">IVA ({pctLabel(config.ivaPercent)})</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={0.5}
-                    step={0.01}
+                  <DecimalFractionInput
                     className="mt-1 w-full rounded-xl border border-primary/15 bg-white px-3 py-2 text-sm font-semibold text-primary outline-none ring-primary/20 focus:ring-2"
                     value={config.ivaPercent}
-                    onChange={(e) =>
+                    onCommit={(n) =>
                       setConfig((c) => ({
                         ...c,
-                        ivaPercent: Math.min(0.5, Math.max(0, Number.parseFloat(e.target.value) || 0)),
+                        ivaPercent: n,
                       }))
                     }
+                    placeholder="0"
                   />
-                  <span className="mt-1 block text-[11px] text-secondary">Decimal (ej. 0.16 = 16%)</span>
+                  <span className="mt-1 block text-[11px] text-secondary">
+                    Decimal 0–0.5 (ej. 0.16) o entero como % (ej. 16 = 16%)
+                  </span>
                 </label>
                 <label className="block">
                   <span className="text-xs font-medium text-secondary">
                     Margen rango ± ({pctLabel(config.marginPercent)} cada lado)
                   </span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={0.5}
-                    step={0.01}
+                  <DecimalFractionInput
                     className="mt-1 w-full rounded-xl border border-primary/15 bg-white px-3 py-2 text-sm font-semibold text-primary outline-none ring-primary/20 focus:ring-2"
                     value={config.marginPercent}
-                    onChange={(e) =>
+                    onCommit={(n) =>
                       setConfig((c) => ({
                         ...c,
-                        marginPercent: Math.min(0.5, Math.max(0, Number.parseFloat(e.target.value) || 0)),
+                        marginPercent: n,
                       }))
                     }
+                    placeholder="0"
                   />
-                  <span className="mt-1 block text-[11px] text-secondary">Decimal (ej. 0.08 = ±8%)</span>
+                  <span className="mt-1 block text-[11px] text-secondary">
+                    Decimal 0–0.5 (ej. 0.08, 0.10) o entero como % (ej. 8 = ±8%)
+                  </span>
                 </label>
               </div>
             </div>
@@ -354,15 +427,17 @@ export default function ConfiguracionLevantamientoPage() {
                         </select>
                       </td>
                       <td className="px-3 py-2">
-                        <input
+                        <NumericInputEmptyZero
                           type="number"
                           min={0}
                           step={50}
+                          parseAs="float"
+                          placeholder="0"
                           className="w-28 rounded-lg border border-primary/10 bg-white px-2 py-1.5 text-sm font-semibold tabular-nums outline-none focus:ring-2 focus:ring-primary/20"
                           value={m.precioPorMetro}
-                          onChange={(e) =>
+                          onValueChange={(n) =>
                             updateMaterial(m.id, {
-                              precioPorMetro: Math.max(0, Number.parseFloat(e.target.value) || 0),
+                              precioPorMetro: Math.max(0, n),
                             })
                           }
                         />
@@ -425,12 +500,14 @@ export default function ConfiguracionLevantamientoPage() {
               </label>
               <label>
                 <span className="text-xs font-medium text-secondary">$/m</span>
-                <input
+                <NumericInputEmptyZero
                   type="number"
                   min={0}
+                  parseAs="float"
+                  placeholder="0"
                   className="mt-1 w-28 rounded-xl border border-primary/15 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
                   value={newMat.precioPorMetro}
-                  onChange={(e) => setNewMat((n) => ({ ...n, precioPorMetro: e.target.value }))}
+                  onValueChange={(n) => setNewMat((prev) => ({ ...prev, precioPorMetro: n }))}
                 />
               </label>
               <button

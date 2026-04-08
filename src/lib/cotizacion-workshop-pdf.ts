@@ -137,12 +137,12 @@ function drawWorkshopInstitutionalHeader(
 }
 
 /**
- * Genera el PDF de «Hoja de taller» (alineado a la estética institucional de cotización formal).
+ * Genera el PDF de «Hoja de taller» como Blob (útil para `URL.createObjectURL` y evitar pestañas en blanco con data URLs).
  */
-export async function buildWorkshopPdfDataUrl(
+export async function buildWorkshopPdfBlob(
   input: WorkshopPdfBuildInput,
   logoDataUrl: string | null,
-): Promise<string> {
+): Promise<Blob> {
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -307,7 +307,17 @@ export async function buildWorkshopPdfDataUrl(
   doc.setTextColor(...TEXT_MID);
   doc.text("Küche · Hoja de taller · Documento interno de fabricación", MARGIN_X, footerY + 6);
 
-  const blob = doc.output("blob");
+  return doc.output("blob");
+}
+
+/**
+ * Genera el PDF de «Hoja de taller» como data URL (p. ej. guardar en IndexedDB).
+ */
+export async function buildWorkshopPdfDataUrl(
+  input: WorkshopPdfBuildInput,
+  logoDataUrl: string | null,
+): Promise<string> {
+  const blob = await buildWorkshopPdfBlob(input, logoDataUrl);
   return new Promise<string>((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(r.result as string);

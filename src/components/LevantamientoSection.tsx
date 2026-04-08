@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, Ruler, Sparkles } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { emptyWhenZeroNumericString } from "@/lib/numeric-input-empty-zero";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 const stepTitles = ["Geometría", "Necesidades", "Escenarios"];
@@ -132,10 +133,21 @@ export default function LevantamientoSection() {
                   </p>
                   <div className="mt-8 flex items-center justify-center rounded-3xl border border-primary/10 bg-white p-10">
                     <input
-                      value={metros}
-                      onChange={(event) => setMetros(event.target.value)}
+                      value={emptyWhenZeroNumericString(metros)}
+                      onChange={(event) => {
+                        const val = event.target.value;
+                        if (val === "") {
+                          setMetros("");
+                          return;
+                        }
+                        const parsed = Number.parseFloat(val);
+                        if (!Number.isNaN(parsed)) {
+                          setMetros(val);
+                        }
+                      }}
                       type="number"
                       min="0"
+                      placeholder="0"
                       className="w-full max-w-sm bg-transparent text-center text-5xl font-semibold text-primary outline-none"
                     />
                     <span className="ml-4 text-xl text-secondary">m</span>

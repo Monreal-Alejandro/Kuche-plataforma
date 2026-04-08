@@ -1,6 +1,7 @@
- "use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import Captcha from "@/components/Captcha";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -175,17 +176,17 @@ export default function BookingSection() {
                 type="button"
                 className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-sm text-secondary"
                 aria-label="Mes anterior"
-                  onClick={() =>
-                    setCurrentMonth(
-                      new Date(
-                        currentMonth.getFullYear(),
-                        currentMonth.getMonth() - 1,
-                        1,
-                      ),
-                    )
-                  }
+                onClick={() =>
+                  setCurrentMonth(
+                    new Date(
+                      currentMonth.getFullYear(),
+                      currentMonth.getMonth() - 1,
+                      1,
+                    ),
+                  )
+                }
               >
-                ⬹
+                <ChevronLeft className="h-5 w-5 shrink-0" aria-hidden />
               </button>
               <div className="text-sm font-semibold uppercase tracking-[0.25em] text-primary">
                 {monthLabel}
@@ -194,17 +195,17 @@ export default function BookingSection() {
                 type="button"
                 className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-sm text-secondary"
                 aria-label="Mes siguiente"
-                  onClick={() =>
-                    setCurrentMonth(
-                      new Date(
-                        currentMonth.getFullYear(),
-                        currentMonth.getMonth() + 1,
-                        1,
-                      ),
-                    )
-                  }
+                onClick={() =>
+                  setCurrentMonth(
+                    new Date(
+                      currentMonth.getFullYear(),
+                      currentMonth.getMonth() + 1,
+                      1,
+                    ),
+                  )
+                }
               >
-                ⬺
+                <ChevronRight className="h-5 w-5 shrink-0" aria-hidden />
               </button>
             </div>
 

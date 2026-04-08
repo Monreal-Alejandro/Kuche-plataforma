@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 type ExperienceStep = {
   id: string;
@@ -214,7 +215,7 @@ export default function Experience3D() {
               className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full border border-white/50 bg-white/40 p-4 text-secondary shadow-xl backdrop-blur-xl transition hover:bg-white/70 disabled:opacity-40 md:left-10"
               aria-label="Paso anterior"
             >
-              <span className="text-2xl">⬹</span>
+              <ChevronLeft className="h-6 w-6 shrink-0" aria-hidden />
             </button>
             <button
               type="button"
@@ -228,7 +229,7 @@ export default function Experience3D() {
               className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full border border-white/50 bg-white/40 p-4 text-secondary shadow-xl backdrop-blur-xl transition hover:bg-white/70 disabled:opacity-40 md:right-10"
               aria-label="Paso siguiente"
             >
-              <span className="text-2xl">⬺</span>
+              <ChevronRight className="h-6 w-6 shrink-0" aria-hidden />
             </button>
           </div>
 

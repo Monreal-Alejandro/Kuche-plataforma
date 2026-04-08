@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Minus, Plus } from "lucide-react";
+import { Minus, Plus, Star } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -23,9 +23,15 @@ import {
   type KanbanTask,
   type CotizacionFormalData,
 } from "@/lib/kanban";
-import { buildWorkshopPdfDataUrl, type WorkshopPdfBuildInput } from "@/lib/cotizacion-workshop-pdf";
+import {
+  buildWorkshopPdfBlob,
+  buildWorkshopPdfDataUrl,
+  type WorkshopPdfBuildInput,
+} from "@/lib/cotizacion-workshop-pdf";
 import { createFormalWorkshopPdfKeys, saveFormalPdf } from "@/lib/formal-pdf-storage";
+import { NumericInputEmptyZero } from "@/components/NumericInputEmptyZero";
 import { formatDeliveryWeeksLabel, parseDeliveryWeeksRangeFromLabel } from "@/lib/delivery-weeks";
+import { emptyWhenZeroIntString, emptyWhenZeroNumericString } from "@/lib/numeric-input-empty-zero";
 import { generatePublicProjectCode } from "@/lib/project-code";
 import {
   formatSeguimientoDateLong,
@@ -276,6 +282,97 @@ function getDefaultThicknessItemId(): string {
   return cat?.items?.[0]?.id ?? "16";
 }
 
+const MATERIAL_QTY_HOLD_DELAY_MS = 300;
+const MATERIAL_QTY_HOLD_INTERVAL_MS = 80;
+
+type MaterialCatalogQtyControlProps = {
+  itemId: string;
+  qty: number;
+  /** Fija la cantidad (p. ej. teclado); misma firma que `handleQuantityChange`. */
+  onSetQty: (id: string, value: number) => void;
+  /** Suma o resta 1 usando actualización funcional (evita valores obsoletos al mantener presionado). */
+  onAdjustDelta: (id: string, delta: number) => void;
+};
+
+function MaterialCatalogQtyControl({ itemId, qty, onSetQty, onAdjustDelta }: MaterialCatalogQtyControlProps) {
+  const holdTimeoutRef = useRef<number | null>(null);
+  const holdIntervalRef = useRef<number | null>(null);
+
+  const clearHold = useCallback(() => {
+    if (holdTimeoutRef.current !== null) {
+      window.clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+    if (holdIntervalRef.current !== null) {
+      window.clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearHold(), [clearHold]);
+
+  const startHold = useCallback(
+    (delta: number) => {
+      clearHold();
+      onAdjustDelta(itemId, delta);
+      holdTimeoutRef.current = window.setTimeout(() => {
+        holdTimeoutRef.current = null;
+        holdIntervalRef.current = window.setInterval(() => {
+          onAdjustDelta(itemId, delta);
+        }, MATERIAL_QTY_HOLD_INTERVAL_MS);
+      }, MATERIAL_QTY_HOLD_DELAY_MS);
+    },
+    [itemId, onAdjustDelta, clearHold],
+  );
+
+  const stepperButtonClass =
+    "h-7 w-7 shrink-0 select-none rounded-full border border-primary/10 text-sm font-semibold text-secondary transition hover:border-primary/30 touch-manipulation";
+
+  return (
+    <div className="flex items-center justify-center gap-1.5">
+      <button
+        type="button"
+        className={stepperButtonClass}
+        aria-label="Disminuir cantidad (mantén presionado para repetir)"
+        onPointerDown={(event) => {
+          if (event.pointerType === "mouse" && event.button !== 0) return;
+          event.preventDefault();
+          startHold(-1);
+        }}
+        onPointerUp={clearHold}
+        onPointerLeave={clearHold}
+        onPointerCancel={clearHold}
+      >
+        -
+      </button>
+      <NumericInputEmptyZero
+        min={0}
+        inputMode="numeric"
+        placeholder="0"
+        value={qty}
+        onValueChange={(n) => onSetQty(itemId, n)}
+        onFocus={(event) => event.currentTarget.select()}
+        className="w-14 min-w-0 rounded-2xl border border-primary/10 bg-white py-1 text-center text-[11px] font-medium tabular-nums text-primary outline-none placeholder:text-secondary/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+      />
+      <button
+        type="button"
+        className={stepperButtonClass}
+        aria-label="Aumentar cantidad (mantén presionado para repetir)"
+        onPointerDown={(event) => {
+          if (event.pointerType === "mouse" && event.button !== 0) return;
+          event.preventDefault();
+          startHold(1);
+        }}
+        onPointerUp={clearHold}
+        onPointerLeave={clearHold}
+        onPointerCancel={clearHold}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 function FormalCotizacionBanner({ taskId }: { taskId: string }) {
   const [projectName, setProjectName] = useState("");
   useEffect(() => {
@@ -336,6 +433,8 @@ export default function CotizadorPage() {
   const [fletePct, setFletePct] = useState(2);
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  /** Ítems con cantidad > 0 marcados por el usuario para incluir como especificaciones dinámicas en el PDF al cliente. */
+  const [pdfHighlightedItems, setPdfHighlightedItems] = useState<Record<string, boolean>>({});
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const openMenuRef = useRef<HTMLDivElement | null>(null);
@@ -508,6 +607,13 @@ export default function CotizadorPage() {
     }));
   };
 
+  const adjustQuantityDelta = useCallback((id: string, delta: number) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [id]: Math.max(0, (prev[id] ?? 0) + delta),
+    }));
+  }, []);
+
   const activeCategory =
     catalogoKuche.find((category) => category.category === activeTab) ?? catalogoKuche[0];
 
@@ -667,9 +773,35 @@ export default function CotizadorPage() {
     );
   }, [activeCategory, catalogoKuche, normalizedSearch]);
 
+  const selectedItemsSummary = useMemo(() => {
+    const summary: Array<{
+      id: string;
+      label: string;
+      qty: number;
+      category: string;
+      isHighlighted: boolean;
+    }> = [];
+    catalogoKuche.forEach((cat) => {
+      cat.items.forEach((item) => {
+        const qty = quantities[item.id] ?? 0;
+        if (qty > 0) {
+          summary.push({
+            id: item.id,
+            label: item.label,
+            qty,
+            category: cat.category,
+            isHighlighted: Boolean(pdfHighlightedItems[item.id]),
+          });
+        }
+      });
+    });
+    return summary;
+  }, [catalogoKuche, quantities, pdfHighlightedItems]);
+
   const resetCatalogToDefault = () => {
     setCatalogoKuche(initialCatalogoKuche);
     setQuantities({});
+    setPdfHighlightedItems({});
     setExcelImportSummary(null);
     setExcelPreviewLines([]);
     setIsExcelViewActive(false);
@@ -984,6 +1116,12 @@ export default function CotizadorPage() {
       delete next[itemId];
       return next;
     });
+    setPdfHighlightedItems((prev) => {
+      if (!(itemId in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
   };
 
   const handleFinishCita = () => {
@@ -1249,9 +1387,10 @@ export default function CotizadorPage() {
     setLargo("");
     setAlto("");
     setQuantities({});
-    setMaterialBaseItemId(getDefaultMaterialBaseItemId);
-    setColorItemId(getDefaultColorItemId);
-    setThicknessItemId(getDefaultThicknessItemId);
+    setPdfHighlightedItems({});
+    setMaterialBaseItemId(getDefaultMaterialBaseItemId());
+    setColorItemId(getDefaultColorItemId());
+    setThicknessItemId(getDefaultThicknessItemId());
   };
 
   const getImageDataUrl = async (imageUrl: string) => {
@@ -1334,6 +1473,15 @@ export default function CotizadorPage() {
       }
     })();
 
+    type SelectedCatalogLine = {
+      id: string;
+      category: string;
+      label: string;
+      qty: number;
+      total: number;
+      unitType: string;
+    };
+
     const selectedLines = catalogoKuche.flatMap((category) =>
       category.items
         .map((item) => {
@@ -1342,27 +1490,24 @@ export default function CotizadorPage() {
             return null;
           }
           return {
+            id: item.id,
             category: category.category,
             label: item.label,
             qty,
             total: item.unitPrice * qty,
+            unitType: catalogItemUnitLabel(item),
           };
         })
-        .filter(
-          (line): line is { category: string; label: string; qty: number; total: number } =>
-            line !== null,
-        ),
+        .filter((line): line is SelectedCatalogLine => line !== null),
     );
 
-    const drawersQty = selectedLines
-      .filter((line) => /caj[oó]n/i.test(line.label))
-      .reduce((acc, line) => acc + line.qty, 0);
-    const zocloQty = selectedLines
-      .filter((line) => /zoclo/i.test(line.label))
-      .reduce((acc, line) => acc + line.qty, 0);
-    const spotsQty = selectedLines
-      .filter((line) => /spot/i.test(line.label))
-      .reduce((acc, line) => acc + line.qty, 0);
+    const dynamicSpecs = selectedLines
+      .filter((line) => pdfHighlightedItems[line.id])
+      .map(
+        (line) =>
+          `Este proyecto cuenta con ${line.qty} ${line.unitType} de ${line.label}.`,
+      );
+
     const extrasSummary = selectedLines
       .slice(0, 4)
       .map((line) => `${line.label} (${line.qty})`)
@@ -1389,12 +1534,8 @@ export default function CotizadorPage() {
       "Incluye fabricación e instalación de módulos y componentes seleccionados.";
 
     const specs = [
-      `Este proyecto cuenta con ${drawersQty} cajones seleccionados.`,
+      ...dynamicSpecs,
       "Todas las puertas en este proyecto consideran cierre suave.",
-      `Este proyecto cuenta con ${zocloQty} elementos de zoclo.`,
-      spotsQty
-        ? `Este proyecto considera ${spotsQty} spots de iluminación.`
-        : "Este proyecto no considera spots de iluminación.",
       extrasSummary
         ? `Accesorios y conceptos principales: ${extrasSummary}.`
         : "Accesorios y conceptos principales por definir en visita técnica.",
@@ -1660,8 +1801,21 @@ export default function CotizadorPage() {
       const logoDataUrl = await getImageDataUrl(
         new URL("/images/kuche-logo.png", window.location.origin).toString(),
       );
-      const url = await buildWorkshopPdfDataUrl(collectWorkshopPdfBuildInput(), logoDataUrl);
-      window.open(url, "_blank", "noopener,noreferrer");
+      const blob = await buildWorkshopPdfBlob(collectWorkshopPdfBuildInput(), logoDataUrl);
+      const objectUrl = URL.createObjectURL(blob);
+      const fileSlug = (client.trim() || "cliente").replace(/\s+/g, "-").toLowerCase();
+      const downloadName = `hoja-taller-${fileSlug}.pdf`;
+      const newWin = window.open(objectUrl, "_blank", "noopener,noreferrer");
+      if (!newWin) {
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = downloadName;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 300_000);
     } catch {
       setFinishFormalError("No se pudo generar la hoja de taller. Intenta de nuevo.");
     }
@@ -1788,12 +1942,22 @@ export default function CotizadorPage() {
                   </label>
                   <input
                     id="cotizador-semanas-min"
-                    value={deliveryWeeksMin}
-                    onChange={(event) => setDeliveryWeeksMin(event.target.value)}
+                    value={emptyWhenZeroIntString(deliveryWeeksMin)}
+                    onChange={(event) => {
+                      const val = event.target.value;
+                      if (val === "") {
+                        setDeliveryWeeksMin("");
+                        return;
+                      }
+                      const parsed = Number.parseInt(val, 10);
+                      if (!Number.isNaN(parsed)) {
+                        setDeliveryWeeksMin(String(parsed));
+                      }
+                    }}
                     type="number"
                     min={1}
                     step={1}
-                    placeholder="ej. 8"
+                    placeholder="0"
                     className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
                   />
                 </div>
@@ -1806,12 +1970,22 @@ export default function CotizadorPage() {
                   </label>
                   <input
                     id="cotizador-semanas-max"
-                    value={deliveryWeeksMax}
-                    onChange={(event) => setDeliveryWeeksMax(event.target.value)}
+                    value={emptyWhenZeroIntString(deliveryWeeksMax)}
+                    onChange={(event) => {
+                      const val = event.target.value;
+                      if (val === "") {
+                        setDeliveryWeeksMax("");
+                        return;
+                      }
+                      const parsed = Number.parseInt(val, 10);
+                      if (!Number.isNaN(parsed)) {
+                        setDeliveryWeeksMax(String(parsed));
+                      }
+                    }}
                     type="number"
                     min={1}
                     step={1}
-                    placeholder="ej. 9"
+                    placeholder="0"
                     className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
                   />
                 </div>
@@ -1834,11 +2008,22 @@ export default function CotizadorPage() {
                   </label>
                   <input
                     id="cotizador-largo"
-                    value={largo}
-                    onChange={(event) => setLargo(event.target.value)}
+                    value={emptyWhenZeroNumericString(largo)}
+                    onChange={(event) => {
+                      const val = event.target.value;
+                      if (val === "") {
+                        setLargo("");
+                        return;
+                      }
+                      const parsed = Number.parseFloat(val);
+                      if (!Number.isNaN(parsed)) {
+                        setLargo(val);
+                      }
+                    }}
                     type="number"
                     min="0"
                     step="0.1"
+                    placeholder="0"
                     className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
                   />
                 </div>
@@ -1851,11 +2036,22 @@ export default function CotizadorPage() {
                   </label>
                   <input
                     id="cotizador-alto"
-                    value={alto}
-                    onChange={(event) => setAlto(event.target.value)}
+                    value={emptyWhenZeroNumericString(alto)}
+                    onChange={(event) => {
+                      const val = event.target.value;
+                      if (val === "") {
+                        setAlto("");
+                        return;
+                      }
+                      const parsed = Number.parseFloat(val);
+                      if (!Number.isNaN(parsed)) {
+                        setAlto(val);
+                      }
+                    }}
                     type="number"
                     min="0"
                     step="0.1"
+                    placeholder="0"
                     className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
                   />
                 </div>
@@ -2041,10 +2237,15 @@ export default function CotizadorPage() {
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {visibleItems.map(({ item, category }) => {
               const qty = quantities[item.id] ?? 0;
+              const isPdfHighlight = Boolean(pdfHighlightedItems[item.id]);
               return (
                 <div
                   key={item.id}
-                  className="flex h-full flex-col gap-2 rounded-2xl border border-primary/10 bg-white px-2.5 py-2"
+                  className={`flex h-full flex-col gap-2 rounded-2xl bg-white px-2.5 py-2 ${
+                    isPdfHighlight
+                      ? "border-[2.5px] border-guinda shadow-md"
+                      : "border border-stone-200"
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="leading-tight">
@@ -2056,6 +2257,30 @@ export default function CotizadorPage() {
                         {formatCurrency(item.unitPrice)}/{catalogItemUnitLabel(item)}
                       </p>
                     </div>
+                    <div className="flex shrink-0 items-start gap-1">
+                      <button
+                        type="button"
+                        title="Destacar material en el PDF"
+                        aria-pressed={isPdfHighlight}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setPdfHighlightedItems((prev) => ({
+                            ...prev,
+                            [item.id]: !prev[item.id],
+                          }));
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded-full border border-transparent transition hover:bg-stone-50"
+                      >
+                        <Star
+                          className={`h-3.5 w-3.5 ${
+                            isPdfHighlight
+                              ? "fill-guinda text-guinda"
+                              : "fill-none text-stone-400 hover:text-guinda"
+                          }`}
+                          strokeWidth={isPdfHighlight ? 0 : 1.75}
+                          aria-hidden
+                        />
+                      </button>
                     <div className="relative" ref={openMenuId === item.id ? openMenuRef : null}>
                       <button
                         type="button"
@@ -2095,35 +2320,14 @@ export default function CotizadorPage() {
                         </div>
                       ) : null}
                     </div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleQuantityChange(item.id, qty - 1)}
-                      className="h-7 w-7 rounded-full border border-primary/10 text-sm font-semibold text-secondary transition hover:border-primary/30"
-                    >
-                      -
-                    </button>
-                    <input
-                      type="number"
-                      min="0"
-                      value={qty}
-                      onChange={(event) =>
-                        handleQuantityChange(
-                          item.id,
-                          Number.parseInt(event.target.value, 10) || 0,
-                        )
-                      }
-                      className="w-12 rounded-2xl border border-primary/10 bg-white px-2 py-1 text-center text-[11px] outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleQuantityChange(item.id, qty + 1)}
-                      className="h-7 w-7 rounded-full border border-primary/10 text-sm font-semibold text-secondary transition hover:border-primary/30"
-                    >
-                      +
-                    </button>
-                  </div>
+                  <MaterialCatalogQtyControl
+                    itemId={item.id}
+                    qty={qty}
+                    onSetQty={handleQuantityChange}
+                    onAdjustDelta={adjustQuantityDelta}
+                  />
                 </div>
               );
             })}
@@ -2167,18 +2371,15 @@ export default function CotizadorPage() {
                       <Minus className="h-4 w-4" />
                     </button>
                     <div className="flex w-12 items-center justify-center">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
+                      <NumericInputEmptyZero
+                        min={0}
+                        max={100}
+                        step={1}
                         value={utilidadPct}
+                        parseAs="int"
+                        placeholder="0"
+                        onValueChange={(n) => setUtilidadPct(clampPct(n))}
                         onFocus={(event) => event.currentTarget.select()}
-                        onChange={(event) =>
-                          setUtilidadPct(
-                            clampPct(Number.parseInt(event.target.value, 10) || 0),
-                          )
-                        }
                         className="w-full appearance-none bg-transparent text-center text-sm font-medium text-gray-700 focus:outline-none"
                       />
                       <span className="text-sm font-medium text-gray-700">%</span>
@@ -2212,18 +2413,15 @@ export default function CotizadorPage() {
                       <Minus className="h-4 w-4" />
                     </button>
                     <div className="flex w-12 items-center justify-center">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
+                      <NumericInputEmptyZero
+                        min={0}
+                        max={100}
+                        step={1}
                         value={fletePct}
+                        parseAs="int"
+                        placeholder="0"
+                        onValueChange={(n) => setFletePct(clampPct(n))}
                         onFocus={(event) => event.currentTarget.select()}
-                        onChange={(event) =>
-                          setFletePct(
-                            clampPct(Number.parseInt(event.target.value, 10) || 0),
-                          )
-                        }
                         className="w-full appearance-none bg-transparent text-center text-sm font-medium text-gray-700 focus:outline-none"
                       />
                       <span className="text-sm font-medium text-gray-700">%</span>
@@ -2248,6 +2446,61 @@ export default function CotizadorPage() {
         </div>
           </>
         )}
+
+        {/* --- PANEL DE RESUMEN DE SELECCIÓN --- */}
+        <div className="mt-8 rounded-3xl border border-primary/10 bg-stone-50 p-6 shadow-sm">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-secondary">Resumen</p>
+            <h3 className="mt-1 text-lg font-semibold text-gray-800">Items en Cotización</h3>
+          </div>
+
+          <div className="mt-4">
+            {selectedItemsSummary.length === 0 ? (
+              <p className="text-sm text-secondary italic">
+                No hay materiales seleccionados aún. Comienza agregando cantidades en el catálogo de arriba.
+              </p>
+            ) : (
+              <div className="space-y-5">
+                {Object.entries(
+                  selectedItemsSummary.reduce(
+                    (acc, item) => {
+                      if (!acc[item.category]) acc[item.category] = [];
+                      acc[item.category]!.push(item);
+                      return acc;
+                    },
+                    {} as Record<string, (typeof selectedItemsSummary)[number][]>,
+                  ),
+                ).map(([category, items]) => (
+                  <div key={category}>
+                    <h4 className="mb-3 border-b border-stone-200/60 pb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-stone-500">
+                      {category}
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {items.map((item) => (
+                        <div
+                          key={item.id}
+                          className={`flex items-center gap-2 rounded-xl border bg-white px-3 py-1.5 shadow-sm transition-colors ${
+                            item.isHighlighted ? "border-guinda/40" : "border-stone-200"
+                          }`}
+                        >
+                          <span className="flex h-6 min-w-[24px] items-center justify-center rounded-full bg-stone-100 text-[11px] font-bold text-stone-700">
+                            {item.qty}
+                          </span>
+                          <span className="flex items-center gap-1.5 text-[12px] font-semibold text-gray-800">
+                            {item.label}
+                            {item.isHighlighted ? (
+                              <Star className="h-3 w-3 fill-guinda text-guinda" aria-hidden />
+                            ) : null}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </motion.section>
 
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
@@ -2428,7 +2681,7 @@ export default function CotizadorPage() {
               <label className="text-xs font-semibold text-secondary">
                 Precio unitario
                 <input
-                  value={newItemPrice}
+                  value={emptyWhenZeroNumericString(newItemPrice)}
                   onChange={(event) => setNewItemPrice(event.target.value)}
                   type="number"
                   min="0"
@@ -2503,9 +2756,6 @@ export default function CotizadorPage() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <button className="rounded-2xl border border-primary/10 bg-white px-5 py-3 text-xs font-semibold text-secondary">
-            Guardar Borrador
-          </button>
           <button
             type="button"
             onClick={() => handleGenerateClientPdf()}

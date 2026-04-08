@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Settings } from "lucide-react";
 
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { emptyWhenZeroNumericString } from "@/lib/numeric-input-empty-zero";
 
 const catalogoInicial = [
   {
@@ -146,6 +147,13 @@ export default function PreciosPage() {
   }, [items, searchQuery, selectedCategory]);
 
   const handlePriceChange = (id: string, value: string) => {
+    if (value === "") {
+      setItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, unitPrice: 0 } : item)),
+      );
+      setHasChanges(true);
+      return;
+    }
     const parsed = Number.parseFloat(value);
     if (Number.isNaN(parsed)) {
       return;
@@ -418,7 +426,8 @@ export default function PreciosPage() {
                 type="number"
                 min="0"
                 step="0.01"
-                value={item.unitPrice}
+                placeholder="0"
+                value={item.unitPrice === 0 ? "" : item.unitPrice}
                 onChange={(event) => handlePriceChange(item.id, event.target.value)}
                 className="w-24 justify-self-end border-b border-transparent bg-transparent text-right text-sm font-semibold text-gray-900 transition-colors hover:border-gray-300 focus:border-[#8B1C1C] focus:outline-none"
               />
@@ -495,12 +504,12 @@ export default function PreciosPage() {
               <label className="text-xs font-semibold text-gray-500">
                 Precio unitario
                 <input
-                  value={newItemPrice}
+                  value={emptyWhenZeroNumericString(newItemPrice)}
                   onChange={(event) => setNewItemPrice(event.target.value)}
                   type="number"
                   min="0"
                   step="0.01"
-                  placeholder="0.00"
+                  placeholder="0"
                   className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
                 />
               </label>
