@@ -130,6 +130,17 @@ const normalizeStatus = (value: string): TaskStatus => {
   return "pendiente";
 };
 
+const normalizeEmbeddedFileType = (tipo?: string): TaskFile["type"] => {
+  const normalized = (tipo ?? "").toLowerCase();
+  if (normalized.includes("render") || normalized.includes("imagen") || normalized.includes("foto")) {
+    return "render";
+  }
+  if (normalized.includes("pdf") || normalized.includes("cotizacion") || normalized.includes("hoja")) {
+    return "pdf";
+  }
+  return "otro";
+};
+
 const extractCitaPayload = (task: KanbanItem) => {
   const fromTask = task.cita;
   if (fromTask && typeof fromTask === "object") {
@@ -212,7 +223,7 @@ const mapTaskFromApi = (task: KanbanItem): DashboardFlowItem => {
     files: (task.archivos || []).map((file, index) => ({
       id: file.id || `${task._id}-embedded-${index}`,
       name: file.nombre,
-      type: file.tipo,
+      type: normalizeEmbeddedFileType(file.tipo),
     })),
   };
 };
@@ -437,10 +448,10 @@ export default function EmpleadoDashboard() {
       let archivos: ClienteArchivo[] = [];
       if (backendTaskId) {
         const response = await obtenerArchivosTarea(backendTaskId);
-        archivos = response.data ?? [];
+        archivos = response.success ? response.data : [];
       } else if (clientId) {
         const response = await obtenerArchivosCliente(clientId);
-        archivos = response.data ?? [];
+        archivos = response.success ? response.data : [];
       }
 
       const mapped = pickFilesForStage(archivos, task.stage).map(mapArchivoToTaskFile);

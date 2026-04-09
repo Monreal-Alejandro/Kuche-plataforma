@@ -29,6 +29,14 @@ type CatalogItem = {
   kind: "material" | "herraje";
 };
 
+type ImportedCatalogRow = {
+  id: string;
+  label: string;
+  category: string;
+  unit: UnidadMedida;
+  unitPrice: number;
+};
+
 const toNumberOrUndefined = (value: string) => {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : undefined;
@@ -123,6 +131,16 @@ const currencyFormatter = new Intl.NumberFormat("es-MX", {
   currency: "MXN",
   minimumFractionDigits: 2,
 });
+
+const parsePriceValue = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const normalized = value.replace(/,/g, "").trim();
+    const parsed = Number.parseFloat(normalized);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return Number.NaN;
+};
 
 export default function PreciosPage() {
   const [items, setItems] = useState<CatalogItem[]>([]);
@@ -251,6 +269,48 @@ export default function PreciosPage() {
   const escapeCsvValue = (value: string) =>
     /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 
+  const applyImportedRows = (parsedRows: ImportedCatalogRow[]) => {
+    if (parsedRows.length === 0) {
+      setError("El archivo no contiene filas validas.");
+      return;
+    }
+
+    const existingById = new Map(
+      items
+        .filter((item) => Boolean(item.idCotizador))
+        .map((item) => [item.idCotizador!.toLowerCase(), item]),
+    );
+
+    const mergedItems = parsedRows.map((row) => {
+      const existing = existingById.get(row.id.toLowerCase());
+      if (existing) {
+        return {
+          ...existing,
+          nombre: row.label,
+          categoria: row.category,
+          unidadMedida: row.unit,
+          precioUnitario: row.unitPrice,
+          idCotizador: row.id,
+        } satisfies CatalogItem;
+      }
+
+      const kind = inferKindFromCategory(row.category);
+      return {
+        _id: `tmp-csv-${Math.random().toString(36).slice(2, 10)}`,
+        nombre: row.label,
+        categoria: row.category,
+        unidadMedida: row.unit,
+        precioUnitario: row.unitPrice,
+        idCotizador: row.id,
+        kind,
+      } satisfies CatalogItem;
+    });
+
+    setItems(mergedItems);
+    setHasPendingChanges(true);
+    setError(null);
+  };
+
   const handleExportCsv = () => {
     const header = ["id", "label", "category", "unit", "unitPrice"];
     const rows = items.map((item) => [
@@ -276,75 +336,83 @@ export default function PreciosPage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleImportCsv = (file: File) => {
-    const reader = new FileReader();
+  const handleImportCsv = async (file: File) => {
+    const text = await file.text();
+    if (!text) return;
 
-    reader.onload = () => {
-      const text = typeof reader.result === "string" ? reader.result : "";
-      if (!text) return;
+    const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length <= 1) {
+      setError("El CSV no contiene filas validas.");
+      return;
+    }
 
-      const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-      if (lines.length <= 1) return;
+    const [, ...dataLines] = lines;
 
-      const [, ...dataLines] = lines;
-
-      const parsedRows = dataLines
-        .map((line) => {
-          const [id, label, category, unit, unitPrice] = parseCsvLine(line);
-          const parsedPrice = Number.parseFloat(unitPrice ?? "");
-          if (!id || !label || !category || !unit || Number.isNaN(parsedPrice)) return null;
-          return {
-            id: id.trim(),
-            label: label.trim(),
-            category: category.trim(),
-            unit: unit.trim() as UnidadMedida,
-            unitPrice: parsedPrice,
-          };
-        })
-        .filter((row): row is { id: string; label: string; category: string; unit: UnidadMedida; unitPrice: number } => row !== null);
-
-      if (parsedRows.length === 0) {
-        setError("El CSV no contiene filas validas.");
-        return;
-      }
-
-      const existingById = new Map(
-        items
-          .filter((item) => Boolean(item.idCotizador))
-          .map((item) => [item.idCotizador!.toLowerCase(), item]),
-      );
-
-      const mergedItems = parsedRows.map((row) => {
-        const existing = existingById.get(row.id.toLowerCase());
-        if (existing) {
-          return {
-            ...existing,
-            nombre: row.label,
-            categoria: row.category,
-            unidadMedida: row.unit,
-            precioUnitario: row.unitPrice,
-            idCotizador: row.id,
-          } satisfies CatalogItem;
-        }
-
-        const kind = inferKindFromCategory(row.category);
+    const parsedRows = dataLines
+      .map((line) => {
+        const [id, label, category, unit, unitPrice] = parseCsvLine(line);
+        const parsedPrice = parsePriceValue(unitPrice);
+        if (!id || !label || !category || !unit || Number.isNaN(parsedPrice)) return null;
         return {
-          _id: `tmp-csv-${Math.random().toString(36).slice(2, 10)}`,
-          nombre: row.label,
-          categoria: row.category,
-          unidadMedida: row.unit,
-          precioUnitario: row.unitPrice,
-          idCotizador: row.id,
-          kind,
-        } satisfies CatalogItem;
-      });
+          id: id.trim(),
+          label: label.trim(),
+          category: category.trim(),
+          unit: unit.trim() as UnidadMedida,
+          unitPrice: parsedPrice,
+        } satisfies ImportedCatalogRow;
+      })
+      .filter((row): row is ImportedCatalogRow => row !== null);
 
-      setItems(mergedItems);
-      setHasPendingChanges(true);
-      setError(null);
-    };
+    applyImportedRows(parsedRows);
+  };
 
-    reader.readAsText(file);
+  const handleImportExcel = async (file: File) => {
+    const XLSX = await import("xlsx");
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      setError("El archivo Excel no contiene hojas.");
+      return;
+    }
+
+    const worksheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+      defval: "",
+      raw: false,
+    });
+
+    const parsedRows = rows
+      .map((row) => {
+        const id = String(row.id ?? row.ID ?? row.Id ?? "").trim();
+        const label = String(row.label ?? row.LABEL ?? row.Label ?? "").trim();
+        const category = String(row.category ?? row.CATEGORY ?? row.Category ?? "").trim();
+        const unit = String(row.unit ?? row.UNIT ?? row.Unit ?? "").trim();
+        const parsedPrice = parsePriceValue(row.unitPrice ?? row.UNITPRICE ?? row.UnitPrice);
+
+        if (!id || !label || !category || !unit || Number.isNaN(parsedPrice)) return null;
+
+        return {
+          id,
+          label,
+          category,
+          unit: unit as UnidadMedida,
+          unitPrice: parsedPrice,
+        } satisfies ImportedCatalogRow;
+      })
+      .filter((row): row is ImportedCatalogRow => row !== null);
+
+    applyImportedRows(parsedRows);
+  };
+
+  const handleImportFile = async (file: File) => {
+    const name = file.name.toLowerCase();
+    const isExcel = name.endsWith(".xlsx") || name.endsWith(".xls");
+    if (isExcel) {
+      await handleImportExcel(file);
+      return;
+    }
+    await handleImportCsv(file);
   };
 
   const didItemChange = (item: CatalogItem, initial: CatalogItem) =>
@@ -502,12 +570,12 @@ export default function PreciosPage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (!file) return;
-              handleImportCsv(file);
+              void handleImportFile(file);
               event.currentTarget.value = "";
             }}
           />
@@ -525,7 +593,7 @@ export default function PreciosPage() {
             className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-100"
           >
             <Upload className="h-4 w-4" />
-            Importar CSV
+            Importar Excel/CSV
           </button>
           <button
             type="button"

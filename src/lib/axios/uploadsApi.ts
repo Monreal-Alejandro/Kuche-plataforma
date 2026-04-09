@@ -136,6 +136,7 @@ const dataUrlToFile = (dataUrl: string, filename: string): File => {
 
 type UploadFileMetadata = {
   tipo?: UploadTipo;
+  nivel?: "preliminar" | "final";
   relacionadoA?: UploadRelacionadoA;
   relacionadoId?: string;
   clienteId?: string;
@@ -151,6 +152,7 @@ export const subirArchivoConMetadata = async (
   formData.append("file", file);
 
   if (metadata.tipo) formData.append("tipo", metadata.tipo);
+  if (metadata.nivel) formData.append("nivel", metadata.nivel);
   if (metadata.relacionadoA) formData.append("relacionadoA", metadata.relacionadoA);
   if (metadata.relacionadoId) formData.append("relacionadoId", metadata.relacionadoId);
   if (metadata.clienteId) formData.append("clienteId", metadata.clienteId);
@@ -214,6 +216,7 @@ export const subirMultiplesArchivosConMetadata = async (
     formData.append("file", file);
 
     if (metadata.tipo) formData.append("tipo", metadata.tipo);
+    if (metadata.nivel) formData.append("nivel", metadata.nivel);
     if (metadata.relacionadoA) formData.append("relacionadoA", metadata.relacionadoA);
     if (metadata.relacionadoId) formData.append("relacionadoId", metadata.relacionadoId);
     if (metadata.clienteId) formData.append("clienteId", metadata.clienteId);

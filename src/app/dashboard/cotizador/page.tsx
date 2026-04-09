@@ -43,6 +43,7 @@ import {
   type Material,
   type UnidadMedida,
 } from "@/lib/axios/catalogosApi";
+import { CatalogProjectTypeField } from "@/components/CatalogProjectTypeField";
 
 const projectTypes = ["Cocina", "Clóset", "TV Unit"];
 
@@ -83,33 +84,6 @@ const THICKNESS_FACTORS: Record<string, number> = {
   "18": 1.05,
   "19": 1.08,
 };
-
-const scenarioCards = [
-  {
-    id: "esencial",
-    title: "GAMA ESENCIAL",
-    subtitle: "Cocina minimalista limpia",
-    multiplier: 0.92,
-    image: "/images/cocina1.jpg",
-    tags: ["Melamina", "Granito", "Herrajes Std"],
-  },
-  {
-    id: "tendencia",
-    title: "GAMA TENDENCIA",
-    subtitle: "Texturas y brillo",
-    multiplier: 1.05,
-    image: "/images/cocina6.jpg",
-    tags: ["Melamina", "Granito", "Herrajes Std"],
-  },
-  {
-    id: "premium",
-    title: "GAMA PREMIUM",
-    subtitle: "Lujo con luces y madera",
-    multiplier: 1.18,
-    image: "/images/render3.jpg",
-    tags: ["Melamina", "Granito", "Herrajes Std"],
-  },
-];
 
 /** Ítem del catálogo de materiales (precio por `unitType`, ej. pieza, metro lineal, m²). */
 export type CatalogoItem = {
@@ -455,7 +429,6 @@ export default function CotizadorPage() {
   const [materialBaseItemId, setMaterialBaseItemId] = useState(getDefaultMaterialBaseItemId);
   const [colorItemId, setColorItemId] = useState(getDefaultColorItemId);
   const [thicknessItemId, setThicknessItemId] = useState(getDefaultThicknessItemId);
-  const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(emptyCatalogoTemplate[0]?.category ?? "");
   const [materialSearch, setMaterialSearch] = useState("");
 
@@ -1897,14 +1870,23 @@ export default function CotizadorPage() {
     }
   };
 
-  const scenarioPrices = scenarioCards.map((scenario) => {
-    const base = materialSubtotal * scenario.multiplier;
-    return {
-      ...scenario,
-      min: Math.round(base * 0.95),
-      max: Math.round(base * 1.08),
-    };
-  });
+  const selectedItemsByCategory = useMemo(() => {
+    const result: Array<{ category: string; items: Array<{ item: CatalogoItem; qty: number }> }> = [];
+    
+    catalogoKuche.forEach((category) => {
+      const categoryItems: Array<{ item: CatalogoItem; qty: number }> = [];
+      category.items.forEach((item) => {
+        const qty = quantities[item.id] ?? 0;
+        if (qty > 0) {
+          categoryItems.push({ item, qty });
+        }
+      });
+      if (categoryItems.length > 0) {
+        result.push({ category: category.category, items: categoryItems });
+      }
+    });
+    return result;
+  }, [catalogoKuche, quantities]);
 
   const showCotizadorBottomBar = Boolean(activeCotizacionFormalTaskId || activeCitaTaskId);
 
@@ -1935,109 +1917,164 @@ export default function CotizadorPage() {
           <h2 className="text-2xl font-semibold">Sección A · Datos del proyecto</h2>
           <p className="mt-2 text-sm text-secondary">Información base para abrir el expediente.</p>
         </div>
-        <div className="grid gap-4 lg:grid-cols-4">
-          <label className="text-xs font-semibold text-secondary">
-            Cliente
-            <div className="mt-2 flex gap-2">
-              <input
-                value={client}
-                onChange={(event) => setClient(event.target.value)}
-                list="clientes-sugeridos"
-                placeholder="Buscar o escribir nuevo"
-                className="w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setNewClientName("");
-                  setNewClientPhone("");
-                  setNewClientEmail("");
-                  setIsClientModalOpen(true);
-                }}
-                className="rounded-2xl border border-primary/10 px-4 text-xs font-semibold text-secondary"
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-secondary">
+            Datos del cliente y del proyecto
+          </p>
+          <div className="mt-4 grid grid-cols-1 items-end gap-x-4 gap-y-5 md:grid-cols-12">
+            <div className="col-span-12 md:col-span-4">
+              <label
+                htmlFor="cotizador-cliente"
+                className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
               >
-                Nuevo
-              </button>
+                Cliente
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="cotizador-cliente"
+                  value={client}
+                  onChange={(event) => setClient(event.target.value)}
+                  list="clientes-sugeridos"
+                  placeholder="Buscar o escribir nuevo"
+                  className="min-w-0 flex-1 rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewClientName("");
+                    setNewClientPhone("");
+                    setNewClientEmail("");
+                    setIsClientModalOpen(true);
+                  }}
+                  className="shrink-0 rounded-xl border border-primary/10 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-secondary transition hover:border-primary/25"
+                >
+                  Nuevo
+                </button>
+              </div>
+              <datalist id="clientes-sugeridos">
+                {clients.map((entry) => (
+                  <option key={entry.name} value={entry.name} />
+                ))}
+              </datalist>
             </div>
-            <datalist id="clientes-sugeridos">
-              {clients.map((entry) => (
-                <option key={entry.name} value={entry.name} />
-              ))}
-            </datalist>
-          </label>
-          <label className="text-xs font-semibold text-secondary">
-            Tipo de proyecto
-            <select
-              value={projectType}
-              onChange={(event) => setProjectType(event.target.value)}
-              className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-            >
-              {projectTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs font-semibold text-secondary">
-            Ubicación
-            <input
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-              placeholder="Ciudad / Estado"
-              className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-            />
-          </label>
-          <div className="text-xs font-semibold text-secondary">
-            <span className="block">Tiempo de entrega (Semanas aproximadas)</span>
-            <div className="mt-2 flex gap-2">
-              <input
-                value={deliveryWeeksMin}
-                onChange={(event) => setDeliveryWeeksMin(event.target.value)}
-                type="number"
-                min={1}
-                step={1}
-                placeholder="Mín."
-                className="min-w-0 flex-1 rounded-2xl border border-primary/10 bg-white px-3 py-3 text-sm outline-none"
-              />
-              <input
-                value={deliveryWeeksMax}
-                onChange={(event) => setDeliveryWeeksMax(event.target.value)}
-                type="number"
-                min={1}
-                step={1}
-                placeholder="Máx."
-                className="min-w-0 flex-1 rounded-2xl border border-primary/10 bg-white px-3 py-3 text-sm outline-none"
-              />
-            </div>
-          </div>
-        </div>
 
-        <div className="rounded-3xl border border-primary/10 bg-white p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-secondary">El lienzo</p>
-              <h3 className="mt-2 text-lg font-semibold">Medidas generales</h3>
-              <p className="mt-1 text-xs text-secondary">Largo x alto x fondo en metros.</p>
+            <div className="col-span-12 flex flex-col md:col-span-4">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                Tipo de proyecto
+              </span>
+              <div className="min-w-0 flex-1">
+                <CatalogProjectTypeField
+                  value={projectType}
+                  onChange={setProjectType}
+                  placeholder="Cocinas, Baños, comedor, consultorio..."
+                  innerRowClassName="flex w-full gap-2"
+                  buttonClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-white text-secondary shadow-sm transition hover:border-primary/30 hover:bg-primary/[0.04]"
+                  inputClassName="w-full min-w-0 rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-4">
-              {[
-                { label: "Largo", value: largo, setValue: setLargo },
-                { label: "Alto", value: alto, setValue: setAlto },
-                { label: "Fondo", value: fondo, setValue: setFondo },
-              ].map((field) => (
-                <label key={field.label} className="text-[11px] font-semibold text-secondary">
-                  {field.label}
+
+            <div className="col-span-12 md:col-span-4">
+              <label
+                htmlFor="cotizador-ubicacion"
+                className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
+              >
+                Ubicación
+              </label>
+              <input
+                id="cotizador-ubicacion"
+                value={location}
+                onChange={(event) => setLocation(event.target.value)}
+                placeholder="Ciudad / Estado"
+                className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+              />
+            </div>
+
+            <div className="col-span-12 md:col-span-4" role="group" aria-label="Tiempo de entrega en semanas">
+              <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                Tiempo de entrega (sem)
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="cotizador-semanas-min"
+                    className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                  >
+                    Mín.
+                  </label>
                   <input
-                    value={field.value}
-                    onChange={(event) => field.setValue(event.target.value)}
+                    id="cotizador-semanas-min"
+                    value={deliveryWeeksMin}
+                    onChange={(event) => setDeliveryWeeksMin(event.target.value)}
+                    type="number"
+                    min={1}
+                    step={1}
+                    placeholder="ej. 8"
+                    className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="cotizador-semanas-max"
+                    className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                  >
+                    Máx.
+                  </label>
+                  <input
+                    id="cotizador-semanas-max"
+                    value={deliveryWeeksMax}
+                    onChange={(event) => setDeliveryWeeksMax(event.target.value)}
+                    type="number"
+                    min={1}
+                    step={1}
+                    placeholder="ej. 9"
+                    className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="col-span-12 md:col-span-8" role="group" aria-label="Medidas generales en metros">
+              <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                Medidas generales (m)
+              </p>
+              <span className="sr-only">Largo y alto del espacio general en metros.</span>
+              <div className="grid grid-cols-2 gap-4 sm:max-w-md">
+                <div>
+                  <label
+                    htmlFor="cotizador-largo"
+                    className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                  >
+                    Largo
+                  </label>
+                  <input
+                    id="cotizador-largo"
+                    value={largo}
+                    onChange={(event) => setLargo(event.target.value)}
                     type="number"
                     min="0"
                     step="0.1"
-                    className="mt-1 w-24 rounded-2xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                    className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
                   />
-                </label>
-              ))}
+                </div>
+                <div>
+                  <label
+                    htmlFor="cotizador-alto"
+                    className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                  >
+                    Alto
+                  </label>
+                  <input
+                    id="cotizador-alto"
+                    value={alto}
+                    onChange={(event) => setAlto(event.target.value)}
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    className="w-full rounded-xl border border-primary/10 bg-white px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2428,6 +2465,34 @@ export default function CotizadorPage() {
         )}
       </motion.section>
 
+      {selectedItemsByCategory.length > 0 ? (
+        <section className="space-y-6 rounded-3xl border border-primary/10 bg-white p-8 shadow-xl">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-secondary">RESUMEN</p>
+            <h2 className="mt-2 text-2xl font-semibold">Items en Cotización</h2>
+          </div>
+          <div className="space-y-6">
+            {selectedItemsByCategory.map((catGroup) => (
+              <div key={catGroup.category}>
+                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-secondary/80">
+                  {catGroup.category}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-3">
+                  {catGroup.items.map(({ item, qty }) => (
+                    <span
+                      key={item.id}
+                      className="rounded-full border border-primary/10 bg-primary/5 px-4 py-2 text-sm font-semibold text-secondary"
+                    >
+                      {qty} {item.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
         <div>
           <h2 className="text-2xl font-semibold">Sección C · Imágenes de referencia</h2>
@@ -2654,63 +2719,9 @@ export default function CotizadorPage() {
         </div>
       ) : null}
 
-      <section className="space-y-6">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Sección D · Estimación visual</p>
-          <h2 className="mt-2 text-2xl font-semibold">Selecciona el Nivel de Acabados</h2>
-          <p className="mt-2 text-sm text-secondary">
-            Galería de niveles basada en metros lineales y material base.
-          </p>
-        </div>
-        <div className="grid gap-6 lg:grid-cols-3">
-          {scenarioPrices.map((scenario, index) => (
-            <motion.button
-              key={scenario.id}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: index * 0.06 }}
-              onClick={() => setSelectedScenario(scenario.id)}
-              className={`group overflow-hidden rounded-3xl border text-left shadow-xl transition ${
-                selectedScenario === scenario.id
-                  ? "border-accent bg-white"
-                  : "border-primary/10 bg-white/80 hover:border-primary/30"
-              }`}
-            >
-              <div className="relative h-56 w-full overflow-hidden">
-                <img
-                  src={scenario.image}
-                  alt={scenario.title}
-                  className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                />
-                <div className="absolute left-4 top-4 flex flex-wrap gap-2">
-                  {scenario.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-semibold text-secondary shadow"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="space-y-3 p-6">
-                <p className="text-xs uppercase tracking-[0.3em] text-secondary">{scenario.title}</p>
-                <h3 className="text-lg font-semibold">{scenario.subtitle}</h3>
-                <div className="rounded-2xl bg-primary/5 px-4 py-3 text-center text-lg font-semibold text-accent">
-                  {formatCurrency(scenario.min)} - {formatCurrency(scenario.max)}
-                </div>
-                <p className="text-xs text-secondary">
-                  Base: {formatCurrency(materialSubtotal)} · {baseMaterialLabel}
-                </p>
-              </div>
-            </motion.button>
-          ))}
-        </div>
-      </section>
-
       <section className="space-y-6 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-md">
         <div>
-          <h2 className="text-2xl font-semibold">Sección E · Cierre y documentación</h2>
+          <h2 className="text-2xl font-semibold">Sección D · Cierre y documentación</h2>
           <p className="mt-2 text-sm text-secondary">
             Resumen ejecutivo y generación de documentos para cliente y taller.
           </p>
@@ -2759,8 +2770,9 @@ export default function CotizadorPage() {
         <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-emerald-200/90 bg-white/95 px-4 py-3 shadow-[0_-6px_24px_rgba(0,0,0,0.07)] backdrop-blur-md">
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-xl text-xs text-secondary">
-              Guarda la cotización formal en la tarjeta y continúa en el tablero. El PDF no se descarga solo:
-              úsalo desde Clientes en proceso o confirmados/proyectos inactivos (admin), o con{" "}
+              Guarda la cotización formal en la tarjeta y continúa en el tablero. Al terminar se descargan
+              automáticamente la cotización formal y la hoja de taller, y también quedan vinculadas en backend.
+              Puedes volver a generarlas con{" "}
               <span className="font-semibold text-gray-700">Generar PDF Cliente</span>.
             </p>
             <div className="flex shrink-0 flex-wrap justify-end gap-2">

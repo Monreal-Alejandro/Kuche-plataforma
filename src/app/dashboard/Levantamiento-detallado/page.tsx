@@ -1,51 +1,91 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import {
   activeCitaTaskStorageKey,
+  kanbanStorageKey,
   citaReturnUrlStorageKey,
   getPreliminarList,
+  saveKanbanTasksToLocalStorage,
+  seguimientoProjectStoragePrefix,
+  type KanbanTask,
   type PreliminarData,
 } from "@/lib/kanban";
-import { getReturnRouteForLoggedUser } from "@/lib/role-routes";
-import { agregarArchivos } from "@/lib/axios/tareasApi";
+import { CatalogProjectTypeField } from "@/components/CatalogProjectTypeField";
+import {
+  CATALOG_PROJECT_TYPES,
+  isCocinasProjectTypeForConIsla,
+  normalizeLegacyProjectTypeToCatalog,
+} from "@/lib/catalog-project-types";
 import {
   APPLIANCE_CATEGORIAS,
   APPLIANCE_ITEMS,
-  applianceFirstIndexForCategory,
   APPLIANCE_OTRO_STEP_INDEX,
-  APPLIANCE_STEPS_TOTAL,
   defaultLevantamientoDetalle,
   emptyWallMeasuresForId,
   getApplianceCategoryProgress,
   getWallMeasureFieldDefs,
-  levantamientoDetalleScopeMultiplier,
+  cotizacionIluminacionTotal,
+  isWallSlotKey,
   LIGHTING_ITEMS,
-  LIGHTING_PAGE_INDICES,
+  wallMeasuresTieneValor,
+  WALL_SLOT_META_TYPE,
+  WALL_SLOT_META_ALIAS,
+  wallMeasureLetter,
+  wallSlotIsComplete,
+  wallSlotKey,
   type MedidasCampos,
   WALL_ITEMS,
-  WALL_PAGE_INDICES,
+  type ItemCatalogo,
   type LevantamientoDetalle,
 } from "@/lib/levantamiento-catalog";
 import {
-  buildPreliminarPdf,
+  buildPreliminarPdfDataUrl,
   downloadPreliminarPdf,
 } from "@/lib/pdf-preliminar";
-import { createFormalPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
-import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
+import { createPreliminarSeguimientoPdfKey, saveFormalPdf } from "@/lib/formal-pdf-storage";
+import { agregarArchivos } from "@/lib/axios/tareasApi";
 import { subirPdfGeneradoConMetadata } from "@/lib/axios/uploadsApi";
 import {
   buildFormalUploadMetadata,
   getRequiredClientIdForFormalUpload,
 } from "@/lib/upload-formal-metadata";
+import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
 import ApplianceTypeImage from "@/components/levantamiento/ApplianceTypeImage";
 import LightingTypeImage from "@/components/levantamiento/LightingTypeImage";
-import WallTypeImage from "@/components/levantamiento/WallTypeImage";
+import { WallTypeIcon } from "@/components/levantamiento/WallTypeIcons";
+import { InteractiveCroquis } from "@/components/levantamiento/InteractiveCroquis";
 import Link from "next/link";
 import { generatePublicProjectCode } from "@/lib/project-code";
 import { runtimeStore } from "@/lib/runtime-store";
+import {
+  defaultPagosForInversion,
+  formatSeguimientoDateLong,
+  normalizeEtapaForStorage,
+} from "@/lib/seguimiento-project";
+import {
+  createDefaultLevantamientoConfig,
+  getAveragePriceByTier,
+  getLevantamientoConfig,
+  type LevantamientoConfig,
+  type MaterialGama,
+} from "@/lib/config-levantamiento";
+import {
+  obtenerHerrajes,
+  obtenerMateriales,
+  type Herraje,
+  type Material,
+} from "@/lib/axios/catalogosApi";
 import { useAdminWorkflow } from "@/contexts/AdminWorkflowContext";
 
 const formatCurrency = (value: number) =>
@@ -55,12 +95,77 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 0,
   }).format(value);
 
+const parseMeasure = (raw: string | undefined): number | null => {
+  if (!raw) return null;
+  const v = Number.parseFloat(raw.replace(",", "."));
+  return Number.isFinite(v) ? v : null;
+};
+
+const alreadyRelatedToTask = (
+  relatedTaskId: string,
+  relacionadoA?: "tarea" | "proyecto" | "cotizacion" | "cliente",
+  relacionadoId?: string,
+  tareasId?: string,
+) => {
+  const normalizedTaskId = relatedTaskId.trim();
+  if (relacionadoA === "tarea" && relacionadoId?.trim() === normalizedTaskId) {
+    return true;
+  }
+  return tareasId?.trim() === normalizedTaskId;
+};
+
+const WALL_COUNT_OPTIONS = [1, 2, 3, 4, 5, 7] as const;
+
+const wallCountSvgProps = {
+  viewBox: "0 0 24 24",
+  fill: "none" as const,
+  stroke: "currentColor",
+  strokeWidth: 2.5,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+/** Pictogramas estilo planta arquitectónica 2D (vista superior): trazos ortogonales que sugieren el perímetro o la secuencia de muros según la cantidad seleccionada. */
+function WallCountIcon({ count, className }: { count: number; className?: string }) {
+  const svg = (children: ReactNode) => (
+    <svg className={className} aria-hidden {...wallCountSvgProps}>
+      {children}
+    </svg>
+  );
+  switch (count) {
+    case 1:
+      return svg(<line x1="4" y1="12" x2="20" y2="12" />);
+    case 2:
+      return svg(<path d="M 6 6 L 6 18 L 18 18" />);
+    case 3:
+      return svg(<path d="M 6 5 L 6 19 L 18 19 L 18 5" />);
+    case 4:
+      return svg(<path d="M 6 6 L 18 6 L 18 18 L 6 18 Z" />);
+    case 5:
+      return svg(<path d="M 5 5 L 5 19 L 19 19 L 19 10 L 13 10 L 13 5" />);
+    case 6:
+      return svg(<path d="M 4 4 L 4 13 L 12 13 L 12 8 L 20 8 L 20 18" />);
+    case 7:
+      return svg(<path d="M 3 6 L 3 18 L 11 18 L 11 10 L 17 10 L 17 18 L 21 18 L 21 6" />);
+    case 8:
+      return svg(<path d="M 3 5 L 3 16 L 9 16 L 9 9 L 15 9 L 15 17 L 21 17 L 21 8 L 14 8" />);
+    default:
+      return svg(<line x1="4" y1="12" x2="20" y2="12" />);
+  }
+}
+
 type MaterialOption = {
   id: string;
   name: string;
-  tier: "Estandar" | "Premium" | "Lujo";
-  multiplier: number;
+  tier: "Estandar" | "Tendencia" | "Premium";
   image: string;
+  pricePerUnit?: number;
+};
+
+type ShowroomCatalog = {
+  cubiertas: MaterialOption[];
+  frentes: MaterialOption[];
+  herrajes: MaterialOption[];
 };
 
 type MaterialCategory = "cubiertas" | "frentes" | "herrajes";
@@ -98,7 +203,10 @@ const defaultCategoryImage: Record<MaterialCategory, string> = {
 
 const resolveMaterialImage = (name: string, category: MaterialCategory, fallback?: string) => {
   const match = materialImageMap[category].find((entry) => entry.match.test(name));
-  return match?.src ?? fallback ?? defaultCategoryImage[category];
+  if (match) return match.src;
+  /** Ignorar URLs externas (p. ej. pollinations): suelen fallar y el <img> cae en el placeholder. */
+  if (fallback?.startsWith("/")) return fallback;
+  return defaultCategoryImage[category];
 };
 
 const SectionCard = ({ children }: { children: React.ReactNode }) => (
@@ -107,32 +215,60 @@ const SectionCard = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-const MaterialGrid = ({
-  title,
-  options,
-  selectedId,
-  onSelect,
-  page,
-  onPageChange,
-  category,
-  basePrice,
-  contextMultiplier,
-  materialSearch,
-  tierFilter,
-}: {
+/** Carrusel: póster grande 2:3; título en overlay sobre la imagen. Encabezados de fila = estilo Küche (como el resto del formulario). */
+const streamRowShell = "rounded-2xl bg-zinc-950 px-2 py-4 shadow-inner ring-1 ring-white/10 sm:px-4 sm:py-5";
+const streamRowHeading = "text-xs font-semibold uppercase tracking-[0.28em] text-zinc-100";
+const streamRowHint = "mt-1 text-sm font-medium tracking-wide text-zinc-500";
+const streamRankClass =
+  "w-[0.42em] min-w-[1.25rem] shrink-0 select-none self-end pb-1 text-center text-lg font-semibold tabular-nums leading-none text-zinc-500 sm:min-w-[1.4rem] sm:text-xl";
+const streamVerTodosClass =
+  "shrink-0 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 underline-offset-2 transition hover:text-zinc-100 hover:underline";
+const streamPosterClass = (selected: boolean) =>
+  `relative z-10 aspect-[2/3] w-[min(10.5rem,52vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(12.5rem,38vw)] lg:w-[min(13.5rem,32vw)] ${
+    selected ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950" : "ring-1 ring-white/10 hover:ring-white/55"
+  }`;
+const streamPosterTitleOverlay =
+  "pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent px-2 pb-2.5 pt-14";
+const streamPosterLabelClass =
+  "line-clamp-2 text-xs font-medium leading-snug text-white/95 sm:text-sm";
+/** Miniaturas de carrusel: `cover` sin `object-center` aquí  -  el centro choca con `object-[...]` en iluminación. */
+const streamCatalogThumbBase = "absolute inset-0 z-0 h-full w-full object-cover";
+const streamCatalogThumbImageClass = `${streamCatalogThumbBase} object-center`;
+/** Encuadre por ítem: `LightingTypeImage` aplica `object-position` inline (catálogo). */
+const streamLightingThumbClass = `${streamCatalogThumbBase} object-center`;
+const streamScrollClass =
+  "flex gap-3 overflow-x-auto pb-2 pt-1 pl-0.5 [-ms-overflow-style:none] [scrollbar-color:rgba(255,255,255,0.2)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 sm:gap-4";
+
+type MaterialGridProps = {
   title: string;
   options: MaterialOption[];
-  selectedId: string;
-  onSelect: (id: string) => void;
   page: number;
   onPageChange: (page: number) => void;
   category: MaterialCategory;
-  basePrice: number;
-  contextMultiplier: number;
+  largoLineal: number;
   materialSearch: string;
   tierFilter: MaterialTierFilter;
-}) => {
-  const pageSize = 6;
+  /** Promedios $/m por gama (desde configuración de levantamiento). */
+  tierPriceByTier: Record<MaterialOption["tier"], number>;
+} & (
+  | { multiSelect?: false; selectedId: string; onSelect: (id: string) => void }
+  | { multiSelect: true; selectedIds: string[]; onToggle: (id: string) => void }
+);
+
+const MaterialGrid = ({
+  title,
+  options,
+  page,
+  onPageChange,
+  category,
+  largoLineal,
+  materialSearch,
+  tierFilter,
+  tierPriceByTier,
+  ...rest
+}: MaterialGridProps) => {
+  const isMulti = rest.multiSelect === true;
+  const pageSize = 4;
   const normalizedSearch = materialSearch.trim().toLowerCase();
   const filtered = options.filter((option) => {
     const matchesSearch = !normalizedSearch || option.name.toLowerCase().includes(normalizedSearch);
@@ -146,49 +282,56 @@ const MaterialGrid = ({
 
   return (
     <div className="space-y-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-        {title}
-      </p>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">{title}</p>
+        {isMulti ? (
+          <p className="mt-1 text-[11px] font-medium text-secondary/85">Puedes elegir más de uno.</p>
+        ) : null}
+      </div>
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         {paginated.map((option) => {
-          const isActive = option.id === selectedId;
+          const isActive = isMulti ? rest.selectedIds.includes(option.id) : option.id === rest.selectedId;
           const imageSrc = resolveMaterialImage(option.name, category, option.image);
-          const optionPrice = Math.max(0, basePrice * option.multiplier * contextMultiplier);
+          const pricePerM = option.pricePerUnit ?? tierPriceByTier[option.tier];
+          const optionPrice = Math.max(0, largoLineal * pricePerM);
           return (
             <button
               key={option.id}
               type="button"
-              onClick={() => onSelect(option.id)}
-              className={`relative flex flex-col overflow-hidden rounded-2xl border border-primary/10 bg-white text-left transition hover:-translate-y-1 hover:shadow-lg ${
-                isActive ? "ring-4 ring-[#8B1C1C]" : ""
+              onClick={() => (isMulti ? rest.onToggle(option.id) : rest.onSelect(option.id))}
+              className={`group w-full rounded-2xl border border-primary/10 bg-white p-3 text-left shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl ${
+                isActive ? "ring-2 ring-[#8B1C1C] ring-offset-2 ring-offset-white" : ""
               }`}
             >
-              <div className="h-24 w-full overflow-hidden">
-                <img
-                  src={imageSrc}
-                  alt={option.name}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  onError={(event) => {
-                    event.currentTarget.src = "/images/hero-placeholder.svg";
-                  }}
-                />
+              <div className="relative overflow-hidden rounded-2xl">
+                <div className="relative aspect-square w-full overflow-hidden bg-primary/[0.04]">
+                  <img
+                    src={imageSrc}
+                    alt={option.name}
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={(event) => {
+                      event.currentTarget.src = "/images/hero-placeholder.svg";
+                    }}
+                  />
+                </div>
+                <div className="pointer-events-none absolute left-3 top-3 z-[1] max-w-[calc(100%-1.5rem)] truncate rounded-full bg-white/70 px-3 py-1 text-[11px] font-semibold text-primary shadow-md backdrop-blur">
+                  {option.name}
+                </div>
+                {isActive ? (
+                  <span className="absolute right-3 top-3 z-[1] rounded-full bg-[#8B1C1C] p-1 text-white shadow-md">
+                    <Check className="h-3 w-3" />
+                  </span>
+                ) : null}
               </div>
-              {isActive ? (
-                <span className="absolute right-3 top-3 rounded-full bg-[#8B1C1C] p-1 text-white shadow">
-                  <Check className="h-3 w-3" />
-                </span>
-              ) : null}
-              <div className="relative space-y-2 px-4 py-3 pb-10">
-                <p className="text-sm font-semibold text-primary">{option.name}</p>
-                <span className="w-fit rounded-full bg-primary/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                  {option.tier}
-                </span>
-                <p className="absolute bottom-3 right-4 text-xs font-semibold text-[#8B1C1C]">
-                  Estimado con tus medidas {formatCurrency(optionPrice)}
-                </p>
-              </div>
+              <p className="mt-3 text-xs font-medium text-secondary">{option.name}</p>
+              <span className="mt-2 inline-flex w-fit rounded-full bg-primary/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                {option.tier}
+              </span>
+              <p className="mt-2 text-xs font-semibold text-[#8B1C1C]">
+                Estimado con tus medidas {formatCurrency(optionPrice)}
+              </p>
             </button>
           );
         })}
@@ -220,21 +363,19 @@ const MaterialGrid = ({
   );
 };
 
-const materialCatalog = {
+const DEFAULT_MATERIAL_CATALOG = {
   cubiertas: [
     {
       id: "cuarzo-calacatta",
       name: "Cuarzo Calacatta",
-      tier: "Lujo",
-      multiplier: 1.35,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/white%20calacatta%20quartz%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "granito-negro",
       name: "Granito Negro",
-      tier: "Premium",
-      multiplier: 1.2,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/black%20granite%20texture?width=500&height=500&nologo=true",
     },
@@ -242,15 +383,13 @@ const materialCatalog = {
       id: "laminado-blanco",
       name: "Laminado Blanco",
       tier: "Estandar",
-      multiplier: 1,
       image:
         "https://image.pollinations.ai/prompt/white%20laminate%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "cuarzo-marfil",
       name: "Cuarzo Marfil",
-      tier: "Premium",
-      multiplier: 1.18,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/ivory%20quartz%20texture?width=500&height=500&nologo=true",
     },
@@ -258,23 +397,20 @@ const materialCatalog = {
       id: "granito-ivory",
       name: "Granito Ivory",
       tier: "Estandar",
-      multiplier: 1.05,
       image:
         "https://image.pollinations.ai/prompt/ivory%20granite%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "sinterizada-nieve",
       name: "Piedra Sinterizada Nieve",
-      tier: "Lujo",
-      multiplier: 1.4,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/pure%20white%20sintered%20stone%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "cuarzo-marbella",
       name: "Cuarzo Marbella",
-      tier: "Premium",
-      multiplier: 1.22,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/beige%20marbella%20quartz%20texture?width=500&height=500&nologo=true",
     },
@@ -282,39 +418,34 @@ const materialCatalog = {
       id: "cuarzo-gris-humo",
       name: "Cuarzo Gris Humo",
       tier: "Estandar",
-      multiplier: 1.1,
       image:
         "https://image.pollinations.ai/prompt/smoky%20grey%20quartz%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "granito-verde",
       name: "Granito Verde Selva",
-      tier: "Premium",
-      multiplier: 1.26,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/jungle%20green%20granite%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "granito-azul",
       name: "Granito Azul Profundo",
-      tier: "Lujo",
-      multiplier: 1.42,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/deep%20blue%20granite%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "cuarzo-onix",
       name: "Cuarzo ?nix",
-      tier: "Lujo",
-      multiplier: 1.48,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/onyx%20quartz%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "sinterizada-grafito",
       name: "Sinterizada Grafito",
-      tier: "Premium",
-      multiplier: 1.3,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/graphite%20sintered%20stone%20texture?width=500&height=500&nologo=true",
     },
@@ -322,15 +453,13 @@ const materialCatalog = {
       id: "porcelanato-marfil",
       name: "Porcelanato Marfil",
       tier: "Estandar",
-      multiplier: 1.08,
       image:
         "https://image.pollinations.ai/prompt/ivory%20porcelain%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "granito-cobre",
       name: "Granito Cobre",
-      tier: "Premium",
-      multiplier: 1.24,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/copper%20granite%20texture?width=500&height=500&nologo=true",
     },
@@ -338,15 +467,13 @@ const materialCatalog = {
       id: "cuarzo-nieve",
       name: "Cuarzo Nieve",
       tier: "Estandar",
-      multiplier: 1.04,
       image:
         "https://image.pollinations.ai/prompt/snow%20white%20quartz%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "sinterizada-arena",
       name: "Sinterizada Arena",
-      tier: "Premium",
-      multiplier: 1.28,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/sand%20sintered%20stone%20texture?width=500&height=500&nologo=true",
     },
@@ -354,15 +481,13 @@ const materialCatalog = {
       id: "granito-perla",
       name: "Granito Perla",
       tier: "Estandar",
-      multiplier: 1.06,
       image:
         "https://image.pollinations.ai/prompt/pearl%20granite%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "cuarzo-negro-zen",
       name: "Cuarzo Negro Zen",
-      tier: "Lujo",
-      multiplier: 1.5,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/zen%20black%20quartz%20texture?width=500&height=500&nologo=true",
     },
@@ -372,23 +497,20 @@ const materialCatalog = {
       id: "melamina-premium",
       name: "Melamina Premium",
       tier: "Estandar",
-      multiplier: 1,
       image:
         "https://image.pollinations.ai/prompt/premium%20wood%20melamine%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "mdf-laca",
       name: "MDF Laca Mate",
-      tier: "Premium",
-      multiplier: 1.15,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/matte%20lacquer%20mdf%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "chapa-natural",
       name: "Chapa Natural",
-      tier: "Lujo",
-      multiplier: 1.3,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/natural%20wood%20veneer%20texture?width=500&height=500&nologo=true",
     },
@@ -396,23 +518,20 @@ const materialCatalog = {
       id: "melamina-texturizada",
       name: "Melamina Texturizada",
       tier: "Estandar",
-      multiplier: 1.05,
       image:
         "https://image.pollinations.ai/prompt/textured%20grey%20melamine%20surface?width=500&height=500&nologo=true",
     },
     {
       id: "laca-brillo",
       name: "Laca Alto Brillo",
-      tier: "Premium",
-      multiplier: 1.22,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/high%20gloss%20lacquer%20cabinet%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "madera-nogal",
       name: "Madera Nogal",
-      tier: "Lujo",
-      multiplier: 1.38,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/walnut%20wood%20texture?width=500&height=500&nologo=true",
     },
@@ -420,7 +539,6 @@ const materialCatalog = {
       id: "melamina-blanca",
       name: "Melamina Blanca",
       tier: "Estandar",
-      multiplier: 1,
       image:
         "https://image.pollinations.ai/prompt/white%20melamine%20board%20texture?width=500&height=500&nologo=true",
     },
@@ -428,63 +546,55 @@ const materialCatalog = {
       id: "melamina-ceniza",
       name: "Melamina Ceniza",
       tier: "Estandar",
-      multiplier: 1.03,
       image:
         "https://image.pollinations.ai/prompt/ash%20wood%20melamine%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "melamina-grafito",
       name: "Melamina Grafito",
-      tier: "Premium",
-      multiplier: 1.12,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/graphite%20grey%20melamine%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "melamina-olmo",
       name: "Melamina Olmo",
-      tier: "Premium",
-      multiplier: 1.14,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/elm%20wood%20melamine%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "laca-satinada",
       name: "Laca Satinada",
-      tier: "Premium",
-      multiplier: 1.2,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/satin%20lacquer%20cabinet%20surface?width=500&height=500&nologo=true",
     },
     {
       id: "laca-metalica",
       name: "Laca Met?lica",
-      tier: "Lujo",
-      multiplier: 1.4,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/metallic%20lacquer%20surface%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "chapa-encino",
       name: "Chapa Encino",
-      tier: "Premium",
-      multiplier: 1.26,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/oak%20wood%20veneer%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "chapa-cedro",
       name: "Chapa Cedro",
-      tier: "Lujo",
-      multiplier: 1.36,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/cedar%20wood%20veneer%20texture?width=500&height=500&nologo=true",
     },
     {
       id: "madera-parota",
       name: "Madera Parota",
-      tier: "Lujo",
-      multiplier: 1.42,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/parota%20wood%20texture?width=500&height=500&nologo=true",
     },
@@ -492,15 +602,13 @@ const materialCatalog = {
       id: "mdf-textura",
       name: "MDF Texturizado",
       tier: "Estandar",
-      multiplier: 1.06,
       image:
         "https://image.pollinations.ai/prompt/beige%20textured%20mdf%20surface?width=500&height=500&nologo=true",
     },
     {
       id: "mdf-grafito",
       name: "MDF Grafito",
-      tier: "Premium",
-      multiplier: 1.18,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/dark%20graphite%20mdf%20texture?width=500&height=500&nologo=true",
     },
@@ -508,7 +616,6 @@ const materialCatalog = {
       id: "melamina-menta",
       name: "Melamina Menta",
       tier: "Estandar",
-      multiplier: 1.02,
       image:
         "https://image.pollinations.ai/prompt/mint%20green%20melamine%20texture?width=500&height=500&nologo=true",
     },
@@ -518,39 +625,34 @@ const materialCatalog = {
       id: "soft-close",
       name: "Soft Close",
       tier: "Estandar",
-      multiplier: 1,
       image:
         "https://image.pollinations.ai/prompt/soft%20close%20cabinet%20hinge%20hardware?width=500&height=500&nologo=true",
     },
     {
       id: "blum-aventoz",
       name: "Blum Aventos",
-      tier: "Premium",
-      multiplier: 1.12,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/blum%20aventos%20lift%20system%20hardware?width=500&height=500&nologo=true",
     },
     {
       id: "premium-tech",
       name: "Premium Tech",
-      tier: "Lujo",
-      multiplier: 1.25,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/modern%20premium%20cabinet%20drawer%20slide%20hardware?width=500&height=500&nologo=true",
     },
     {
       id: "push-to-open",
       name: "Push to Open",
-      tier: "Premium",
-      multiplier: 1.1,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/push%20to%20open%20cabinet%20mechanism?width=500&height=500&nologo=true",
     },
     {
       id: "herrajes-inox",
       name: "Herrajes Inox",
-      tier: "Lujo",
-      multiplier: 1.3,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/stainless%20steel%20cabinet%20hardware%20hinge?width=500&height=500&nologo=true",
     },
@@ -558,31 +660,27 @@ const materialCatalog = {
       id: "soft-basic",
       name: "Soft Basic",
       tier: "Estandar",
-      multiplier: 1.02,
       image:
         "https://image.pollinations.ai/prompt/basic%20metal%20cabinet%20hinge?width=500&height=500&nologo=true",
     },
     {
       id: "soft-plus",
       name: "Soft Plus",
-      tier: "Premium",
-      multiplier: 1.08,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/high%20quality%20metal%20cabinet%20hinge?width=500&height=500&nologo=true",
     },
     {
       id: "soft-pro",
       name: "Soft Pro",
-      tier: "Lujo",
-      multiplier: 1.22,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/professional%20cabinet%20hinge%20mechanism?width=500&height=500&nologo=true",
     },
     {
       id: "inox-premium",
       name: "Inox Premium",
-      tier: "Premium",
-      multiplier: 1.18,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/brushed%20stainless%20steel%20cabinet%20hinge?width=500&height=500&nologo=true",
     },
@@ -590,7 +688,6 @@ const materialCatalog = {
       id: "grafito-matte",
       name: "Grafito Matte",
       tier: "Estandar",
-      multiplier: 1.04,
       image:
         "https://image.pollinations.ai/prompt/matte%20graphite%20black%20cabinet%20hinge?width=500&height=500&nologo=true",
     },
@@ -598,23 +695,20 @@ const materialCatalog = {
       id: "cierre-suave",
       name: "Cierre Suave",
       tier: "Estandar",
-      multiplier: 1.03,
       image:
         "https://image.pollinations.ai/prompt/soft%20close%20drawer%20slide%20metal?width=500&height=500&nologo=true",
     },
     {
       id: "push-premium",
       name: "Push Premium",
-      tier: "Premium",
-      multiplier: 1.16,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/premium%20push%20to%20open%20drawer%20hardware?width=500&height=500&nologo=true",
     },
     {
       id: "push-lujo",
       name: "Push Lujo",
-      tier: "Lujo",
-      multiplier: 1.28,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/luxury%20push%20open%20cabinet%20hardware?width=500&height=500&nologo=true",
     },
@@ -622,31 +716,27 @@ const materialCatalog = {
       id: "amortiguado",
       name: "Amortiguado",
       tier: "Estandar",
-      multiplier: 1.05,
       image:
         "https://image.pollinations.ai/prompt/cabinet%20hinge%20with%20damper%20mechanism?width=500&height=500&nologo=true",
     },
     {
       id: "hidraulico",
       name: "Hidr?ulico",
-      tier: "Premium",
-      multiplier: 1.2,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/hydraulic%20cabinet%20hinge%20piston?width=500&height=500&nologo=true",
     },
     {
       id: "lux-autom",
       name: "Lux Autom?tico",
-      tier: "Lujo",
-      multiplier: 1.32,
+      tier: "Premium",
       image:
         "https://image.pollinations.ai/prompt/motorized%20automatic%20cabinet%20drawer%20hardware?width=500&height=500&nologo=true",
     },
     {
       id: "smart-close",
       name: "Smart Close",
-      tier: "Premium",
-      multiplier: 1.14,
+      tier: "Tendencia",
       image:
         "https://image.pollinations.ai/prompt/smart%20close%20cabinet%20hardware%20system?width=500&height=500&nologo=true",
     },
@@ -654,49 +744,179 @@ const materialCatalog = {
       id: "soft-basic-plus",
       name: "Soft Basic Plus",
       tier: "Estandar",
-      multiplier: 1.06,
       image:
         "https://image.pollinations.ai/prompt/standard%20cabinet%20drawer%20slide%20metal?width=500&height=500&nologo=true",
     },
   ] satisfies MaterialOption[],
+} satisfies ShowroomCatalog;
+
+const extractCatalogList = <T,>(input: unknown, keys: string[]): T[] => {
+  if (Array.isArray(input)) return input as T[];
+  if (input && typeof input === "object") {
+    const record = input as Record<string, unknown>;
+    for (const key of keys) {
+      const value = record[key];
+      if (Array.isArray(value)) return value as T[];
+    }
+  }
+  return [];
 };
+
+const normalizeShowroomTier = (value: unknown): MaterialOption["tier"] => {
+  const normalized = String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (normalized.includes("premium")) return "Premium";
+  if (normalized.includes("estandar") || normalized.includes("standard") || normalized.includes("basic")) {
+    return "Estandar";
+  }
+  return "Tendencia";
+};
+
+const normalizeMaterialSeccion = (value: unknown) =>
+  String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
+const normalizeMaterialPrecio = (raw: Record<string, unknown>) => {
+  const candidates = [raw.precioUnitario, raw.precioPorMetro, raw.precioMetroLineal, raw.precio];
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isFinite(candidate)) return candidate;
+    if (typeof candidate === "string") {
+      const parsed = Number.parseFloat(candidate.replace(/,/g, "").trim());
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return undefined;
+};
+
+const toMaterialOption = (raw: Record<string, unknown>, fallbackIdPrefix: string): MaterialOption => {
+  const idFromApi =
+    (typeof raw.idCotizador === "string" && raw.idCotizador.trim()) ||
+    (typeof raw._id === "string" && raw._id.trim()) ||
+    (typeof raw.id === "string" && raw.id.trim()) ||
+    "";
+  const name = typeof raw.nombre === "string" && raw.nombre.trim() ? raw.nombre.trim() : "Sin nombre";
+  return {
+    id: idFromApi || `${fallbackIdPrefix}-${name.toLowerCase().replace(/[^a-z0-9]+/gi, "-")}`,
+    name,
+    tier: normalizeShowroomTier(raw.gama ?? raw.tier),
+    image: typeof raw.image === "string" ? raw.image : "",
+    pricePerUnit: normalizeMaterialPrecio(raw),
+  };
+};
+
+type ShowroomMaterialTier = MaterialOption["tier"];
+type AutoScenarioId = "esencial" | "tendencia" | "premium";
+
+/** Material -> escenario de inversión ($/m). */
+function tierToScenario(tier: ShowroomMaterialTier): AutoScenarioId {
+  switch (tier) {
+    case "Estandar":
+      return "esencial";
+    case "Tendencia":
+      return "tendencia";
+    case "Premium":
+      return "premium";
+  }
+}
+
+/** Moda de gamas; empates o tres distintos -> Tendencia (regla de negocio). */
+function predominantShowroomTier(votes: ShowroomMaterialTier[]): ShowroomMaterialTier {
+  if (votes.length === 0) return "Tendencia";
+  const c = { Estandar: 0, Tendencia: 0, Premium: 0 };
+  for (const v of votes) c[v]++;
+  const max = Math.max(c.Estandar, c.Tendencia, c.Premium);
+  const winners = (["Estandar", "Tendencia", "Premium"] as const).filter((k) => c[k] === max);
+  if (winners.length !== 1) return "Tendencia";
+  return winners[0]!;
+}
+
+/**
+ * Escenario automático a partir de Sección D (cubierta, frentes, herraje).
+ * Frentes: moda entre los seleccionados; luego moda entre las tres familias.
+ */
+function autoScenarioFromShowroom(
+  catalog: ShowroomCatalog,
+  cubiertaId: string,
+  frenteIds: string[],
+  herrajeId: string,
+): AutoScenarioId {
+  const tierC =
+    catalog.cubiertas.find((item) => item.id === cubiertaId)?.tier ?? "Estandar";
+  const tiersF =
+    frenteIds.length === 0
+      ? ([] as ShowroomMaterialTier[])
+      : frenteIds.map(
+          (id) => catalog.frentes.find((item) => item.id === id)?.tier ?? "Estandar",
+        );
+  const tierF = tiersF.length === 0 ? "Estandar" : predominantShowroomTier(tiersF);
+  const tierH = catalog.herrajes.find((item) => item.id === herrajeId)?.tier ?? "Estandar";
+  const winner = predominantShowroomTier([tierC, tierF, tierH]);
+  return tierToScenario(winner);
+}
 
 export default function CotizadorPreliminarPage() {
   const router = useRouter();
   const { tasks, refresh, updateTask } = useAdminWorkflow();
   const [activeCitaTaskId, setActiveCitaTaskId] = useState<string | null>(null);
+  const [activeCitaTask, setActiveCitaTask] = useState<KanbanTask | null>(null);
   const [clientName, setClientName] = useState("");
-  const [projectType, setProjectType] = useState("Cocina");
+  const [projectType, setProjectType] = useState<string>(CATALOG_PROJECT_TYPES[0]);
   const [location, setLocation] = useState("");
   const [deliveryWeeksMin, setDeliveryWeeksMin] = useState("");
   const [deliveryWeeksMax, setDeliveryWeeksMax] = useState("");
-  const [largo, setLargo] = useState("4.2");
-  const [alto, setAlto] = useState("2.4");
-  const [fondo, setFondo] = useState("0.6");
-  const [selectedCubierta, setSelectedCubierta] = useState(materialCatalog.cubiertas[0].id);
-  const [selectedFrente, setSelectedFrente] = useState(materialCatalog.frentes[0].id);
-  const [selectedHerraje, setSelectedHerraje] = useState(materialCatalog.herrajes[0].id);
-  const [selectedScenario, setSelectedScenario] = useState("esencial");
+  const [largo, setLargo] = useState("");
+  const [alto, setAlto] = useState("");
+  const [materialCatalog, setMaterialCatalog] = useState<ShowroomCatalog>(DEFAULT_MATERIAL_CATALOG);
+  const [materialCatalogError, setMaterialCatalogError] = useState<string | null>(null);
+  /** Sección D · showroom: materiales y escenario de inversión (derivado + ajuste manual opcional). */
+  const [selectedCubierta, setSelectedCubierta] = useState(DEFAULT_MATERIAL_CATALOG.cubiertas[0].id);
+  const [selectedFrenteIds, setSelectedFrenteIds] = useState<string[]>(() => [DEFAULT_MATERIAL_CATALOG.frentes[0].id]);
+  const [selectedHerraje, setSelectedHerraje] = useState(DEFAULT_MATERIAL_CATALOG.herrajes[0].id);
+  const [levantamientoConfig, setLevantamientoConfig] = useState<LevantamientoConfig>(() =>
+    createDefaultLevantamientoConfig(),
+  );
+  const [selectedScenario, setSelectedScenario] = useState<AutoScenarioId>(() =>
+    autoScenarioFromShowroom(
+      DEFAULT_MATERIAL_CATALOG,
+      DEFAULT_MATERIAL_CATALOG.cubiertas[0].id,
+      [DEFAULT_MATERIAL_CATALOG.frentes[0].id],
+      DEFAULT_MATERIAL_CATALOG.herrajes[0].id,
+    ),
+  );
   const [materialSearch, setMaterialSearch] = useState("");
-  const [tierFilter, setTierFilter] = useState<"Todos" | "Estandar" | "Premium" | "Lujo">(
+  const [tierFilter, setTierFilter] = useState<"Todos" | "Estandar" | "Tendencia" | "Premium">(
     "Todos",
   );
   const [pages, setPages] = useState({ cubiertas: 1, frentes: 1, herrajes: 1 });
   const [finishError, setFinishError] = useState<string | null>(null);
   const [isFinishing, setIsFinishing] = useState(false);
   const [levantamiento, setLevantamiento] = useState<LevantamientoDetalle>(() => defaultLevantamientoDetalle());
-  const [wallPage, setWallPage] = useState(1);
+  /** Índice 0-based de la pared actual en el flujo dinámico (Sección B). */
+  const [currentWallIndex, setCurrentWallIndex] = useState(0);
+  /** Búsqueda en el catálogo de tipos de muro (Sección B). */
   const [wallSearch, setWallSearch] = useState("");
-  /** Un paso por electrodoméstico (orden por categoría); el último índice es «Otro». */
+  /** Diálogo in-app al cambiar cantidad de paredes (sustituye `window.confirm`). */
+  const [confirmChangeWallCountOpen, setConfirmChangeWallCountOpen] = useState(false);
+  /** Un paso por electrodoméstico (orden por categoría); el último índice es "Otro". */
   const [applianceStep, setApplianceStep] = useState(0);
   const [applianceSearch, setApplianceSearch] = useState("");
-  const [lightingPage, setLightingPage] = useState(1);
+  /** true = carruseles; false = detalle en la misma página (sin modal). */
+  const [applianceBrowseMode, setApplianceBrowseMode] = useState(true);
   const [lightingSearch, setLightingSearch] = useState("");
-
-  const activeCitaTask = useMemo(
-    () => tasks.find((task) => task.id === activeCitaTaskId) ?? null,
-    [activeCitaTaskId, tasks],
-  );
+  const [lightingShowOtro, setLightingShowOtro] = useState(false);
+  const [lightingBrowseMode, setLightingBrowseMode] = useState(true);
+  /** id del luminario en vista detalle (cuando lightingBrowseMode es false). */
+  const [lightingFocusedId, setLightingFocusedId] = useState<string | null>(null);
+  const applianceRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  /** Al pasar de carrusel -> detalle el documento se acorta y el scroll absoluto deja la vista en la sección siguiente; se reencuadra la sección C. */
+  const applianceSectionRef = useRef<HTMLDivElement | null>(null);
+  const lightingSectionRef = useRef<HTMLDivElement | null>(null);
 
   const setSectionComment = (key: "a" | "b" | "c" | "d" | "e", value: string) => {
     setLevantamiento((prev) => ({
@@ -720,15 +940,226 @@ export default function CotizadorPreliminarPage() {
     });
   };
 
-  const patchWallMeasure = (wallId: string, fieldKey: string, value: string) => {
+  const applyWallSlotCount = (n: number) => {
+    setWallSearch("");
     setLevantamiento((prev) => {
-      const current = prev.wallMeasures[wallId] ?? emptyWallMeasuresForId(wallId);
+      const wm = { ...prev.wallMeasures };
+      for (let i = 0; i < n; i++) {
+        const k = wallSlotKey(i);
+        if (!(k in wm)) wm[k] = { [WALL_SLOT_META_TYPE]: "" };
+      }
+      for (const key of Object.keys(wm)) {
+        if (!isWallSlotKey(key)) continue;
+        const idx = Number(key.slice(5));
+        if (Number.isFinite(idx) && idx >= n) delete wm[key];
+      }
+      return { ...prev, wallSlotCount: n, wallMeasures: wm };
+    });
+    setCurrentWallIndex(0);
+  };
+
+  const clearWallFlowAndSlots = () => {
+    setWallSearch("");
+    setLevantamiento((prev) => {
+      const wm = { ...prev.wallMeasures };
+      for (const key of Object.keys(wm)) {
+        if (isWallSlotKey(key)) delete wm[key];
+      }
+      return { ...prev, wallSlotCount: 0, wallMeasures: wm };
+    });
+    setCurrentWallIndex(0);
+  };
+
+  useEffect(() => {
+    setLevantamientoConfig(getLevantamientoConfig());
+    const onUpdate = () => setLevantamientoConfig(getLevantamientoConfig());
+    window.addEventListener("kuche:levantamiento-config-updated", onUpdate);
+    return () => window.removeEventListener("kuche:levantamiento-config-updated", onUpdate);
+  }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadDynamicShowroomCatalog = async () => {
+      try {
+        const [cubiertasResponse, frentesResponse, herrajesResponse] = await Promise.all([
+          obtenerMateriales({ seccion: "cubierta", disponible: true }),
+          obtenerMateriales({ secciones: ["vistas", "estructura", "cajones_puertas"], disponible: true }),
+          obtenerHerrajes({ disponible: true }),
+        ]);
+
+        const cubiertasRaw =
+          cubiertasResponse.success && cubiertasResponse.data
+            ? extractCatalogList<Material>(cubiertasResponse.data, ["materiales", "items", "data", "results"])
+            : [];
+        const frentesRaw =
+          frentesResponse.success && frentesResponse.data
+            ? extractCatalogList<Material>(frentesResponse.data, ["materiales", "items", "data", "results"])
+            : [];
+        const herrajesRaw =
+          herrajesResponse.success && herrajesResponse.data
+            ? extractCatalogList<Herraje>(herrajesResponse.data, ["herrajes", "items", "data", "results"])
+            : [];
+
+        const cubiertas = cubiertasRaw
+          .map((m) => m as unknown as Record<string, unknown>)
+          // fallback defensivo si backend ignora filtro
+          .filter((m) => normalizeMaterialSeccion(m.seccion) === "cubierta")
+          .map((m) => toMaterialOption(m, "cubierta"));
+
+        const frentes = frentesRaw
+          .map((m) => m as unknown as Record<string, unknown>)
+          // fallback defensivo si backend ignora filtro
+          .filter((m) => {
+            const sec = normalizeMaterialSeccion(m.seccion);
+            return sec === "vistas" || sec === "estructura" || sec === "cajones_puertas";
+          })
+          .map((m) => toMaterialOption(m, "frente"));
+
+        const herrajes = herrajesRaw
+          .map((h) => h as unknown as Record<string, unknown>)
+          .map((h) => toMaterialOption(h, "herraje"));
+
+        if (isCancelled) return;
+
+        const nextCatalog: ShowroomCatalog = {
+          cubiertas: cubiertas.length > 0 ? cubiertas : DEFAULT_MATERIAL_CATALOG.cubiertas,
+          frentes: frentes.length > 0 ? frentes : DEFAULT_MATERIAL_CATALOG.frentes,
+          herrajes: herrajes.length > 0 ? herrajes : DEFAULT_MATERIAL_CATALOG.herrajes,
+        };
+
+        setMaterialCatalog(nextCatalog);
+
+        const hasAnyApiData = cubiertas.length > 0 || frentes.length > 0 || herrajes.length > 0;
+        if (!hasAnyApiData) {
+          setMaterialCatalogError("No se pudo cargar catálogo dinámico. Se muestran opciones base de respaldo.");
+        } else {
+          setMaterialCatalogError(null);
+        }
+      } catch {
+        if (isCancelled) return;
+        setMaterialCatalog(DEFAULT_MATERIAL_CATALOG);
+        setMaterialCatalogError("No se pudo cargar catálogo dinámico. Se muestran opciones base de respaldo.");
+      }
+    };
+
+    void loadDynamicShowroomCatalog();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const cubiertaValida = materialCatalog.cubiertas.some((item) => item.id === selectedCubierta);
+    if (!cubiertaValida && materialCatalog.cubiertas.length > 0) {
+      setSelectedCubierta(materialCatalog.cubiertas[0].id);
+    }
+
+    const herrajeValido = materialCatalog.herrajes.some((item) => item.id === selectedHerraje);
+    if (!herrajeValido && materialCatalog.herrajes.length > 0) {
+      setSelectedHerraje(materialCatalog.herrajes[0].id);
+    }
+
+    const frentesValidos = selectedFrenteIds.filter((id) => materialCatalog.frentes.some((item) => item.id === id));
+    if (frentesValidos.length === 0 && materialCatalog.frentes.length > 0) {
+      setSelectedFrenteIds([materialCatalog.frentes[0].id]);
+    } else if (frentesValidos.length !== selectedFrenteIds.length) {
+      setSelectedFrenteIds(frentesValidos);
+    }
+  }, [materialCatalog, selectedCubierta, selectedFrenteIds, selectedHerraje]);
+
+  useEffect(() => {
+    if (!confirmChangeWallCountOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfirmChangeWallCountOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [confirmChangeWallCountOpen]);
+
+  /** Por pared: `wallMeasures[wall-i]` = tipo en `__typeId` + campos de cota planos (mismo esquema que el PDF). */
+  const setWallSlotType = (slotIndex: number, typeId: string) => {
+    setLevantamiento((prev) => {
+      const k = wallSlotKey(slotIndex);
+      const prevSlot = prev.wallMeasures[k] ?? {};
+      const alias = (prevSlot[WALL_SLOT_META_ALIAS] ?? "").trim();
       return {
         ...prev,
-        wallMeasures: { ...prev.wallMeasures, [wallId]: { ...current, [fieldKey]: value } },
+        wallMeasures: {
+          ...prev.wallMeasures,
+          [k]: {
+            [WALL_SLOT_META_TYPE]: typeId,
+            ...emptyWallMeasuresForId(typeId),
+            ...(alias ? { [WALL_SLOT_META_ALIAS]: prevSlot[WALL_SLOT_META_ALIAS] ?? "" } : {}),
+          },
+        },
       };
     });
   };
+
+  const patchWallSlotAlias = (slotIndex: number, value: string) => {
+    setLevantamiento((prev) => {
+      const k = wallSlotKey(slotIndex);
+      const cur = prev.wallMeasures[k] ?? { [WALL_SLOT_META_TYPE]: "" };
+      return {
+        ...prev,
+        wallMeasures: {
+          ...prev.wallMeasures,
+          [k]: { ...cur, [WALL_SLOT_META_ALIAS]: value },
+        },
+      };
+    });
+  };
+
+  const patchWallSlotField = (slotIndex: number, fieldKey: string, value: string) => {
+    setLevantamiento((prev) => {
+      const k = wallSlotKey(slotIndex);
+      const cur = prev.wallMeasures[k] ?? { [WALL_SLOT_META_TYPE]: "" };
+      const typeId = (cur[WALL_SLOT_META_TYPE] ?? "").trim();
+      if (!typeId) return prev;
+      return {
+        ...prev,
+        wallMeasures: {
+          ...prev.wallMeasures,
+          [k]: { ...cur, [fieldKey]: value },
+        },
+      };
+    });
+  };
+
+  const clearWallSlotType = (slotIndex: number) => {
+    setLevantamiento((prev) => {
+      const k = wallSlotKey(slotIndex);
+      const prevSlot = prev.wallMeasures[k] ?? {};
+      const alias = prevSlot[WALL_SLOT_META_ALIAS] ?? "";
+      return {
+        ...prev,
+        wallMeasures: {
+          ...prev.wallMeasures,
+          [k]: {
+            [WALL_SLOT_META_TYPE]: "",
+            ...(alias.trim() ? { [WALL_SLOT_META_ALIAS]: alias } : {}),
+          },
+        },
+      };
+    });
+  };
+
+  const toggleFrente = useCallback((id: string) => {
+    setSelectedFrenteIds((prev) => {
+      if (prev.includes(id)) {
+        if (prev.length <= 1) return prev;
+        return prev.filter((x) => x !== id);
+      }
+      return [...prev, id];
+    });
+  }, []);
 
   const patchOtro = (
     otroKey: "wallOtro" | "applianceOtro" | "lightingOtro",
@@ -741,14 +1172,59 @@ export default function CotizadorPreliminarPage() {
     }));
   };
 
+  const setApplianceInDocument = useCallback((id: string, included: boolean) => {
+    setLevantamiento((prev) => {
+      const next = new Set(prev.applianceDocumentIds);
+      if (included) next.add(id);
+      else next.delete(id);
+      return { ...prev, applianceDocumentIds: [...next] };
+    });
+  }, []);
+
+  const openApplianceDetailByIndex = useCallback((idx: number) => {
+    const item = APPLIANCE_ITEMS[idx];
+    if (!item) return;
+    setApplianceStep(idx);
+    setApplianceBrowseMode(false);
+    setLevantamiento((prev) => ({
+      ...prev,
+      applianceDocumentIds: prev.applianceDocumentIds.includes(item.id)
+        ? prev.applianceDocumentIds
+        : [...prev.applianceDocumentIds, item.id],
+    }));
+  }, []);
+
+  const openApplianceOtroDetail = useCallback(() => {
+    setApplianceStep(APPLIANCE_OTRO_STEP_INDEX);
+    setApplianceBrowseMode(false);
+    setLevantamiento((prev) => ({ ...prev, applianceOtroInDocument: true }));
+  }, []);
+
+  const setLightingInDocument = useCallback((id: string, included: boolean) => {
+    setLevantamiento((prev) => {
+      const next = new Set(prev.lightingSelectedIds ?? []);
+      if (included) next.add(id);
+      else next.delete(id);
+      return { ...prev, lightingSelectedIds: [...next] };
+    });
+  }, []);
+
+  const toggleLightingSelected = useCallback((id: string) => {
+    setLevantamiento((prev) => {
+      const next = new Set(prev.lightingSelectedIds ?? []);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { ...prev, lightingSelectedIds: [...next] };
+    });
+  }, []);
+
   type EditableFieldId =
     | "clientName"
     | "location"
     | "deliveryWeeksMin"
     | "deliveryWeeksMax"
     | "largo"
-    | "alto"
-    | "fondo";
+    | "alto";
 
   const clientNameInputRef = useRef<HTMLInputElement | null>(null);
   const locationInputRef = useRef<HTMLInputElement | null>(null);
@@ -756,7 +1232,6 @@ export default function CotizadorPreliminarPage() {
   const deliveryWeeksMaxInputRef = useRef<HTMLInputElement | null>(null);
   const largoInputRef = useRef<HTMLInputElement | null>(null);
   const altoInputRef = useRef<HTMLInputElement | null>(null);
-  const fondoInputRef = useRef<HTMLInputElement | null>(null);
 
   const lastEditedFieldRef = useRef<EditableFieldId | null>(null);
   const caretPositionsRef = useRef<Record<EditableFieldId, number | null>>({
@@ -766,7 +1241,6 @@ export default function CotizadorPreliminarPage() {
     deliveryWeeksMax: null,
     largo: null,
     alto: null,
-    fondo: null,
   });
 
   useLayoutEffect(() => {
@@ -782,7 +1256,6 @@ export default function CotizadorPreliminarPage() {
     if (lastEdited === "deliveryWeeksMax") inputEl = deliveryWeeksMaxInputRef.current;
     if (lastEdited === "largo") inputEl = largoInputRef.current;
     if (lastEdited === "alto") inputEl = altoInputRef.current;
-    if (lastEdited === "fondo") inputEl = fondoInputRef.current;
 
     if (!inputEl) return;
 
@@ -797,18 +1270,51 @@ export default function CotizadorPreliminarPage() {
         // Ignorar navegadores/contextos donde no se pueda ajustar la selección
       }
     }
-  }, [clientName, location, deliveryWeeksMin, deliveryWeeksMax, largo, alto, fondo]);
+  }, [clientName, location, deliveryWeeksMin, deliveryWeeksMax, largo, alto]);
 
   useEffect(() => {
     void refresh();
-    setActiveCitaTaskId(runtimeStore.getItem(activeCitaTaskStorageKey));
   }, [refresh]);
 
   useEffect(() => {
-    if (activeCitaTask?.project) {
-      setClientName(activeCitaTask.project);
+    if (typeof window === "undefined") return;
+    const taskId = runtimeStore.getItem(activeCitaTaskStorageKey);
+    if (taskId) {
+      setActiveCitaTaskId(taskId);
+      const stored = runtimeStore.getItem(kanbanStorageKey);
+      if (stored) {
+        try {
+          const tasks = JSON.parse(stored) as KanbanTask[];
+          const task = tasks.find((t) => t.id === taskId);
+          if (task) {
+            setActiveCitaTask(task);
+            if (task.project) setClientName(task.project);
+            const lastPre = getPreliminarList(task).at(-1);
+            if (lastPre?.projectType?.trim()) {
+              setProjectType(normalizeLegacyProjectTypeToCatalog(lastPre.projectType));
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
     }
-  }, [activeCitaTask?.project]);
+  }, []);
+
+  useEffect(() => {
+    if (!activeCitaTaskId) return;
+    const task = tasks.find((t) => t.id === activeCitaTaskId);
+    if (!task) return;
+
+    setActiveCitaTask(task);
+    setClientName((prev) => prev.trim() || task.project || task.cita?.nombreCliente || "");
+    setLocation((prev) => prev.trim() || task.location || task.cita?.ubicacion || "");
+
+    const lastPre = getPreliminarList(task).at(-1);
+    if (lastPre?.projectType?.trim()) {
+      setProjectType(normalizeLegacyProjectTypeToCatalog(lastPre.projectType));
+    }
+  }, [activeCitaTaskId, tasks]);
 
   const validatePreliminarSections = (): string | null => {
     const hasDatos =
@@ -817,96 +1323,190 @@ export default function CotizadorPreliminarPage() {
       deliveryWeeksMin.trim() !== "" ||
       deliveryWeeksMax.trim() !== "";
     const hasMedidas =
-      (Number.parseFloat(largo) || 0) > 0 ||
-      (Number.parseFloat(alto) || 0) > 0 ||
-      (Number.parseFloat(fondo) || 0) > 0;
+      (Number.parseFloat(largo) || 0) > 0 || (Number.parseFloat(alto) || 0) > 0;
     if (!hasDatos)
       return "Completa al menos un campo de Datos del proyecto (cliente, ubicación o semanas de entrega).";
-    if (!hasMedidas) return "Completa al menos una medida (largo, alto o fondo mayor a 0).";
+    if (!hasMedidas) return "Completa al menos una medida (largo o alto mayor a 0).";
     return null;
   };
 
   const buildPreliminarDataFromForm = (): PreliminarData => {
     const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
-    const frente = materialCatalog.frentes.find((item) => item.id === selectedFrente);
     const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
+    const frenteLabel = selectedFrenteIds
+      .map((id) => materialCatalog.frentes.find((item) => item.id === id)?.name)
+      .filter(Boolean)
+      .join(", ");
     return {
       client: clientName || "Sin nombre",
       projectType,
       location: location || "Por definir",
       date: formatDeliveryWeeksLabel(deliveryWeeksMin, deliveryWeeksMax) || "Por definir",
       rangeLabel: scenarioRangeLabel,
+      largo: largo.trim() || undefined,
+      alto: alto.trim() || undefined,
       cubierta: cubierta?.name ?? "Sin definir",
-      frente: frente?.name ?? "Sin definir",
+      frente: frenteLabel || "Sin definir",
       herraje: herraje?.name ?? "Sin definir",
+      costoBase: metrics.costoBase,
+      costoMateriales: metrics.costoMateriales,
+      costoIluminacion: metrics.costoIluminacion,
+      subtotal: metrics.subtotal,
+      iva: metrics.iva,
+      total: metrics.total,
+      levantamiento: {
+        ...levantamiento,
+        largo: largo.trim() || undefined,
+        alto: alto.trim() || undefined,
+      },
     };
   };
 
-  const savePreliminarInActiveTask = async (
-    levantamientoPdfUrl?: string,
-  ): Promise<{ codigoProyecto: string | undefined } | null> => {
+  const savePreliminarAndGetNextTasks = (options?: {
+    preliminarData?: PreliminarData;
+    seguimientoPdf?: { key: string; fileLabel: string; remoteUrl?: string };
+  }): { codigoProyecto: string | undefined; updatedTasks: KanbanTask[] } | null => {
     if (!activeCitaTaskId || !activeCitaTask) return null;
     const err = validatePreliminarSections();
     if (err) {
       setFinishError(err);
       return null;
     }
+    const newPreliminar = options?.preliminarData ?? buildPreliminarDataFromForm();
+    const stored = runtimeStore.getItem(kanbanStorageKey);
 
-    const newPreliminar = buildPreliminarDataFromForm();
-    const newPreliminarWithPdf: PreliminarData = {
-      ...newPreliminar,
-      ...(activeCitaTask.clientId ? { clienteId: activeCitaTask.clientId } : {}),
-      ...(levantamientoPdfUrl ? { levantamientoPdfUrl } : {}),
-    };
-
-    const preliminarCotizaciones = [...getPreliminarList(activeCitaTask), newPreliminarWithPdf];
-    const codigoProyecto = activeCitaTask.codigoProyecto ?? generatePublicProjectCode();
-
+    let tasks: KanbanTask[];
     try {
-      await updateTask(activeCitaTask, {
+      tasks = stored ? (JSON.parse(stored) as KanbanTask[]) : [];
+    } catch {
+      // Si el JSON está corrupto, al menos conservamos la tarea activa en un arreglo nuevo.
+      tasks = [];
+    }
+
+    // Aseguramos que la tarea activa exista en la lista a actualizar.
+    const hasActiveTask = tasks.some((t) => t.id === activeCitaTaskId);
+    const baseTasks = hasActiveTask ? tasks : [...tasks, activeCitaTask];
+
+    let codigoProyecto: string | undefined;
+    const updatedTasks = baseTasks.map((task) => {
+      if (task.id !== activeCitaTaskId) return task;
+      const existingList = getPreliminarList(task);
+      const preliminarCotizaciones = [...existingList, newPreliminar];
+      codigoProyecto = task.codigoProyecto ?? generatePublicProjectCode();
+      return {
+        ...task,
         codigoProyecto,
         preliminarCotizaciones,
-        preliminarData: newPreliminarWithPdf,
-        citaStarted: true,
+        preliminarData: newPreliminar,
         citaFinished: true,
-      });
+        stage: task.stage,
+        status: task.status,
+      };
+    });
+
+    try {
+      saveKanbanTasksToLocalStorage(updatedTasks);
     } catch {
-      setFinishError("No se pudo guardar el levantamiento en backend. Intenta de nuevo.");
-      return null;
+      // Si por alguna razón no podemos escribir en localStorage (cuota, modo incógnito, etc.),
+      // evitamos bloquear el flujo de la cita. Los datos de esta sesión podrían no persistir,
+      // pero el usuario puede continuar trabajando.
     }
 
-    return { codigoProyecto };
-  };
-
-  const syncLevantamientoArchivoEnTarea = async (
-    backendTaskId: string,
-    nombreArchivo: string,
-    urlArchivo: string,
-  ) => {
-    const response = await agregarArchivos(backendTaskId, [
-      {
-        nombre: nombreArchivo,
-        tipo: "levantamiento_detallado",
-        url: urlArchivo,
-      },
-    ]);
-
-    if (!response.success) {
-      throw new Error("No se pudo registrar el archivo de levantamiento en la tarea.");
+    if (codigoProyecto) {
+      const projectKey = `${seguimientoProjectStoragePrefix}${codigoProyecto}`;
+      let existingParsed: Record<string, unknown> = {};
+      try {
+        const existing = runtimeStore.getItem(projectKey);
+        if (existing) existingParsed = JSON.parse(existing) as Record<string, unknown>;
+      } catch {
+        // ignore
+      }
+      const preliminarCotizaciones = getPreliminarList(
+        updatedTasks.find((t) => t.id === activeCitaTaskId) ?? activeCitaTask,
+      );
+      const estimatedInversion = Math.round(metrics.total);
+      const taskAfter = updatedTasks.find((t) => t.id === activeCitaTaskId);
+      const seguimientoProject: Record<string, unknown> = {
+        ...existingParsed,
+        codigo: codigoProyecto,
+        cliente: activeCitaTask.project ?? clientName ?? "Cliente",
+        kanbanStage: taskAfter?.stage ?? activeCitaTask.stage,
+        kanbanFollowUpStatus: taskAfter?.followUpStatus ?? activeCitaTask.followUpStatus ?? "pendiente",
+        preliminarCotizaciones,
+        inversion: estimatedInversion,
+        fechaInicio: formatSeguimientoDateLong(),
+        fechaEntrega: newPreliminar.date || "Por definir",
+        etapaActual: normalizeEtapaForStorage(existingParsed.etapaActual),
+        estadoProyecto: "Prospecto",
+        pagos: defaultPagosForInversion(estimatedInversion),
+        garantiaInicio: "",
+        cotizacionPreliminarImage: "",
+        cotizacionFormalImage: "",
+      };
+      if (options?.seguimientoPdf) {
+        const prevArchivos = Array.isArray(existingParsed.archivos)
+          ? [...(existingParsed.archivos as object[])]
+          : [];
+        seguimientoProject.archivos = [
+          ...prevArchivos,
+          {
+            id: `seg-preliminar-${options.seguimientoPdf.key}`,
+            name: options.seguimientoPdf.fileLabel,
+            type: "pdf",
+            indexedPdfKey: options.seguimientoPdf.key,
+            ...(options.seguimientoPdf.remoteUrl ? { url: options.seguimientoPdf.remoteUrl } : {}),
+          },
+        ];
+      }
+      try {
+        runtimeStore.setItem(projectKey, JSON.stringify(seguimientoProject));
+      } catch {
+        // Mismo criterio: no bloqueamos el flujo si esta escritura falla.
+      }
     }
+
+    return { codigoProyecto, updatedTasks };
   };
 
-  const alreadyRelatedToTask = (
+  const uploadLevantamientoArtifact = async (
     relatedTaskId: string,
-    relacionadoA?: "tarea" | "proyecto" | "cotizacion" | "cliente",
-    relacionadoId?: string,
-    tareasId?: string,
+    clientId: string,
+    filename: string,
+    dataUrl: string,
   ) => {
-    const normalizedTaskId = relatedTaskId.trim();
-    if (relacionadoA === "tarea" && relacionadoId?.trim() === normalizedTaskId) {
-      return true;
+    const upload = await subirPdfGeneradoConMetadata(
+      dataUrl,
+      filename,
+      buildFormalUploadMetadata("levantamiento_detallado", clientId, relatedTaskId),
+    );
+
+    const needsFallbackTaskSync = !alreadyRelatedToTask(
+      relatedTaskId,
+      upload.relacionadoA,
+      upload.relacionadoId,
+      upload.tareasId,
+    );
+
+    if (needsFallbackTaskSync) {
+      try {
+        const syncResponse = await agregarArchivos(relatedTaskId, [
+          {
+            nombre: filename,
+            tipo: "levantamiento_detallado",
+            url: upload.url,
+          },
+        ]);
+
+        if (!syncResponse.success) {
+          throw new Error("No se pudo registrar el levantamiento en la tarea.");
+        }
+      } catch (error) {
+        // ClienteArchivo es la fuente de verdad. Si el fallback legado falla, no bloqueamos el cierre.
+        console.warn("[levantamiento] fallback de sync en tarea omitido:", error);
+      }
     }
-    return tareasId?.trim() === normalizedTaskId;
+
+    return upload.url;
   };
 
   const handleFinishCita = async () => {
@@ -925,75 +1525,17 @@ export default function CotizadorPreliminarPage() {
     }
     const newPreliminar = buildPreliminarDataFromForm();
     const existingCount = getPreliminarList(activeCitaTask).length;
-    const preliminarPdfKey = createFormalPdfKey(activeCitaTaskId, existingCount);
-    const downloadFilename = `levantamiento-detallado-${(newPreliminar.client || activeCitaTask.project || "cliente")
-      .trim()
-      .replace(/\s+/g, "-")
-      .toLowerCase()}-${activeCitaTaskId}.pdf`;
-
-    // Dispara descarga inmediata al confirmar "Terminar cita".
-    downloadPreliminarPdf(newPreliminar, downloadFilename);
-
+    const preliminarPdfKey = createPreliminarSeguimientoPdfKey(activeCitaTaskId, existingCount);
+    const relatedTaskId = activeCitaTask.id?.trim() || activeCitaTaskId;
+    const filename = `levantamiento-detallado-${relatedTaskId}.pdf`;
     let dataUrl: string;
     try {
-      const pdf = buildPreliminarPdf(newPreliminar);
-      const blob = new Blob([pdf], { type: "application/pdf" });
-      dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-      });
+      dataUrl = await buildPreliminarPdfDataUrl(newPreliminar);
     } catch {
       setFinishError("No se pudo generar el PDF para seguimiento. Intenta de nuevo.");
       setIsFinishing(false);
       return;
     }
-
-    let levantamientoPdfUrl: string;
-    let clientId: string;
-    const relatedTaskId = activeCitaTask.sourceId?.trim() || activeCitaTask.id?.trim() || undefined;
-    if (!relatedTaskId) {
-      setFinishError("No se encontro id de tarea para registrar el archivo en backend.");
-      setIsFinishing(false);
-      return;
-    }
-    try {
-      clientId = getRequiredClientIdForFormalUpload(
-        activeCitaTask,
-        "levantamiento detallado",
-      );
-    } catch (error) {
-      setFinishError(error instanceof Error ? error.message : "No se encontro clienteId para el levantamiento.");
-      setIsFinishing(false);
-      return;
-    }
-
-    try {
-      const uploadInfo = await subirPdfGeneradoConMetadata(
-        dataUrl,
-        `levantamiento-detallado-${activeCitaTaskId}.pdf`,
-        buildFormalUploadMetadata("levantamiento_detallado", clientId, relatedTaskId),
-      );
-      levantamientoPdfUrl = uploadInfo.url;
-      if (!alreadyRelatedToTask(relatedTaskId, uploadInfo.relacionadoA, uploadInfo.relacionadoId, uploadInfo.tareasId)) {
-        try {
-          await syncLevantamientoArchivoEnTarea(
-            relatedTaskId,
-            `levantamiento-detallado-${activeCitaTaskId}.pdf`,
-            levantamientoPdfUrl,
-          );
-        } catch (error) {
-          // ClienteArchivo es la fuente de verdad. Si el fallback legado falla, no bloqueamos el cierre.
-          console.warn("[levantamiento] fallback de sync en tarea omitido:", error);
-        }
-      }
-    } catch {
-      setFinishError("No se pudo subir el levantamiento en backend. Intenta de nuevo.");
-      setIsFinishing(false);
-      return;
-    }
-
     try {
       await saveFormalPdf(preliminarPdfKey, dataUrl);
     } catch {
@@ -1001,7 +1543,31 @@ export default function CotizadorPreliminarPage() {
       setIsFinishing(false);
       return;
     }
-    const result = await savePreliminarInActiveTask(levantamientoPdfUrl);
+
+    let clientId: string;
+    try {
+      clientId = getRequiredClientIdForFormalUpload(activeCitaTask as unknown, "levantamiento detallado");
+    } catch (error) {
+      setFinishError(error instanceof Error ? error.message : "No se encontro clienteId para levantamiento detallado.");
+      setIsFinishing(false);
+      return;
+    }
+
+    try {
+      downloadPreliminarPdf(newPreliminar, filename);
+      const uploadedPdfUrl = await uploadLevantamientoArtifact(relatedTaskId, clientId, filename, dataUrl);
+      newPreliminar.levantamientoPdfUrl = uploadedPdfUrl;
+    } catch {
+      setFinishError("No se pudo subir o sincronizar el PDF de levantamiento. Intenta de nuevo.");
+      setIsFinishing(false);
+      return;
+    }
+
+    const fileLabel = `Levantamiento detallado  -  ${newPreliminar.projectType}.pdf`;
+    const result = savePreliminarAndGetNextTasks({
+      preliminarData: newPreliminar,
+      seguimientoPdf: { key: preliminarPdfKey, fileLabel, remoteUrl: newPreliminar.levantamientoPdfUrl },
+    });
     if (!result) {
       setIsFinishing(false);
       return;
@@ -1009,7 +1575,13 @@ export default function CotizadorPreliminarPage() {
 
     try {
       const latestTasks = await refresh();
-      const latestTask = latestTasks.find((task) => task.id === activeCitaTaskId) ?? activeCitaTask;
+      const latestTask = latestTasks.find((task) => task.id === activeCitaTaskId);
+      if (!latestTask) {
+        setFinishError("No se encontro la tarea activa para completar la cita.");
+        setIsFinishing(false);
+        return;
+      }
+
       await updateTask(latestTask, {
         stage: "disenos",
         status: "pendiente",
@@ -1019,9 +1591,9 @@ export default function CotizadorPreliminarPage() {
 
       runtimeStore.removeItem(activeCitaTaskStorageKey);
       setActiveCitaTaskId(null);
-      const returnUrl = runtimeStore.getItem(citaReturnUrlStorageKey) || getReturnRouteForLoggedUser();
+      const returnUrl = runtimeStore.getItem(citaReturnUrlStorageKey) || "/dashboard/empleado";
       runtimeStore.removeItem(citaReturnUrlStorageKey);
-      const safeNext = returnUrl.startsWith("/") ? returnUrl : getReturnRouteForLoggedUser();
+      const safeNext = returnUrl.startsWith("/") ? returnUrl : "/dashboard/empleado";
       router.replace(`/dashboard/levantamiento/finalizando?next=${encodeURIComponent(safeNext)}`);
     } catch {
       setFinishError("No se pudo completar la cita. Intenta de nuevo.");
@@ -1045,75 +1617,17 @@ export default function CotizadorPreliminarPage() {
     }
     const newPreliminar = buildPreliminarDataFromForm();
     const existingCount = getPreliminarList(activeCitaTask).length;
-    const preliminarPdfKey = createFormalPdfKey(activeCitaTaskId, existingCount);
-    const downloadFilename = `levantamiento-detallado-${(newPreliminar.client || activeCitaTask.project || "cliente")
-      .trim()
-      .replace(/\s+/g, "-")
-      .toLowerCase()}-${activeCitaTaskId}.pdf`;
-
-    // También descarga en el flujo "terminar y continuar".
-    downloadPreliminarPdf(newPreliminar, downloadFilename);
-
+    const preliminarPdfKey = createPreliminarSeguimientoPdfKey(activeCitaTaskId, existingCount);
+    const relatedTaskId = activeCitaTask.id?.trim() || activeCitaTaskId;
+    const filename = `levantamiento-detallado-${relatedTaskId}.pdf`;
     let dataUrl: string;
     try {
-      const pdf = buildPreliminarPdf(newPreliminar);
-      const blob = new Blob([pdf], { type: "application/pdf" });
-      dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-      });
+      dataUrl = await buildPreliminarPdfDataUrl(newPreliminar);
     } catch {
       setFinishError("No se pudo generar el PDF para seguimiento. Intenta de nuevo.");
       setIsFinishing(false);
       return;
     }
-
-    let levantamientoPdfUrl: string;
-    let clientId: string;
-    const relatedTaskId = activeCitaTask.sourceId?.trim() || activeCitaTask.id?.trim() || undefined;
-    if (!relatedTaskId) {
-      setFinishError("No se encontro id de tarea para registrar el archivo en backend.");
-      setIsFinishing(false);
-      return;
-    }
-    try {
-      clientId = getRequiredClientIdForFormalUpload(
-        activeCitaTask,
-        "levantamiento detallado",
-      );
-    } catch (error) {
-      setFinishError(error instanceof Error ? error.message : "No se encontro clienteId para el levantamiento.");
-      setIsFinishing(false);
-      return;
-    }
-
-    try {
-      const uploadInfo = await subirPdfGeneradoConMetadata(
-        dataUrl,
-        `levantamiento-detallado-${activeCitaTaskId}.pdf`,
-        buildFormalUploadMetadata("levantamiento_detallado", clientId, relatedTaskId),
-      );
-      levantamientoPdfUrl = uploadInfo.url;
-      if (!alreadyRelatedToTask(relatedTaskId, uploadInfo.relacionadoA, uploadInfo.relacionadoId, uploadInfo.tareasId)) {
-        try {
-          await syncLevantamientoArchivoEnTarea(
-            relatedTaskId,
-            `levantamiento-detallado-${activeCitaTaskId}.pdf`,
-            levantamientoPdfUrl,
-          );
-        } catch (error) {
-          // ClienteArchivo es la fuente de verdad. Si el fallback legado falla, no bloqueamos el cierre.
-          console.warn("[levantamiento] fallback de sync en tarea omitido:", error);
-        }
-      }
-    } catch {
-      setFinishError("No se pudo subir el levantamiento en backend. Intenta de nuevo.");
-      setIsFinishing(false);
-      return;
-    }
-
     try {
       await saveFormalPdf(preliminarPdfKey, dataUrl);
     } catch {
@@ -1121,118 +1635,214 @@ export default function CotizadorPreliminarPage() {
       setIsFinishing(false);
       return;
     }
-    const result = await savePreliminarInActiveTask(levantamientoPdfUrl);
-    if (!result) {
+
+    let clientId: string;
+    try {
+      clientId = getRequiredClientIdForFormalUpload(activeCitaTask as unknown, "levantamiento detallado");
+    } catch (error) {
+      setFinishError(error instanceof Error ? error.message : "No se encontro clienteId para levantamiento detallado.");
       setIsFinishing(false);
       return;
     }
 
-    setProjectType("Cocina");
+    try {
+      downloadPreliminarPdf(newPreliminar, filename);
+      const uploadedPdfUrl = await uploadLevantamientoArtifact(relatedTaskId, clientId, filename, dataUrl);
+      newPreliminar.levantamientoPdfUrl = uploadedPdfUrl;
+    } catch {
+      setFinishError("No se pudo subir o sincronizar el PDF de levantamiento. Intenta de nuevo.");
+      setIsFinishing(false);
+      return;
+    }
+
+    const fileLabel = `Levantamiento detallado  -  ${newPreliminar.projectType}.pdf`;
+    const result = savePreliminarAndGetNextTasks({
+      preliminarData: newPreliminar,
+      seguimientoPdf: { key: preliminarPdfKey, fileLabel, remoteUrl: newPreliminar.levantamientoPdfUrl },
+    });
+    if (!result) {
+      setIsFinishing(false);
+      return;
+    }
+    setProjectType(CATALOG_PROJECT_TYPES[0]);
     setLocation("");
     setDeliveryWeeksMin("");
     setDeliveryWeeksMax("");
-    setLargo("4.2");
-    setAlto("2.4");
-    setFondo("0.6");
-    setSelectedCubierta(materialCatalog.cubiertas[0].id);
-    setSelectedFrente(materialCatalog.frentes[0].id);
-    setSelectedHerraje(materialCatalog.herrajes[0].id);
-    setSelectedScenario("esencial");
+    setLargo("");
+    setAlto("");
+    setSelectedCubierta(materialCatalog.cubiertas[0]?.id ?? DEFAULT_MATERIAL_CATALOG.cubiertas[0].id);
+    setSelectedFrenteIds([
+      materialCatalog.frentes[0]?.id ?? DEFAULT_MATERIAL_CATALOG.frentes[0].id,
+    ]);
+    setSelectedHerraje(materialCatalog.herrajes[0]?.id ?? DEFAULT_MATERIAL_CATALOG.herrajes[0].id);
     setLevantamiento(defaultLevantamientoDetalle());
-    setWallPage(1);
+    setCurrentWallIndex(0);
     setWallSearch("");
     setApplianceStep(0);
     setApplianceSearch("");
-    setLightingPage(1);
+    setApplianceBrowseMode(true);
+    setLightingShowOtro(false);
+    setLightingBrowseMode(true);
+    setLightingFocusedId(null);
     setLightingSearch("");
     setIsFinishing(false);
   };
 
   const metrics = useMemo(() => {
-    const largoValue = Number.parseFloat(largo) || 0;
-    const altoValue = Number.parseFloat(alto) || 0;
-    const fondoValue = Number.parseFloat(fondo) || 0;
-    const base = Math.max(0, largoValue * 6500 + altoValue * 1800 + fondoValue * 1200);
-
+    const largoValue = Math.max(0, Number.parseFloat(largo) || 0);
     const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
-    const frente = materialCatalog.frentes.find((item) => item.id === selectedFrente);
     const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
-
-    const cubiertaMultiplier = cubierta?.multiplier ?? 1;
-    const frenteMultiplier = frente?.multiplier ?? 1;
-    const herrajeMultiplier = herraje?.multiplier ?? 1;
-    const multiplier = cubiertaMultiplier * frenteMultiplier * herrajeMultiplier;
-    const subtotal = base * multiplier;
-    const iva = subtotal * 0.16;
+    const tierC = (cubierta?.tier ?? "Estandar") as MaterialGama;
+    const tierH = (herraje?.tier ?? "Estandar") as MaterialGama;
+    const mats = levantamientoConfig.materiales;
+    const avgCubiertaByTier = getAveragePriceByTier(mats, "cubierta", tierC);
+    const avgHerrajeByTier = getAveragePriceByTier(mats, "herraje", tierH);
+    const priceCubierta = cubierta?.pricePerUnit ?? avgCubiertaByTier;
+    const priceHerraje = herraje?.pricePerUnit ?? avgHerrajeByTier;
+    const sumPrecioFrentePorM = selectedFrenteIds.reduce((acc, fid) => {
+      const f = materialCatalog.frentes.find((item) => item.id === fid);
+      const tierF = (f?.tier ?? "Estandar") as MaterialGama;
+      const avgFrenteByTier = getAveragePriceByTier(mats, "frente", tierF);
+      return acc + (f?.pricePerUnit ?? avgFrenteByTier);
+    }, 0);
+    const costoMateriales = largoValue * (priceCubierta + sumPrecioFrentePorM + priceHerraje);
+    const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
+    const precioEscenario =
+      levantamientoConfig.scenarioPrices[selectedScenario] ?? 5000;
+    const costoBase = largoValue * precioEscenario;
+    const subtotal = costoBase + costoMateriales + costoIluminacion;
+    const iva = subtotal * levantamientoConfig.ivaPercent;
     const total = subtotal + iva;
-    const min = subtotal * 0.92;
-    const max = subtotal * 1.08;
+    const m = levantamientoConfig.marginPercent;
+    const rangeMin = total * (1 - m);
+    const rangeMax = total * (1 + m);
 
     return {
-      base,
-      cubiertaMultiplier,
-      frenteMultiplier,
-      herrajeMultiplier,
+      largoValue,
+      costoBase,
+      costoMateriales,
+      costoIluminacion,
       subtotal,
       iva,
       total,
-      rangeLabel: `${formatCurrency(min)} - ${formatCurrency(max)}`,
+      rangeMin,
+      rangeMax,
+      rangeLabel: `${formatCurrency(rangeMin)} - ${formatCurrency(rangeMax)}`,
+      marginPercent: m,
     };
-  }, [alto, fondo, largo, selectedCubierta, selectedFrente, selectedHerraje]);
+  }, [
+    materialCatalog,
+    largo,
+    selectedCubierta,
+    selectedFrenteIds,
+    selectedHerraje,
+    levantamiento,
+    selectedScenario,
+    levantamientoConfig,
+  ]);
 
   const selectedSummary = useMemo(() => {
     const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
-    const frente = materialCatalog.frentes.find((item) => item.id === selectedFrente);
     const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
+    const frenteNames = selectedFrenteIds
+      .map((id) => materialCatalog.frentes.find((item) => item.id === id)?.name)
+      .filter(Boolean);
     const largoValue = Number.parseFloat(largo) || 0;
     return {
       meters: largoValue,
-      label: [cubierta?.name, frente?.name, herraje?.name].filter(Boolean).join(" / "),
+      label: [cubierta?.name, ...frenteNames, herraje?.name].filter(Boolean).join(" / "),
     };
-  }, [largo, selectedCubierta, selectedFrente, selectedHerraje]);
+  }, [materialCatalog, largo, selectedCubierta, selectedFrenteIds, selectedHerraje]);
 
   const scenarioOptions = useMemo(
     () => [
       {
         id: "esencial",
-        title: "Gama esencial",
+        title: "Estandar",
         subtitle: "Funcional y accesible",
-        multiplier: 0.92,
         image: "/images/cocina1.jpg",
       },
       {
         id: "tendencia",
-        title: "Gama tendencia",
+        title: "Tendencia",
         subtitle: "Balance moderno",
-        multiplier: 1.05,
         image: "/images/cocina6.jpg",
       },
       {
         id: "premium",
-        title: "Gama premium",
+        title: "Premium",
         subtitle: "Detalles superiores",
-        multiplier: 1.18,
         image: "/images/render3.jpg",
       },
     ],
     [],
   );
 
-  const selectedScenarioMultiplier = useMemo(() => {
-    return scenarioOptions.find((scenario) => scenario.id === selectedScenario)?.multiplier ?? 1;
-  }, [scenarioOptions, selectedScenario]);
+  const scenarioRangeLabel = metrics.rangeLabel;
 
-  const levantamientoScopeMultiplier = useMemo(
-    () => levantamientoDetalleScopeMultiplier(levantamiento),
-    [levantamiento],
-  );
+  /** Rango por tarjeta de escenario (mismo largo, materiales e iluminación; cambia solo $/m del escenario). */
+  const scenarioCardRanges = useMemo(() => {
+    const largoValue = Math.max(0, Number.parseFloat(largo) || 0);
+    const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
+    const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
+    const tierC = (cubierta?.tier ?? "Estandar") as MaterialGama;
+    const tierH = (herraje?.tier ?? "Estandar") as MaterialGama;
+    const mats = levantamientoConfig.materiales;
+    const avgCubiertaByTier = getAveragePriceByTier(mats, "cubierta", tierC);
+    const avgHerrajeByTier = getAveragePriceByTier(mats, "herraje", tierH);
+    const priceCubierta = cubierta?.pricePerUnit ?? avgCubiertaByTier;
+    const priceHerraje = herraje?.pricePerUnit ?? avgHerrajeByTier;
+    const sumPrecioFrentePorM = selectedFrenteIds.reduce((acc, fid) => {
+      const f = materialCatalog.frentes.find((item) => item.id === fid);
+      const tierF = (f?.tier ?? "Estandar") as MaterialGama;
+      const avgFrenteByTier = getAveragePriceByTier(mats, "frente", tierF);
+      return acc + (f?.pricePerUnit ?? avgFrenteByTier);
+    }, 0);
+    const costoMateriales =
+      largoValue *
+      (priceCubierta + sumPrecioFrentePorM + priceHerraje);
+    const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
+    const ivaP = levantamientoConfig.ivaPercent;
+    const m = levantamientoConfig.marginPercent;
+    const def = createDefaultLevantamientoConfig().scenarioPrices;
+    return scenarioOptions.map((s) => {
+      const costoBaseS = largoValue * (levantamientoConfig.scenarioPrices[s.id as keyof typeof def] ?? def.esencial);
+      const sub = costoBaseS + costoMateriales + costoIluminacion;
+      const tot = sub + sub * ivaP;
+      return { id: s.id, min: tot * (1 - m), max: tot * (1 + m) };
+    });
+  }, [
+    materialCatalog,
+    largo,
+    selectedCubierta,
+    selectedFrenteIds,
+    selectedHerraje,
+    levantamiento,
+    scenarioOptions,
+    levantamientoConfig,
+  ]);
 
-  const scenarioRangeLabel = useMemo(() => {
-    const scenarioSubtotal = metrics.subtotal * selectedScenarioMultiplier * levantamientoScopeMultiplier;
-    const min = scenarioSubtotal * 0.92;
-    const max = scenarioSubtotal * 1.08;
-    return `${formatCurrency(min)} - ${formatCurrency(max)}`;
-  }, [metrics.subtotal, selectedScenarioMultiplier, levantamientoScopeMultiplier]);
+  const materialTierAverages = useMemo(() => {
+    const m = levantamientoConfig.materiales;
+    const row = (c: "cubierta" | "frente" | "herraje") =>
+      ({
+        Estandar: getAveragePriceByTier(m, c, "Estandar"),
+        Tendencia: getAveragePriceByTier(m, c, "Tendencia"),
+        Premium: getAveragePriceByTier(m, c, "Premium"),
+      }) satisfies Record<MaterialOption["tier"], number>;
+    return {
+      cubiertas: row("cubierta"),
+      frentes: row("frente"),
+      herrajes: row("herraje"),
+    };
+  }, [levantamientoConfig.materiales]);
+
+  /** Auto-escenario según moda de gamas en showroom; el usuario puede corregir con las tarjetas (se respeta hasta el próximo cambio de material). */
+  useEffect(() => {
+    setSelectedScenario(
+      autoScenarioFromShowroom(materialCatalog, selectedCubierta, selectedFrenteIds, selectedHerraje),
+    );
+  }, [materialCatalog, selectedCubierta, selectedFrenteIds, selectedHerraje]);
 
   useEffect(() => {
     setPages({ cubiertas: 1, frentes: 1, herrajes: 1 });
@@ -1252,15 +1862,6 @@ export default function CotizadorPreliminarPage() {
   const currentApplianceItem =
     applianceStep < APPLIANCE_OTRO_STEP_INDEX ? APPLIANCE_ITEMS[applianceStep] : null;
 
-  const wallSearchNorm = wallSearch.trim().toLowerCase();
-  const filteredWallItems = useMemo(() => {
-    if (!wallSearchNorm) return null;
-    return WALL_ITEMS.filter((item) => {
-      const hay = `${item.label} ${item.hint ?? ""}`.toLowerCase();
-      return hay.includes(wallSearchNorm);
-    });
-  }, [wallSearchNorm]);
-
   const applianceSearchNorm = applianceSearch.trim().toLowerCase();
   const filteredApplianceMatches = useMemo(() => {
     if (!applianceSearchNorm) return null;
@@ -1279,6 +1880,115 @@ export default function CotizadorPreliminarPage() {
     });
   }, [lightingSearchNorm]);
 
+  const applianceCarouselRows = useMemo(() => {
+    const norm = applianceSearchNorm;
+    const matchesSearch = (item: ItemCatalogo) => {
+      if (!norm) return true;
+      const hay = `${item.label} ${item.hint ?? ""} ${item.categoria ?? ""}`.toLowerCase();
+      return hay.includes(norm);
+    };
+    if (norm) {
+      const entries = APPLIANCE_ITEMS.map((item, idx) => ({ item, idx })).filter(({ item }) =>
+        matchesSearch(item),
+      );
+      return entries.length ? [{ key: "busqueda", title: "Resultados de búsqueda", entries }] : [];
+    }
+    return APPLIANCE_CATEGORIAS.map((cat) => {
+      const entries = APPLIANCE_ITEMS.map((item, idx) => ({ item, idx })).filter(
+        ({ item }) => item.categoria === cat,
+      );
+      return { key: cat, title: cat, entries };
+    }).filter((row) => row.entries.length > 0);
+  }, [applianceSearchNorm]);
+
+  const applianceIndicesInCurrentCategory = useMemo(() => {
+    if (applianceStep >= APPLIANCE_OTRO_STEP_INDEX) return [] as number[];
+    const cat = APPLIANCE_ITEMS[applianceStep]?.categoria;
+    if (!cat) return [];
+    return APPLIANCE_ITEMS.map((item, i) => (item.categoria === cat ? i : -1)).filter((i) => i >= 0);
+  }, [applianceStep]);
+
+  useEffect(() => {
+    setLightingFocusedId(null);
+    setLightingBrowseMode(true);
+  }, [lightingSearch, lightingShowOtro]);
+
+  const lightingDetailItem = useMemo(() => {
+    if (!lightingFocusedId) return null;
+    return LIGHTING_ITEMS.find((i) => i.id === lightingFocusedId) ?? null;
+  }, [lightingFocusedId]);
+
+  const lightingModalNavIds = useMemo(() => {
+    if (!lightingFocusedId) return [] as string[];
+    if (lightingSearchNorm && filteredLightingItems && filteredLightingItems.length > 0) {
+      return filteredLightingItems.map((i) => i.id);
+    }
+    return LIGHTING_ITEMS.map((i) => i.id);
+  }, [lightingFocusedId, lightingSearchNorm, filteredLightingItems]);
+
+  const lightingRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (lightingFocusedId && !LIGHTING_ITEMS.some((i) => i.id === lightingFocusedId)) {
+      setLightingFocusedId(null);
+    }
+  }, [lightingFocusedId]);
+
+  useLayoutEffect(() => {
+    if (!applianceBrowseMode) {
+      applianceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [applianceBrowseMode]);
+
+  useLayoutEffect(() => {
+    if (!lightingBrowseMode && lightingFocusedId) {
+      lightingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [lightingBrowseMode, lightingFocusedId]);
+
+  useEffect(() => {
+    const n = levantamiento.wallSlotCount;
+    if (n <= 0) return;
+    setCurrentWallIndex((i) => (i >= n ? n - 1 : i));
+  }, [levantamiento.wallSlotCount]);
+
+  const allProjectWallsComplete = useMemo(() => {
+    const n = levantamiento.wallSlotCount;
+    if (!n) return false;
+    return Array.from({ length: n }, (_, i) => wallSlotIsComplete(levantamiento.wallMeasures[wallSlotKey(i)])).every(
+      Boolean,
+    );
+  }, [levantamiento.wallSlotCount, levantamiento.wallMeasures]);
+
+  const wallCatalogItems = useMemo(() => {
+    const norm = wallSearch.trim().toLowerCase();
+    if (!norm) return WALL_ITEMS;
+    return WALL_ITEMS.filter((item) => {
+      const hay = `${item.label} ${item.hint ?? ""}`.toLowerCase();
+      return hay.includes(norm);
+    });
+  }, [wallSearch]);
+
+  const goToNextPendingWallAfterSave = useCallback(() => {
+    const n = levantamiento.wallSlotCount;
+    const slot = levantamiento.wallMeasures[wallSlotKey(currentWallIndex)] ?? {};
+    if (!wallSlotIsComplete(slot)) {
+      window.alert(
+        "Completa el tipo de pared y las medidas de todas las cotas antes de guardar esta pared.",
+      );
+      return;
+    }
+    for (let step = 1; step <= n; step++) {
+      const j = (currentWallIndex + step) % n;
+      const s = levantamiento.wallMeasures[wallSlotKey(j)] ?? {};
+      if (!wallSlotIsComplete(s)) {
+        setCurrentWallIndex(j);
+        return;
+      }
+    }
+    document.getElementById("seccion-electrodomesticos")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [currentWallIndex, levantamiento.wallMeasures, levantamiento.wallSlotCount]);
+
   return (
     <main
       className={`min-h-screen bg-background px-4 py-10 text-primary ${activeCitaTask ? "pb-36 sm:pb-32" : "pb-10"}`}
@@ -1291,6 +2001,20 @@ export default function CotizadorPreliminarPage() {
             Estimación rápida para prospectos. No sustituye una cotización formal.
           </p>
         </header>
+
+        <div className="rounded-2xl border-2 border-accent bg-white p-4 shadow-md ring-1 ring-accent/20">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-primary">
+              ¿Precios del rango, escenarios o materiales por gama? Configúralos aquí (admin).
+            </p>
+            <Link
+              href="/dashboard/configuracion-levantamiento"
+              className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 sm:w-auto"
+            >
+              Abrir configuración de levantamiento
+            </Link>
+          </div>
+        </div>
 
         {activeCitaTask ? (
           <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4">
@@ -1314,19 +2038,25 @@ export default function CotizadorPreliminarPage() {
         ) : null}
 
         <SectionCard>
-          <div className="space-y-6">
+          <div className="space-y-4">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
               Sección A · Datos del proyecto
             </p>
-            <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-            <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-secondary">
                 Datos del proyecto
               </p>
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Cliente
+              <div className="mt-4 grid grid-cols-1 items-end gap-x-4 gap-y-5 md:grid-cols-12">
+                {/* Fila md: Cliente | Tipo | Ubicación (4+4+4) */}
+                <div className="col-span-12 md:col-span-4">
+                  <label
+                    htmlFor="levantamiento-cliente"
+                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                  >
+                    Cliente
+                  </label>
                   <input
+                    id="levantamiento-cliente"
                     ref={clientNameInputRef}
                     value={clientName}
                     onChange={(event) => {
@@ -1336,24 +2066,42 @@ export default function CotizadorPreliminarPage() {
                       setClientName(nextValue);
                     }}
                     placeholder="Nombre del cliente"
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                    className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                   />
-                </label>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Tipo de proyecto
-                  <select
-                    value={projectType}
-                    onChange={(event) => setProjectType(event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                </div>
+
+                <div className="col-span-12 flex flex-col md:col-span-4">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Tipo de proyecto
+                  </span>
+                  <div className="flex w-full gap-2">
+                    <div className="min-w-0 flex-1">
+                      <CatalogProjectTypeField
+                        value={projectType}
+                        onChange={(next) => {
+                          setProjectType(next);
+                          if (!isCocinasProjectTypeForConIsla(next)) {
+                            setLevantamiento((prev) => ({ ...prev, conIsla: "" }));
+                          }
+                        }}
+                        placeholder="Categoría..."
+                        innerRowClassName="flex w-full gap-2"
+                        buttonClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-white text-secondary shadow-sm transition hover:border-primary/30 hover:bg-primary/[0.04]"
+                        inputClassName="w-full min-w-0 rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="col-span-12 md:col-span-4">
+                  <label
+                    htmlFor="levantamiento-ubicacion"
+                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
                   >
-                    <option value="Cocina">Cocina</option>
-                    <option value="Closet">Closet</option>
-                    <option value="TV Unit">TV Unit</option>
-                  </select>
-                </label>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Ubicación
+                    Ubicación
+                  </label>
                   <input
+                    id="levantamiento-ubicacion"
                     ref={locationInputRef}
                     value={location}
                     onChange={(event) => {
@@ -1363,17 +2111,111 @@ export default function CotizadorPreliminarPage() {
                       setLocation(nextValue);
                     }}
                     placeholder="CDMX, GDL, MTY..."
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                    className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                   />
-                </label>
-                <div className="md:col-span-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                    Tiempo de entrega (Semanas aproximadas)
+                </div>
+
+                {/* Fila md: ¿Con isla? | Medidas | Tiempo (3+5+4) */}
+                {isCocinasProjectTypeForConIsla(projectType) ? (
+                  <div className="col-span-12 md:col-span-3">
+                    <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                      ¿Con isla?
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "si" }))}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                          levantamiento.conIsla === "si"
+                            ? "bg-[#8B1C1C] text-white shadow-sm"
+                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                        }`}
+                      >
+                        Sí
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "no" }))}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                          levantamiento.conIsla === "no"
+                            ? "bg-[#8B1C1C] text-white shadow-sm"
+                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                        }`}
+                      >
+                        No
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div
+                  className="col-span-12 md:col-span-5"
+                  role="group"
+                  aria-label="Medidas generales en metros"
+                >
+                  <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Medidas generales (m)
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-3">
-                    <label className="min-w-[100px] flex-1 text-[11px] font-semibold text-secondary">
-                      Mín. semanas
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label
+                        htmlFor="levantamiento-largo"
+                        className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                      >
+                        Largo
+                      </label>
                       <input
+                        id="levantamiento-largo"
+                        ref={largoInputRef}
+                        value={largo}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          lastEditedFieldRef.current = "largo";
+                          caretPositionsRef.current.largo = event.target.selectionStart ?? null;
+                          setLargo(nextValue);
+                        }}
+                        inputMode="decimal"
+                        className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="levantamiento-alto"
+                        className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                      >
+                        Alto
+                      </label>
+                      <input
+                        id="levantamiento-alto"
+                        ref={altoInputRef}
+                        value={alto}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          lastEditedFieldRef.current = "alto";
+                          caretPositionsRef.current.alto = event.target.selectionStart ?? null;
+                          setAlto(nextValue);
+                        }}
+                        inputMode="decimal"
+                        className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="col-span-12 md:col-span-4" role="group" aria-label="Tiempo de entrega en semanas">
+                  <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                    Tiempo de entrega (sem)
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label
+                        htmlFor="levantamiento-semanas-min"
+                        className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                      >
+                        Mín.
+                      </label>
+                      <input
+                        id="levantamiento-semanas-min"
                         ref={deliveryWeeksMinInputRef}
                         value={deliveryWeeksMin}
                         onChange={(event) => {
@@ -1386,12 +2228,18 @@ export default function CotizadorPreliminarPage() {
                         min={1}
                         step={1}
                         placeholder="ej. 8"
-                        className="mt-1 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                        className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                       />
-                    </label>
-                    <label className="min-w-[100px] flex-1 text-[11px] font-semibold text-secondary">
-                      Máx. semanas
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="levantamiento-semanas-max"
+                        className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-secondary/70"
+                      >
+                        Máx.
+                      </label>
                       <input
+                        id="levantamiento-semanas-max"
                         ref={deliveryWeeksMaxInputRef}
                         value={deliveryWeeksMax}
                         onChange={(event) => {
@@ -1404,77 +2252,30 @@ export default function CotizadorPreliminarPage() {
                         min={1}
                         step={1}
                         placeholder="ej. 9"
-                        className="mt-1 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
+                        className="w-full rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none"
                       />
-                    </label>
+                    </div>
                   </div>
+                </div>
+
+                <div className="col-span-12">
+                  <label
+                    htmlFor="levantamiento-comentarios-a"
+                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                  >
+                    Comentarios de esta sección
+                  </label>
+                  <textarea
+                    id="levantamiento-comentarios-a"
+                    value={levantamiento.sectionComments.a ?? ""}
+                    onChange={(e) => setSectionComment("a", e.target.value)}
+                    rows={3}
+                    placeholder="Notas del levantamiento (accesos, muros load-bearing, etc.)"
+                    className="w-full resize-y rounded-xl border border-primary/10 bg-white/90 px-3 py-2 text-sm outline-none placeholder:text-secondary/50"
+                  />
                 </div>
               </div>
             </div>
-
-            <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-                Medidas generales
-              </p>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Largo
-                  <input
-                    ref={largoInputRef}
-                    value={largo}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      lastEditedFieldRef.current = "largo";
-                      caretPositionsRef.current.largo = event.target.selectionStart ?? null;
-                      setLargo(nextValue);
-                    }}
-                    inputMode="decimal"
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Alto
-                  <input
-                    ref={altoInputRef}
-                    value={alto}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      lastEditedFieldRef.current = "alto";
-                      caretPositionsRef.current.alto = event.target.selectionStart ?? null;
-                      setAlto(nextValue);
-                    }}
-                    inputMode="decimal"
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Fondo
-                  <input
-                    ref={fondoInputRef}
-                    value={fondo}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      lastEditedFieldRef.current = "fondo";
-                      caretPositionsRef.current.fondo = event.target.selectionStart ?? null;
-                      setFondo(nextValue);
-                    }}
-                    inputMode="decimal"
-                    className="mt-2 w-full rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-              </div>
-            </div>
-            </div>
-            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-              Comentarios de esta sección
-              <textarea
-                value={levantamiento.sectionComments.a ?? ""}
-                onChange={(e) => setSectionComment("a", e.target.value)}
-                rows={3}
-                placeholder="Notas del levantamiento (accesos, muros load-bearing, etc.)"
-                className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none placeholder:text-secondary/50"
-              />
-            </label>
           </div>
         </SectionCard>
 
@@ -1485,8 +2286,16 @@ export default function CotizadorPreliminarPage() {
                 Sección B · Medidas de paredes
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Referencia visual por tipo de muro. Cada tipo muestra las medidas en metros que aplican a ese caso
-                (no solo tres campos genéricos). La página «Otro» cubre situaciones que no encajan en el catálogo.
+                Indica <strong className="font-semibold text-primary">cuántas paredes</strong> tiene el espacio y usa el{" "}
+                <strong className="font-semibold text-primary">croquis</strong> para elegir en cuál trabajas. Luego define
+                el tipo (recta, L, ventana, etc.) y las medidas; las{" "}
+                <strong className="font-semibold text-primary">cotas</strong> del tipo elegido coinciden con las letras del
+                formulario. En obras, "
+                <strong className="font-semibold text-primary">vano</strong>" es el{" "}
+                <strong className="font-semibold text-primary">hueco</strong> de puerta o ventana. Unidades en metros. Si
+                nada encaja en el catálogo, elige el tipo{" "}
+                <strong className="font-semibold text-primary">"Otro tipo de muro o situación especial"</strong> en esa
+                pared.
               </p>
               <Link
                 href="/dashboard/referencia-tipos-pared"
@@ -1495,186 +2304,290 @@ export default function CotizadorPreliminarPage() {
                 Ver catálogo de referencia (imágenes por tipo de muro)
               </Link>
             </div>
-            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-              Buscar tipo de muro
-              <span className="relative mt-2 block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary/70" />
-                <input
-                  value={wallSearch}
-                  onChange={(e) => setWallSearch(e.target.value)}
-                  placeholder="Ej. ventana, esquina, nicho…"
-                  className="w-full rounded-2xl border border-primary/10 bg-white py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-secondary/45"
-                />
-              </span>
-            </label>
-            {filteredWallItems !== null ? (
-              <div className="space-y-4">
-                {filteredWallItems.length === 0 ? (
-                  <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
-                    No hay tipos que coincidan. Prueba otra palabra o borra la búsqueda para ver las páginas.
-                  </div>
-                ) : (
-                  <div className="space-y-10">
-                    <p className="text-xs font-semibold text-secondary">
-                      {filteredWallItems.length} resultado{filteredWallItems.length === 1 ? "" : "s"}
-                    </p>
-                    {filteredWallItems.map((item) => {
-                      const m = levantamiento.wallMeasures[item.id] ?? emptyWallMeasuresForId(item.id);
-                      const wallFields = getWallMeasureFieldDefs(item.id);
-                      return (
-                        <div
-                          key={item.id}
-                          className="grid gap-4 border-b border-primary/5 pb-10 last:border-0 last:pb-0 lg:grid-cols-[minmax(0,240px)_1fr]"
-                        >
-                          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-primary/5">
-                            <WallTypeImage item={item} />
-                            <span className="absolute bottom-2 left-2 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                              {item.label}
+
+            {!levantamiento.wallSlotCount ? (
+              <div className="space-y-5">
+                <p className="text-lg font-semibold text-primary">¿Cuántas paredes tiene el proyecto?</p>
+                <p className="text-sm text-secondary">
+                  Elige un número para comenzar. Podrás cambiarlo después (se pedirá confirmación si ya había datos).
+                </p>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-3">
+                  {WALL_COUNT_OPTIONS.map((count) => {
+                    return (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => applyWallSlotCount(count)}
+                        className="group flex flex-col items-center justify-center gap-3 rounded-3xl border border-primary/10 bg-white p-6 text-center shadow-md transition duration-300 ease-out hover:-translate-y-0.5 hover:border-[#8B1C1C]/30 hover:shadow-lg"
+                      >
+                        <div className="flex h-24 w-full max-w-[8.5rem] items-center justify-center rounded-2xl bg-primary/[0.06] text-primary transition duration-300 group-hover:bg-primary/10">
+                          <WallCountIcon count={count} className="h-11 w-11 shrink-0" />
+                        </div>
+                        <div>
+                          <span className="text-3xl font-bold tabular-nums text-[#8B1C1C]">{count}</span>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                            {count === 1 ? "pared" : "paredes"}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              (() => {
+                const slotKeyCur = wallSlotKey(currentWallIndex);
+                const slotData = levantamiento.wallMeasures[slotKeyCur] ?? { [WALL_SLOT_META_TYPE]: "" };
+                const selectedTypeId = (slotData[WALL_SLOT_META_TYPE] ?? "").trim();
+                const item = selectedTypeId ? (WALL_ITEMS.find((w) => w.id === selectedTypeId) ?? null) : null;
+                const m = item
+                  ? { ...emptyWallMeasuresForId(item.id), ...slotData }
+                  : slotData;
+                const wallFields = item ? getWallMeasureFieldDefs(item.id) : [];
+                const canGoNext = currentWallIndex < levantamiento.wallSlotCount - 1;
+                return (
+                  <div className="space-y-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="rounded-full border border-primary/15 bg-primary/[0.05] px-4 py-2 text-sm font-semibold tabular-nums text-primary">
+                        Pared {currentWallIndex + 1} de {levantamiento.wallSlotCount}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const hasSlotData = Object.keys(levantamiento.wallMeasures).some(
+                            (k) => isWallSlotKey(k) && wallMeasuresTieneValor(levantamiento.wallMeasures[k]!),
+                          );
+                          if (!hasSlotData) {
+                            clearWallFlowAndSlots();
+                            return;
+                          }
+                          setConfirmChangeWallCountOpen(true);
+                        }}
+                        className="text-xs font-semibold text-secondary underline-offset-2 transition hover:text-[#8B1C1C] hover:underline"
+                      >
+                        Cambiar cantidad de paredes
+                      </button>
+                    </div>
+
+                    <InteractiveCroquis
+                      wallCount={levantamiento.wallSlotCount}
+                      activeWallIndex={currentWallIndex}
+                      onSelectWall={setCurrentWallIndex}
+                      isWallComplete={(i) =>
+                        wallSlotIsComplete(levantamiento.wallMeasures[wallSlotKey(i)] ?? {})
+                      }
+                    />
+
+                    <div
+                      key={`${currentWallIndex}-${selectedTypeId || "pick"}`}
+                      className="space-y-5 rounded-3xl border border-white/60 bg-white/80 p-5 shadow-lg backdrop-blur-md transition-opacity duration-300 ease-out"
+                    >
+                      <div>
+                        <p className="text-base font-semibold text-primary">
+                          Ingresando medidas para: Pared {currentWallIndex + 1}
+                        </p>
+                        <p className="mt-1 text-xs text-secondary">
+                          Usa el croquis para cambiar de pared. Aquí eliges el tipo (recta, ventana, etc.) y las cotas A,
+                          B, C... Unidades en metros.
+                        </p>
+                      </div>
+
+                      <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                        Referencia / Alias de esta pared (Opcional)
+                        <input
+                          type="text"
+                          value={slotData[WALL_SLOT_META_ALIAS] ?? ""}
+                          onChange={(e) => patchWallSlotAlias(currentWallIndex, e.target.value)}
+                          placeholder="Ej. Pared de la ventana, Pared del fondo, Muro del refri..."
+                          className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm font-normal normal-case tracking-normal outline-none placeholder:text-secondary/45"
+                        />
+                      </label>
+
+                      {!selectedTypeId || !item ? (
+                        <div className="space-y-4">
+                          <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                            Buscar tipo de muro
+                            <span className="relative mt-2 block">
+                              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary/70" />
+                              <input
+                                value={wallSearch}
+                                onChange={(e) => setWallSearch(e.target.value)}
+                                placeholder="Ej. ventana, puerta, dos ventanas..."
+                                className="w-full rounded-2xl border border-primary/10 bg-white py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-secondary/45"
+                              />
                             </span>
-                          </div>
-                          <div className="space-y-3">
-                            <p className="text-sm font-semibold text-primary">{item.label}</p>
-                            {item.hint ? <p className="text-xs text-secondary">{item.hint}</p> : null}
-                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                              {wallFields.map((field) => (
-                                <label
-                                  key={field.key}
-                                  className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary"
+                          </label>
+                          {wallCatalogItems.length === 0 ? (
+                            <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
+                              No hay tipos que coincidan. Prueba otra palabra o borra la búsqueda.
+                            </div>
+                          ) : (
+                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                              {wallCatalogItems.map((wItem) => (
+                                <button
+                                  key={wItem.id}
+                                  type="button"
+                                  onClick={() => setWallSlotType(currentWallIndex, wItem.id)}
+                                  className="overflow-hidden rounded-2xl border border-primary/10 bg-white text-left shadow-md transition hover:-translate-y-0.5 hover:border-[#8B1C1C]/35 hover:shadow-lg"
                                 >
-                                  {field.label} (m)
-                                  <input
-                                    value={m[field.key] ?? ""}
-                                    onChange={(e) => patchWallMeasure(item.id, field.key, e.target.value)}
-                                    inputMode="decimal"
-                                    className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                                  />
-                                </label>
+                                  <div className="relative aspect-[4/3] w-full bg-primary/[0.05]">
+                                    <WallTypeIcon wallId={wItem.id} className="h-full w-full" />
+                                    <span className="absolute bottom-2 left-2 z-[4] rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                                      {wItem.label}
+                                    </span>
+                                  </div>
+                                  <div className="p-3">
+                                    <p className="text-sm font-semibold text-primary">{wItem.label}</p>
+                                    {wItem.hint ? (
+                                      <p className="mt-1 line-clamp-2 text-xs text-secondary">{wItem.hint}</p>
+                                    ) : null}
+                                  </div>
+                                </button>
                               ))}
                             </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setWallSearch("")}
-                    className="rounded-full border border-primary/15 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
-                  >
-                    Limpiar búsqueda y ver por páginas
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWallSearch("");
-                      setWallPage(4);
-                    }}
-                    className="rounded-full border border-dashed border-primary/25 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
-                  >
-                    Ir a «Otro» (muro no listado)
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-            <div className="flex flex-wrap items-center gap-2">
-              {([1, 2, 3, 4] as const).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setWallPage(n)}
-                  className={`min-h-8 min-w-8 rounded-full px-3 text-xs font-semibold transition ${
-                    wallPage === n
-                      ? "bg-[#8B1C1C] text-white"
-                      : "border border-primary/10 bg-white text-secondary hover:border-primary/30"
-                  }`}
-                >
-                  {n === 4 ? "Otro" : `Página ${n}`}
-                </button>
-              ))}
-            </div>
-            {wallPage < 4 ? (
-              <div className="space-y-10">
-                {WALL_PAGE_INDICES[wallPage - 1].map((idx) => {
-                  const item = WALL_ITEMS[idx];
-                  const m = levantamiento.wallMeasures[item.id] ?? emptyWallMeasuresForId(item.id);
-                  const wallFields = getWallMeasureFieldDefs(item.id);
-                  return (
-                    <div
-                      key={item.id}
-                      className="grid gap-4 border-b border-primary/5 pb-10 last:border-0 last:pb-0 lg:grid-cols-[minmax(0,240px)_1fr]"
-                    >
-                      <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-primary/5">
-                        <WallTypeImage item={item} />
-                        <span className="absolute bottom-2 left-2 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                          {item.label}
-                        </span>
-                      </div>
-                      <div className="space-y-3">
-                        <p className="text-sm font-semibold text-primary">{item.label}</p>
-                        {item.hint ? <p className="text-xs text-secondary">{item.hint}</p> : null}
-                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                          {wallFields.map((field) => (
-                            <label
-                              key={field.key}
-                              className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary"
+                          )}
+                          {wallSearch.trim() ? (
+                            <button
+                              type="button"
+                              onClick={() => setWallSearch("")}
+                              className="text-xs font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
                             >
-                              {field.label} (m)
-                              <input
-                                value={m[field.key] ?? ""}
-                                onChange={(e) => patchWallMeasure(item.id, field.key, e.target.value)}
-                                inputMode="decimal"
-                                className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                              />
-                            </label>
-                          ))}
+                              Limpiar búsqueda
+                            </button>
+                          ) : null}
                         </div>
-                      </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-primary">{item.label}</p>
+                            <button
+                              type="button"
+                              onClick={() => clearWallSlotType(currentWallIndex)}
+                              className="text-xs font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
+                            >
+                              Cambiar tipo de pared
+                            </button>
+                          </div>
+                          {item.hint ? <p className="text-xs text-secondary">{item.hint}</p> : null}
+                          <div className="grid gap-4 lg:grid-cols-[60%_40%] lg:items-start lg:gap-6">
+                            <div className="relative aspect-[4/3] w-full min-w-0 lg:max-w-none lg:aspect-auto lg:h-[360px]">
+                              <div className="absolute inset-0 overflow-hidden rounded-2xl border border-primary/10 bg-primary/5">
+                                <WallTypeIcon wallId={item.id} className="h-full w-full" />
+                                <span className="absolute bottom-2 left-2 z-[4] rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                                  {item.label}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="min-w-0 space-y-2">
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {wallFields.map((field, fi) => (
+                                  <label
+                                    key={field.key}
+                                    className={`block text-[9px] font-semibold uppercase tracking-[0.1em] text-secondary ${
+                                      item.id === "pared-otro" && field.key === "descripcion" ? "sm:col-span-2" : ""
+                                    }`}
+                                  >
+                                    <span className="mb-0.5 block normal-case tracking-normal">
+                                      <span className="font-bold text-primary">{wallMeasureLetter(fi)}</span>
+                                      <span> · {field.label}</span>
+                                      {item.id === "pared-otro" && field.key === "descripcion" ? null : (
+                                        <span className="font-normal text-secondary/80"> (m)</span>
+                                      )}
+                                    </span>
+                                    {item.id === "pared-puerta" && field.key === "altura-techo" ? (
+                                      (() => {
+                                        const alt = parseMeasure(m["altura-techo"]);
+                                        const vano = parseMeasure(m["alto-vano"]);
+                                        if (alt === null || vano === null) return null;
+                                        const sobreVano = Math.max(0, alt - vano);
+                                        return (
+                                          <span className="mb-0.5 block text-[9px] font-semibold normal-case leading-snug text-secondary/90">
+                                            Sobre el vano (techo a alto vano):{" "}
+                                            <span className="font-bold text-primary">{sobreVano.toFixed(2)} m</span>
+                                          </span>
+                                        );
+                                      })()
+                                    ) : null}
+                                    {item.id === "pared-ventana" && field.key === "altura-techo" ? (
+                                      (() => {
+                                        const alt = parseMeasure(m["altura-techo"]);
+                                        const vano = parseMeasure(m["alto-vano"]);
+                                        const antepecho = parseMeasure(m["antepecho"]);
+                                        if (alt === null || vano === null || antepecho === null) return null;
+                                        const sobreVano = Math.max(0, alt - (antepecho + vano));
+                                        return (
+                                          <span className="mb-0.5 block text-[9px] font-semibold normal-case leading-snug text-secondary/90">
+                                            Sobre el vano (techo a (antepecho + alto vano)):{" "}
+                                            <span className="font-bold text-primary">{sobreVano.toFixed(2)} m</span>
+                                          </span>
+                                        );
+                                      })()
+                                    ) : null}
+                                    {item.id === "pared-otro" && field.key === "descripcion" ? (
+                                      <textarea
+                                        value={m[field.key] ?? ""}
+                                        onChange={(e) => patchWallSlotField(currentWallIndex, field.key, e.target.value)}
+                                        rows={3}
+                                        className="mt-1 w-full resize-y rounded-xl border border-primary/10 bg-white px-2.5 py-1.5 text-sm font-normal outline-none placeholder:text-secondary/45"
+                                      />
+                                    ) : (
+                                      <input
+                                        value={m[field.key] ?? ""}
+                                        onChange={(e) => patchWallSlotField(currentWallIndex, field.key, e.target.value)}
+                                        inputMode="decimal"
+                                        className="mt-1 w-full rounded-xl border border-primary/10 bg-white px-2.5 py-1.5 text-sm outline-none"
+                                      />
+                                    )}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={goToNextPendingWallAfterSave}
+                            className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-700"
+                          >
+                            {allProjectWallsComplete
+                              ? "Listo: todas las paredes completas  -  ir a la siguiente sección"
+                              : "Guardar pared y pasar a la siguiente pendiente"}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
-                <p className="text-sm font-semibold text-primary">Otro tipo de muro o situación especial</p>
-                <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Descripción
-                  <textarea
-                    value={levantamiento.wallOtro.descripcion}
-                    onChange={(e) => patchOtro("wallOtro", "descripcion", e.target.value)}
-                    rows={3}
-                    className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {(["ancho", "alto", "fondo"] as const).map((field) => (
-                    <label
-                      key={field}
-                      className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
-                    >
-                      {field} (m)
-                      <input
-                        value={levantamiento.wallOtro[field]}
-                        onChange={(e) => patchOtro("wallOtro", field, e.target.value)}
-                        inputMode="decimal"
-                        className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
+
+                    <div className="flex flex-wrap items-center gap-2 border-t border-primary/10 pt-4">
+                      <button
+                        type="button"
+                        disabled={currentWallIndex <= 0}
+                        onClick={() => setCurrentWallIndex((i) => Math.max(0, i - 1))}
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-white px-4 py-2 text-xs font-semibold text-primary transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <ChevronLeft className="h-4 w-4 shrink-0" />
+                        Pared anterior
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canGoNext}
+                        onClick={() => setCurrentWallIndex((i) => i + 1)}
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-white px-4 py-2 text-xs font-semibold text-primary transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Siguiente pared
+                        <ChevronRight className="h-4 w-4 shrink-0" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()
             )}
-              </>
-            )}
+
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
               <textarea
                 value={levantamiento.sectionComments.b ?? ""}
                 onChange={(e) => setSectionComment("b", e.target.value)}
                 rows={3}
-                placeholder="Detalles adicionales sobre muros…"
+                placeholder="Detalles adicionales sobre muros..."
                 className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none placeholder:text-secondary/50"
               />
             </label>
@@ -1682,214 +2595,352 @@ export default function CotizadorPreliminarPage() {
         </SectionCard>
 
         <SectionCard>
-          <div className="space-y-6">
+          <div
+            id="seccion-electrodomesticos"
+            ref={applianceSectionRef}
+            className="scroll-mt-6 space-y-6"
+          >
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
                 Sección C · Electrodomésticos
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Un electrodoméstico por pantalla (orden: microondas → estufas → refrigeradores → parrillas) y al final
-                «Otro». Usa los accesos por categoría o anterior / siguiente. Medidas en metros.
+                Pósters grandes (2:3); el nombre va en la parte baja de la foto. Clic abre el detalle en la página.
+                Indica si el ítem entra al PDF; las medidas en metros son útiles pero opcionales. Incluye filas por
+                microondas, estufa, refrigeración, parrilla,{" "}
+                <span className="font-medium text-primary/90">tarjas</span>,{" "}
+                <span className="font-medium text-primary/90">campanas</span> y una fila{" "}
+                <span className="font-medium text-primary/90">Otros</span> (cafetera, lavavajillas, freidora de aire,
+                horno de gas, tostadora, dispensador de agua, enfriador de vinos, tarja extra).
               </p>
             </div>
-            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-              Buscar electrodoméstico
-              <span className="relative mt-2 block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary/70" />
-                <input
-                  value={applianceSearch}
-                  onChange={(e) => setApplianceSearch(e.target.value)}
-                  placeholder="Nombre, categoría o palabra del tipo…"
-                  className="w-full rounded-2xl border border-primary/10 bg-white py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-secondary/45"
-                />
-              </span>
-            </label>
-            {filteredApplianceMatches !== null && filteredApplianceMatches.length > 0 ? (
-              <div className="rounded-2xl border border-primary/10 bg-primary/[0.04] p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Resultados ({filteredApplianceMatches.length}) · clic para abrir
-                </p>
-                <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">
-                  {filteredApplianceMatches.map(({ item, idx }) => {
-                    const isCurrent = applianceStep === idx && !applianceStepMeta.isOtro;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setApplianceStep(idx)}
-                        className={`max-w-full truncate rounded-full px-3 py-1.5 text-left text-xs font-semibold transition ${
-                          isCurrent
-                            ? "bg-[#8B1C1C] text-white"
-                            : "border border-primary/15 bg-white text-primary hover:border-primary/35"
-                        }`}
-                        title={`${item.categoria ?? ""} — ${item.label}`}
-                      >
-                        <span className="text-secondary/80">{item.categoria ?? ""}: </span>
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
+            {!applianceBrowseMode ? (
+              <div className="space-y-5">
                 <button
                   type="button"
-                  onClick={() => setApplianceSearch("")}
-                  className="mt-3 text-xs font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
+                  onClick={() => setApplianceBrowseMode(true)}
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
                 >
-                  Limpiar búsqueda
+                  <ChevronLeft className="h-4 w-4 shrink-0" />
+                  Volver al catálogo
                 </button>
-              </div>
-            ) : filteredApplianceMatches !== null && filteredApplianceMatches.length === 0 ? (
-              <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
-                Sin coincidencias. Prueba otro término o borra el texto del buscador.
-              </div>
-            ) : null}
-            <div className="space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">Ir a categoría</p>
-              <div className="flex flex-wrap gap-2">
-                {APPLIANCE_CATEGORIAS.map((cat) => {
-                  const first = applianceFirstIndexForCategory(cat);
-                  const isActive = !applianceStepMeta.isOtro && currentApplianceItem?.categoria === cat;
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setApplianceStep(first)}
-                      className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                        isActive
-                          ? "bg-[#8B1C1C] text-white"
-                          : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={() => setApplianceStep(APPLIANCE_OTRO_STEP_INDEX)}
-                  className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                    applianceStepMeta.isOtro
-                      ? "bg-[#8B1C1C] text-white"
-                      : "border border-dashed border-primary/25 bg-white text-secondary hover:border-primary/35"
-                  }`}
-                >
-                  Otro
-                </button>
-              </div>
-            </div>
-            <div className="relative z-10 flex flex-col gap-4 rounded-2xl border border-primary/10 bg-white/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                {applianceStepMeta.isOtro ? (
-                  <p className="text-sm font-semibold text-primary">Otro electrodoméstico</p>
-                ) : (
-                  <p className="text-sm font-semibold text-primary">
-                    {applianceStepMeta.progress.categoria} · {applianceStepMeta.progress.indexInCategory} de{" "}
-                    {applianceStepMeta.progress.totalInCategory}
-                  </p>
-                )}
-                <p className="mt-1 text-xs text-secondary">
-                  Paso {applianceStep + 1} de {APPLIANCE_STEPS_TOTAL} · Dentro de la categoría usa anterior / siguiente
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={applianceStep <= 0}
-                  onClick={() => setApplianceStep((s) => Math.max(0, s - 1))}
-                  className="inline-flex h-10 items-center gap-1 rounded-full border border-primary/15 bg-white px-3 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <ChevronLeft className="h-5 w-5 shrink-0" />
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  disabled={applianceStep >= APPLIANCE_OTRO_STEP_INDEX}
-                  onClick={() => setApplianceStep((s) => Math.min(APPLIANCE_OTRO_STEP_INDEX, s + 1))}
-                  className="inline-flex h-10 items-center gap-1 rounded-full border border-primary/15 bg-white px-3 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Siguiente
-                  <ChevronRight className="h-5 w-5 shrink-0" />
-                </button>
-              </div>
-            </div>
-            {currentApplianceItem ? (
-              <div className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
-                <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
-                  <ApplianceTypeImage item={currentApplianceItem} alt="" />
-                  <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
-                    {currentApplianceItem.categoria ?? "Electrodoméstico"}
-                  </span>
-                  <span className="pointer-events-none absolute bottom-2 left-2 right-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold leading-snug text-white">
-                    {currentApplianceItem.label}
-                  </span>
-                </div>
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8B1C1C]">
-                      {currentApplianceItem.categoria}
-                    </p>
-                    <p className="text-base font-semibold text-primary">{currentApplianceItem.label}</p>
-                    {currentApplianceItem.hint ? (
-                      <p className="mt-2 text-sm text-secondary">{currentApplianceItem.hint}</p>
-                    ) : null}
+                {currentApplianceItem ? (
+                  <div className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
+                    <div className="relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0">
+                      <ApplianceTypeImage
+                        item={currentApplianceItem}
+                        alt=""
+                        className="absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
+                      />
+                      <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
+                        {currentApplianceItem.categoria ?? "Electrodoméstico"}
+                      </span>
+                      <span className="pointer-events-none absolute bottom-2 left-2 right-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold leading-snug text-white">
+                        {currentApplianceItem.label}
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8B1C1C]">
+                          {currentApplianceItem.categoria}
+                        </p>
+                        <p className="text-base font-semibold text-primary">{currentApplianceItem.label}</p>
+                        {currentApplianceItem.hint ? (
+                          <p className="mt-2 text-sm text-secondary">{currentApplianceItem.hint}</p>
+                        ) : null}
+                      </div>
+                      <label className="flex cursor-pointer items-center gap-2.5 rounded-2xl border border-primary/10 bg-primary/[0.04] px-3 py-2.5 text-sm text-primary">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 shrink-0 rounded border-primary/30 accent-[#8B1C1C]"
+                          checked={levantamiento.applianceDocumentIds.includes(currentApplianceItem.id)}
+                          onChange={(e) => setApplianceInDocument(currentApplianceItem.id, e.target.checked)}
+                        />
+                        <span>Seleccionar (medidas opcionales)</span>
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        {(["ancho", "alto", "fondo"] as const).map((field) => {
+                          const m =
+                            levantamiento.applianceMeasures[currentApplianceItem.id] ?? {
+                              ancho: "",
+                              alto: "",
+                              fondo: "",
+                            };
+                          return (
+                            <label
+                              key={field}
+                              className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                            >
+                              {field} (m)
+                              <input
+                                value={m[field]}
+                                onChange={(e) =>
+                                  patchMedidasMap("applianceMeasures", currentApplianceItem.id, field, e.target.value)
+                                }
+                                inputMode="decimal"
+                                className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {applianceIndicesInCurrentCategory.length > 1 ? (
+                        <div className="flex flex-wrap gap-2 border-t border-primary/10 pt-4">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const pos = applianceIndicesInCurrentCategory.indexOf(applianceStep);
+                              if (pos > 0)
+                                openApplianceDetailByIndex(applianceIndicesInCurrentCategory[pos - 1]!);
+                            }}
+                            disabled={applianceIndicesInCurrentCategory.indexOf(applianceStep) <= 0}
+                            className="inline-flex items-center gap-1 rounded-full border border-primary/15 px-3 py-2 text-xs font-semibold text-primary disabled:opacity-40"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                            Anterior en categoría
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const pos = applianceIndicesInCurrentCategory.indexOf(applianceStep);
+                              const list = applianceIndicesInCurrentCategory;
+                              if (pos < list.length - 1) openApplianceDetailByIndex(list[pos + 1]!);
+                            }}
+                            disabled={
+                              applianceIndicesInCurrentCategory.indexOf(applianceStep) >=
+                              applianceIndicesInCurrentCategory.length - 1
+                            }
+                            className="inline-flex items-center gap-1 rounded-full border border-primary/15 px-3 py-2 text-xs font-semibold text-primary disabled:opacity-40"
+                          >
+                            Siguiente en categoría
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {(["ancho", "alto", "fondo"] as const).map((field) => {
-                      const m =
-                        levantamiento.applianceMeasures[currentApplianceItem.id] ?? {
-                          ancho: "",
-                          alto: "",
-                          fondo: "",
-                        };
-                      return (
+                ) : (
+                  <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
+                    <p className="text-sm font-semibold text-primary">Otro electrodoméstico</p>
+                    <label className="flex cursor-pointer items-center gap-2.5 rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm text-primary">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 shrink-0 rounded border-primary/30 accent-[#8B1C1C]"
+                        checked={levantamiento.applianceOtroInDocument}
+                        onChange={(e) =>
+                          setLevantamiento((prev) => ({ ...prev, applianceOtroInDocument: e.target.checked }))
+                        }
+                      />
+                      <span>Seleccionar (medidas opcionales)</span>
+                    </label>
+                    <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                      Descripción
+                      <textarea
+                        value={levantamiento.applianceOtro.descripcion}
+                        onChange={(e) => patchOtro("applianceOtro", "descripcion", e.target.value)}
+                        rows={3}
+                        className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                      />
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {(["ancho", "alto", "fondo"] as const).map((field) => (
                         <label
                           key={field}
                           className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
                         >
                           {field} (m)
                           <input
-                            value={m[field]}
-                            onChange={(e) =>
-                              patchMedidasMap("applianceMeasures", currentApplianceItem.id, field, e.target.value)
-                            }
+                            value={levantamiento.applianceOtro[field]}
+                            onChange={(e) => patchOtro("applianceOtro", field, e.target.value)}
                             inputMode="decimal"
                             className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
                           />
                         </label>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             ) : (
-              <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
-                <p className="text-sm font-semibold text-primary">Otro electrodoméstico</p>
+              <>
                 <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                  Descripción
-                  <textarea
-                    value={levantamiento.applianceOtro.descripcion}
-                    onChange={(e) => patchOtro("applianceOtro", "descripcion", e.target.value)}
-                    rows={3}
-                    className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                  />
+                  Buscar electrodoméstico
+                  <span className="relative mt-2 block">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary/70" />
+                    <input
+                      value={applianceSearch}
+                      onChange={(e) => setApplianceSearch(e.target.value)}
+                      placeholder="Nombre, categoría o palabra del tipo..."
+                      className="w-full rounded-2xl border border-primary/10 bg-white py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-secondary/45"
+                    />
+                  </span>
                 </label>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {(["ancho", "alto", "fondo"] as const).map((field) => (
-                    <label
-                      key={field}
-                      className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                {filteredApplianceMatches !== null && filteredApplianceMatches.length > 0 ? (
+                  <div className="rounded-2xl border border-primary/10 bg-primary/[0.04] p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                      Resultados ({filteredApplianceMatches.length}) · clic para ir al detalle
+                    </p>
+                    <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">
+                      {filteredApplianceMatches.map(({ item, idx }) => {
+                        const isCurrent = applianceStep === idx && !applianceStepMeta.isOtro;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => openApplianceDetailByIndex(idx)}
+                            className={`max-w-full truncate rounded-full px-3 py-1.5 text-left text-xs font-semibold transition ${
+                              isCurrent
+                                ? "bg-[#8B1C1C] text-white"
+                                : "border border-primary/15 bg-white text-primary hover:border-primary/35"
+                            }`}
+                            title={`${item.categoria ?? ""}  -  ${item.label}`}
+                          >
+                            <span className="text-secondary/80">{item.categoria ?? ""}: </span>
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setApplianceSearch("")}
+                      className="mt-3 text-xs font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
                     >
-                      {field} (m)
-                      <input
-                        value={levantamiento.applianceOtro[field]}
-                        onChange={(e) => patchOtro("applianceOtro", field, e.target.value)}
-                        inputMode="decimal"
-                        className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
+                      Limpiar búsqueda
+                    </button>
+                  </div>
+                ) : filteredApplianceMatches !== null && filteredApplianceMatches.length === 0 ? (
+                  <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
+                    Sin coincidencias. Prueba otro término o borra el texto del buscador.
+                  </div>
+                ) : null}
+                {!applianceSearchNorm && applianceCarouselRows.length > 0 ? (
+                  <div className="space-y-8">
+                    {applianceCarouselRows.map((row) => (
+                      <div key={row.key} className={streamRowShell}>
+                        <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                          <div>
+                            <p className={streamRowHeading}>{row.title}</p>
+                            <p className={streamRowHint}>Electrodomésticos</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const el = applianceRowRefs.current[row.key];
+                              if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+                            }}
+                            className={streamVerTodosClass}
+                          >
+                            Ver todos
+                          </button>
+                        </div>
+                        <div
+                          ref={(el) => {
+                            applianceRowRefs.current[row.key] = el;
+                          }}
+                          className={streamScrollClass}
+                        >
+                          {row.entries.map(({ item, idx }, rank) => (
+                            <div key={item.id} className="flex shrink-0 items-end gap-1">
+                              <span className={streamRankClass} aria-hidden>
+                                {rank + 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => openApplianceDetailByIndex(idx)}
+                                className="text-left"
+                              >
+                                <div className={streamPosterClass(applianceStep === idx)}>
+                                  <ApplianceTypeImage
+                                    item={item}
+                                    alt=""
+                                    className={streamCatalogThumbImageClass}
+                                  />
+                                  <div className={streamPosterTitleOverlay}>
+                                    <p className={streamPosterLabelClass}>{item.label}</p>
+                                  </div>
+                                </div>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <div className={streamRowShell}>
+                      <div className="mb-4">
+                        <p className={streamRowHeading}>Otro</p>
+                        <p className={streamRowHint}>No listado en catálogo</p>
+                      </div>
+                      <div className={streamScrollClass}>
+                        <div className="flex shrink-0 items-end gap-1">
+                          <span className={`${streamRankClass} pb-2 font-semibold text-zinc-500`} aria-hidden title="Otro">
+                            +
+                          </span>
+                          <button type="button" onClick={openApplianceOtroDetail} className="text-left">
+                            <div
+                              className={`${streamPosterClass(false)} flex flex-col items-center justify-end border-2 border-dashed border-white/25 bg-zinc-900/80 pb-3 pt-10`}
+                            >
+                              <span className="px-2 text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-300">
+                                Otro
+                              </span>
+                              <span className="mt-1 px-2 text-center text-xs text-zinc-500">No en catálogo</span>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : applianceSearchNorm && applianceCarouselRows.length > 0 ? (
+                  <div className={streamRowShell}>
+                    <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                      <div>
+                        <p className={streamRowHeading}>Resultados de búsqueda</p>
+                        <p className={streamRowHint}>Electrodomésticos</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = applianceRowRefs.current.busqueda;
+                          if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+                        }}
+                        className={streamVerTodosClass}
+                      >
+                        Ver todos
+                      </button>
+                    </div>
+                    <div
+                      ref={(el) => {
+                        applianceRowRefs.current.busqueda = el;
+                      }}
+                      className={streamScrollClass}
+                    >
+                      {applianceCarouselRows[0]?.entries.map(({ item, idx }, rank) => (
+                        <div key={item.id} className="flex shrink-0 items-end gap-1">
+                          <span className={streamRankClass} aria-hidden>
+                            {rank + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openApplianceDetailByIndex(idx)}
+                            className="text-left"
+                          >
+                            <div className={streamPosterClass(applianceStep === idx)}>
+                              <ApplianceTypeImage
+                                item={item}
+                                alt=""
+                                className={streamCatalogThumbImageClass}
+                              />
+                              <div className={streamPosterTitleOverlay}>
+                                <p className={streamPosterLabelClass}>{item.label}</p>
+                              </div>
+                            </div>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
             )}
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
@@ -1897,7 +2948,7 @@ export default function CotizadorPreliminarPage() {
                 value={levantamiento.sectionComments.c ?? ""}
                 onChange={(e) => setSectionComment("c", e.target.value)}
                 rows={3}
-                placeholder="Marcas, modelos, voltajes…"
+                placeholder="Marcas, modelos, voltajes..."
                 className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none placeholder:text-secondary/50"
               />
             </label>
@@ -1912,6 +2963,11 @@ export default function CotizadorPreliminarPage() {
               </p>
               <h2 className="mt-2 text-2xl font-semibold">Cubiertas / frentes / herrajes</h2>
               <p className="mt-2 text-sm text-secondary">Personaliza el look con el catálogo digital.</p>
+              {materialCatalogError ? (
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                  {materialCatalogError}
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-col gap-3 rounded-2xl border border-primary/10 bg-white/90 p-4 md:flex-row md:items-center md:justify-between">
               <div className="flex-1">
@@ -1923,7 +2979,7 @@ export default function CotizadorPreliminarPage() {
                 />
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-semibold">
-                {(["Todos", "Estandar", "Premium", "Lujo"] as const).map((tier) => (
+                {(["Todos", "Estandar", "Tendencia", "Premium"] as const).map((tier) => (
                   <button
                     key={tier}
                     type="button"
@@ -1947,23 +3003,24 @@ export default function CotizadorPreliminarPage() {
               page={pages.cubiertas}
               onPageChange={(page) => setPages((prev) => ({ ...prev, cubiertas: page }))}
               category="cubiertas"
-              basePrice={metrics.base}
-              contextMultiplier={metrics.frenteMultiplier * metrics.herrajeMultiplier}
+              largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
               tierFilter={tierFilter}
+              tierPriceByTier={materialTierAverages.cubiertas}
             />
             <MaterialGrid
               title="Frentes / Material base"
               options={materialCatalog.frentes}
-              selectedId={selectedFrente}
-              onSelect={setSelectedFrente}
+              multiSelect
+              selectedIds={selectedFrenteIds}
+              onToggle={toggleFrente}
               page={pages.frentes}
               onPageChange={(page) => setPages((prev) => ({ ...prev, frentes: page }))}
               category="frentes"
-              basePrice={metrics.base}
-              contextMultiplier={metrics.cubiertaMultiplier * metrics.herrajeMultiplier}
+              largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
               tierFilter={tierFilter}
+              tierPriceByTier={materialTierAverages.frentes}
             />
             <MaterialGrid
               title="Herrajes"
@@ -1973,10 +3030,10 @@ export default function CotizadorPreliminarPage() {
               page={pages.herrajes}
               onPageChange={(page) => setPages((prev) => ({ ...prev, herrajes: page }))}
               category="herrajes"
-              basePrice={metrics.base}
-              contextMultiplier={metrics.cubiertaMultiplier * metrics.frenteMultiplier}
+              largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
               tierFilter={tierFilter}
+              tierPriceByTier={materialTierAverages.herrajes}
             />
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
@@ -1992,13 +3049,15 @@ export default function CotizadorPreliminarPage() {
         </SectionCard>
 
         <SectionCard>
-          <div className="space-y-6">
+          <div ref={lightingSectionRef} className="scroll-mt-6 space-y-6">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
                 Sección E · Iluminación
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Ejemplos de luminarios para maquetar el levantamiento; la lista definitiva la confirma la empresa.
+                Pósters grandes; título sobre la imagen. Clic en el póster para elegir o quitar luminarios (puedes
+                marcar varios). "Medidas opcionales" abre el detalle si necesitas anotar medidas. La lista definitiva la
+                confirma la empresa.
               </p>
             </div>
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
@@ -2008,59 +3067,265 @@ export default function CotizadorPreliminarPage() {
                 <input
                   value={lightingSearch}
                   onChange={(e) => setLightingSearch(e.target.value)}
-                  placeholder="Ej. LED, spot, colgante, indirecta…"
+                  placeholder="Ej. LED, spot, colgante, indirecta..."
                   className="w-full rounded-2xl border border-primary/10 bg-white py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-secondary/45"
                 />
               </span>
             </label>
-            {filteredLightingItems !== null ? (
+            {lightingShowOtro ? (
+              <div className="space-y-4">
+                <button
+                  type="button"
+                  onClick={() => setLightingShowOtro(false)}
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0" />
+                  Volver al catálogo
+                </button>
+                <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
+                  <p className="text-sm font-semibold text-primary">Otro luminario o esquema</p>
+                  <label className="flex cursor-pointer items-center gap-2.5 rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm text-primary">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 shrink-0 rounded border-primary/30 accent-[#8B1C1C]"
+                      checked={levantamiento.lightingOtroInDocument}
+                      onChange={(e) =>
+                        setLevantamiento((prev) => ({ ...prev, lightingOtroInDocument: e.target.checked }))
+                      }
+                    />
+                    <span>Seleccionar (medidas opcionales)</span>
+                  </label>
+                  <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Descripción
+                    <textarea
+                      value={levantamiento.lightingOtro.descripcion}
+                      onChange={(e) => patchOtro("lightingOtro", "descripcion", e.target.value)}
+                      rows={3}
+                      className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {(["ancho", "alto", "fondo"] as const).map((field) => (
+                      <label
+                        key={field}
+                        className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                      >
+                        {field} (m)
+                        <input
+                          value={levantamiento.lightingOtro[field]}
+                          onChange={(e) => patchOtro("lightingOtro", field, e.target.value)}
+                          inputMode="decimal"
+                          className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+                    Precio estimado (MXN, cotización)
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      placeholder="Opcional"
+                      value={
+                        levantamiento.lightingOtro.precioEstimado == null ||
+                        levantamiento.lightingOtro.precioEstimado === 0
+                          ? ""
+                          : String(levantamiento.lightingOtro.precioEstimado)
+                      }
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        if (raw === "") {
+                          setLevantamiento((prev) => ({
+                            ...prev,
+                            lightingOtro: { ...prev.lightingOtro, precioEstimado: undefined },
+                          }));
+                          return;
+                        }
+                        const n = Number.parseFloat(raw.replace(",", "."));
+                        if (!Number.isFinite(n)) return;
+                        setLevantamiento((prev) => ({
+                          ...prev,
+                          lightingOtro: {
+                            ...prev.lightingOtro,
+                            precioEstimado: Math.max(0, n),
+                          },
+                        }));
+                      }}
+                      className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : !lightingBrowseMode && lightingDetailItem ? (
+              <div className="space-y-5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLightingBrowseMode(true);
+                    setLightingFocusedId(null);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0" />
+                  Volver al catálogo
+                </button>
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,240px)_1fr]">
+                  <div className="relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0">
+                    <LightingTypeImage
+                      item={lightingDetailItem}
+                      alt=""
+                      className="absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
+                    />
+                    <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                      {lightingDetailItem.label}
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-base font-semibold text-primary">{lightingDetailItem.label}</p>
+                    <label className="flex cursor-pointer items-center gap-2.5 rounded-2xl border border-primary/10 bg-primary/[0.04] px-3 py-2.5 text-sm text-primary">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 shrink-0 rounded border-primary/30 accent-[#8B1C1C]"
+                        checked={levantamiento.lightingSelectedIds.includes(lightingDetailItem.id)}
+                        onChange={(e) => setLightingInDocument(lightingDetailItem.id, e.target.checked)}
+                      />
+                      <span>Seleccionar (medidas opcionales)</span>
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {(["ancho", "alto", "fondo"] as const).map((field) => {
+                        const m =
+                          levantamiento.lightingMeasures[lightingDetailItem.id] ?? {
+                            ancho: "",
+                            alto: "",
+                            fondo: "",
+                          };
+                        return (
+                          <label
+                            key={field}
+                            className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                          >
+                            {field} (m)
+                            <input
+                              value={m[field]}
+                              onChange={(e) =>
+                                patchMedidasMap("lightingMeasures", lightingDetailItem.id, field, e.target.value)
+                              }
+                              inputMode="decimal"
+                              className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {lightingModalNavIds.length > 1 ? (
+                      <div className="flex flex-wrap gap-2 border-t border-primary/10 pt-4">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const pos = lightingModalNavIds.indexOf(lightingFocusedId!);
+                            if (pos > 0) setLightingFocusedId(lightingModalNavIds[pos - 1]!);
+                          }}
+                          disabled={!lightingFocusedId || lightingModalNavIds.indexOf(lightingFocusedId) <= 0}
+                          className="inline-flex items-center gap-1 rounded-full border border-primary/15 px-3 py-2 text-xs font-semibold text-primary disabled:opacity-40"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                          Anterior
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const pos = lightingFocusedId ? lightingModalNavIds.indexOf(lightingFocusedId) : -1;
+                            if (pos < lightingModalNavIds.length - 1) {
+                              setLightingFocusedId(lightingModalNavIds[pos + 1]!);
+                            }
+                          }}
+                          disabled={
+                            !lightingFocusedId ||
+                            lightingModalNavIds.indexOf(lightingFocusedId) >= lightingModalNavIds.length - 1
+                          }
+                          className="inline-flex items-center gap-1 rounded-full border border-primary/15 px-3 py-2 text-xs font-semibold text-primary disabled:opacity-40"
+                        >
+                          Siguiente
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : filteredLightingItems !== null ? (
               <div className="space-y-4">
                 {filteredLightingItems.length === 0 ? (
                   <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-secondary">
-                    No hay tipos que coincidan. Prueba otra palabra o borra la búsqueda para ver las páginas.
+                    No hay tipos que coincidan. Prueba otra palabra o borra la búsqueda para ver el catálogo por filas.
                   </div>
                 ) : (
-                  <div className="space-y-10">
-                    <p className="text-xs font-semibold text-secondary">
-                      {filteredLightingItems.length} resultado{filteredLightingItems.length === 1 ? "" : "s"}
-                    </p>
-                    {filteredLightingItems.map((item) => {
-                      const m = levantamiento.lightingMeasures[item.id] ?? { ancho: "", alto: "", fondo: "" };
-                      return (
-                        <div
-                          key={item.id}
-                          className="grid gap-4 border-b border-primary/5 pb-10 last:border-0 last:pb-0 lg:grid-cols-[minmax(0,240px)_1fr]"
-                        >
-                          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
-                            <LightingTypeImage item={item} alt="" />
-                            <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                              {item.label}
-                            </span>
-                          </div>
-                          <div className="space-y-3">
-                            <p className="text-sm font-semibold text-primary">{item.label}</p>
-                            <div className="grid gap-3 sm:grid-cols-3">
-                              {(["ancho", "alto", "fondo"] as const).map((field) => (
-                                <label
-                                  key={field}
-                                  className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
-                                >
-                                  {field} (m)
-                                  <input
-                                    value={m[field]}
-                                    onChange={(e) =>
-                                      patchMedidasMap("lightingMeasures", item.id, field, e.target.value)
-                                    }
-                                    inputMode="decimal"
-                                    className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                                  />
-                                </label>
-                              ))}
-                            </div>
+                  <div className={streamRowShell}>
+                    <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                      <div>
+                        <p className={streamRowHeading}>Resultados de búsqueda</p>
+                        <p className={streamRowHint}>
+                          Iluminación · {filteredLightingItems.length} tipo
+                          {filteredLightingItems.length === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = lightingRowRefs.current.busqueda;
+                          if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+                        }}
+                        className={streamVerTodosClass}
+                      >
+                        Ver todos
+                      </button>
+                    </div>
+                    <div
+                      ref={(el) => {
+                        lightingRowRefs.current.busqueda = el;
+                      }}
+                      className={streamScrollClass}
+                    >
+                      {filteredLightingItems.map((item, rank) => (
+                        <div key={item.id} className="flex shrink-0 items-end gap-1">
+                          <span className={streamRankClass} aria-hidden>
+                            {rank + 1}
+                          </span>
+                          <div className="flex flex-col items-start gap-1">
+                            <button
+                              type="button"
+                              onClick={() => toggleLightingSelected(item.id)}
+                              className="text-left"
+                              title="Clic para seleccionar o quitar"
+                            >
+                              <div
+                                className={streamPosterClass(levantamiento.lightingSelectedIds.includes(item.id))}
+                              >
+                                <LightingTypeImage
+                                  item={item}
+                                  alt=""
+                                  className={streamLightingThumbClass}
+                                />
+                                <div className={streamPosterTitleOverlay}>
+                                  <p className={streamPosterLabelClass}>{item.label}</p>
+                                </div>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              className="text-[10px] font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
+                              onClick={() => {
+                                setLightingFocusedId(item.id);
+                                setLightingBrowseMode(false);
+                              }}
+                            >
+                              Medidas opcionales
+                            </button>
                           </div>
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2">
@@ -2069,110 +3334,120 @@ export default function CotizadorPreliminarPage() {
                     onClick={() => setLightingSearch("")}
                     className="rounded-full border border-primary/15 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
                   >
-                    Limpiar búsqueda y ver por páginas
+                    Limpiar búsqueda y ver carruseles
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setLightingSearch("");
-                      setLightingPage(4);
+                      setLightingShowOtro(true);
+                      setLevantamiento((prev) => ({ ...prev, lightingOtroInDocument: true }));
                     }}
                     className="rounded-full border border-dashed border-primary/25 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/35"
                   >
-                    Ir a «Otro» (luminario no listado)
+                    Ir a "Otro" (luminario no listado)
                   </button>
                 </div>
               </div>
             ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-2">
-                  {([1, 2, 3, 4] as const).map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setLightingPage(n)}
-                      className={`min-h-8 min-w-8 rounded-full px-3 text-xs font-semibold transition ${
-                        lightingPage === n
-                          ? "bg-[#8B1C1C] text-white"
-                          : "border border-primary/10 bg-white text-secondary hover:border-primary/30"
-                      }`}
-                    >
-                      {n === 4 ? "Otro" : `Página ${n}`}
-                    </button>
-                  ))}
+              <div className={streamRowShell}>
+                <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <p className={streamRowHeading}>Iluminación</p>
+                    <p className={streamRowHint}>Catálogo de referencia</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = lightingRowRefs.current.catalogo;
+                      if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+                    }}
+                    className={streamVerTodosClass}
+                  >
+                    Ver todos
+                  </button>
                 </div>
-                {lightingPage < 4 ? (
-                  <div className="space-y-10">
-                    {LIGHTING_PAGE_INDICES[lightingPage - 1].map((idx) => {
-                      const item = LIGHTING_ITEMS[idx];
-                      const m = levantamiento.lightingMeasures[item.id] ?? { ancho: "", alto: "", fondo: "" };
-                      return (
-                        <div
-                          key={item.id}
-                          className="grid gap-4 border-b border-primary/5 pb-10 last:border-0 last:pb-0 lg:grid-cols-[minmax(0,240px)_1fr]"
+                <div
+                  ref={(el) => {
+                    lightingRowRefs.current.catalogo = el;
+                  }}
+                  className={streamScrollClass}
+                >
+                  {LIGHTING_ITEMS.map((item, rank) => (
+                    <div key={item.id} className="flex shrink-0 items-end gap-1">
+                      <span className={streamRankClass} aria-hidden>
+                        {rank + 1}
+                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <button
+                          type="button"
+                          onClick={() => toggleLightingSelected(item.id)}
+                          className="text-left"
+                          title="Clic para seleccionar o quitar"
                         >
-                          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-primary/10 bg-white">
-                            <LightingTypeImage item={item} alt="" />
-                            <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
-                              {item.label}
-                            </span>
-                          </div>
-                          <div className="space-y-3">
-                            <p className="text-sm font-semibold text-primary">{item.label}</p>
-                            <div className="grid gap-3 sm:grid-cols-3">
-                              {(["ancho", "alto", "fondo"] as const).map((field) => (
-                                <label
-                                  key={field}
-                                  className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
-                                >
-                                  {field} (m)
-                                  <input
-                                    value={m[field]}
-                                    onChange={(e) =>
-                                      patchMedidasMap("lightingMeasures", item.id, field, e.target.value)
-                                    }
-                                    inputMode="decimal"
-                                    className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                                  />
-                                </label>
-                              ))}
+                          <div
+                            className={streamPosterClass(levantamiento.lightingSelectedIds.includes(item.id))}
+                          >
+                            <LightingTypeImage
+                              item={item}
+                              alt=""
+                              className={streamLightingThumbClass}
+                            />
+                            <div className={streamPosterTitleOverlay}>
+                              <p className={streamPosterLabelClass}>{item.label}</p>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="space-y-4 rounded-2xl border border-dashed border-primary/20 bg-primary/[0.03] p-5">
-                    <p className="text-sm font-semibold text-primary">Otro luminario o esquema</p>
-                    <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
-                      Descripción
-                      <textarea
-                        value={levantamiento.lightingOtro.descripcion}
-                        onChange={(e) => patchOtro("lightingOtro", "descripcion", e.target.value)}
-                        rows={3}
-                        className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
-                      />
-                    </label>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      {(["ancho", "alto", "fondo"] as const).map((field) => (
-                        <label
-                          key={field}
-                          className="text-[10px] font-semibold uppercase tracking-[0.15em] text-secondary"
+                        </button>
+                        <button
+                          type="button"
+                          className="text-[10px] font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
+                          onClick={() => {
+                            setLightingFocusedId(item.id);
+                            setLightingBrowseMode(false);
+                          }}
                         >
-                          {field} (m)
-                          <input
-                            value={levantamiento.lightingOtro[field]}
-                            onChange={(e) => patchOtro("lightingOtro", field, e.target.value)}
-                            inputMode="decimal"
-                            className="mt-1.5 w-full rounded-2xl border border-primary/10 bg-white px-3 py-2.5 text-sm outline-none"
-                          />
-                        </label>
-                      ))}
+                          Medidas opcionales
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex shrink-0 items-end gap-1">
+                    <span className={streamRankClass} aria-hidden>
+                      {LIGHTING_ITEMS.length + 1}
+                    </span>
+                    <div className="flex flex-col items-start gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLightingShowOtro(true);
+                          setLevantamiento((prev) => ({ ...prev, lightingOtroInDocument: true }));
+                        }}
+                        className="text-left"
+                        title="Luminario no listado"
+                      >
+                        <div
+                          className={`${streamPosterClass(levantamiento.lightingOtroInDocument)} flex flex-col items-center justify-center border-2 border-dashed border-white/25 bg-zinc-900/80 px-2 py-3`}
+                        >
+                          <span className="text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-300">
+                            Otro
+                          </span>
+                          <span className="mt-1 text-center text-xs text-zinc-500">No en catálogo</span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        className="text-[10px] font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
+                        onClick={() => {
+                          setLightingShowOtro(true);
+                          setLevantamiento((prev) => ({ ...prev, lightingOtroInDocument: true }));
+                        }}
+                      >
+                        Medidas opcionales
+                      </button>
                     </div>
                   </div>
-                )}
-              </>
+                </div>
+              </div>
             )}
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
@@ -2180,7 +3455,7 @@ export default function CotizadorPreliminarPage() {
                 value={levantamiento.sectionComments.e ?? ""}
                 onChange={(e) => setSectionComment("e", e.target.value)}
                 rows={3}
-                placeholder="Circuitos, dimmers, temperatura de color…"
+                placeholder="Circuitos, dimmers, temperatura de color..."
                 className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none placeholder:text-secondary/50"
               />
             </label>
@@ -2197,19 +3472,22 @@ export default function CotizadorPreliminarPage() {
               <p className="mt-2 text-sm text-secondary">
                 Presentación rápida para ayudar al cliente a imaginar el resultado.
               </p>
+              <p className="mt-2 text-xs text-secondary/90">
+                El escenario se alinea al cambiar cubierta, frentes u herrajes; puedes elegir otro nivel aquí si lo
+                necesitas.
+              </p>
             </div>
             <div className="grid gap-6 lg:grid-cols-3">
               {scenarioOptions.map((scenario) => {
-                const min =
-                  metrics.subtotal * scenario.multiplier * levantamientoScopeMultiplier * 0.94;
-                const max =
-                  metrics.subtotal * scenario.multiplier * levantamientoScopeMultiplier * 1.06;
+                const cardRange = scenarioCardRanges.find((r) => r.id === scenario.id);
+                const min = cardRange?.min ?? 0;
+                const max = cardRange?.max ?? 0;
                 const isActive = selectedScenario === scenario.id;
                 return (
                   <button
                     key={scenario.id}
                     type="button"
-                    onClick={() => setSelectedScenario(scenario.id)}
+                    onClick={() => setSelectedScenario(scenario.id as AutoScenarioId)}
                     className={`group overflow-hidden rounded-3xl border text-left shadow-lg transition hover:-translate-y-1 ${
                       isActive
                         ? "border-[#8B1C1C] bg-white ring-4 ring-[#8B1C1C]"
@@ -2261,38 +3539,56 @@ export default function CotizadorPreliminarPage() {
                 El PDF incluye portada (datos, materiales, rango) y anexo con comentarios y medidas del
                 levantamiento cuando hay información capturada.
               </p>
+              <div className="mt-4 max-w-md rounded-lg border border-primary/10 bg-white/80 px-3 py-2.5 text-xs text-secondary/90">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary/70">
+                  Desglose técnico
+                </p>
+                <div className="mt-2 space-y-1.5 tabular-nums">
+                  <div className="flex justify-between gap-3">
+                    <span>Costo base (escenario)</span>
+                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoBase)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span>Materiales</span>
+                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoMateriales)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span>Iluminación</span>
+                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoIluminacion)}</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="rounded-2xl border border-primary/10 bg-primary/5 p-6">
+            <div className="min-w-0 rounded-2xl border border-primary/10 bg-primary/5 p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
                 Estimación preliminar
               </p>
-              <div className="mt-4 space-y-4">
-                <div>
-                  <p className="text-xs text-secondary">Subtotal</p>
-                  <p className="text-4xl font-bold text-[#8B1C1C]">
-                    {formatCurrency(
-                      metrics.subtotal * selectedScenarioMultiplier * levantamientoScopeMultiplier,
-                    )}
-                  </p>
+              <div className="mt-4 space-y-5">
+                <div className="space-y-3 text-right">
+                  <div className="flex justify-end gap-4 text-sm text-secondary sm:gap-6">
+                    <span className="min-w-0 shrink">Subtotal</span>
+                    <span className="min-w-0 shrink-0 font-semibold tabular-nums text-primary">
+                      {formatCurrency(metrics.subtotal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-end gap-4 text-sm text-secondary sm:gap-6">
+                    <span className="min-w-0 shrink">
+                      IVA ({Math.round(levantamientoConfig.ivaPercent * 100)}%)
+                    </span>
+                    <span className="min-w-0 shrink-0 font-semibold tabular-nums text-primary">
+                      {formatCurrency(metrics.iva)}
+                    </span>
+                  </div>
+                  <div className="flex justify-end gap-4 border-t border-primary/15 pt-2 text-sm text-secondary sm:gap-6">
+                    <span className="min-w-0 shrink self-center font-medium">Total</span>
+                    <span className="min-w-0 shrink-0 text-2xl font-bold tabular-nums text-[#8B1C1C] sm:text-3xl">
+                      {formatCurrency(metrics.total)}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-secondary">IVA (16%)</p>
-                  <p className="text-4xl font-bold text-[#8B1C1C]">
-                    {formatCurrency(
-                      metrics.iva * selectedScenarioMultiplier * levantamientoScopeMultiplier,
-                    )}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-secondary">Total neto</p>
-                  <p className="text-4xl font-bold text-[#8B1C1C]">
-                    {formatCurrency(
-                      metrics.total * selectedScenarioMultiplier * levantamientoScopeMultiplier,
-                    )}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-white px-4 py-3 text-sm text-secondary">
-                  Rango estimado: <span className="font-semibold">{scenarioRangeLabel}</span>
+                <div className="border-t border-primary/10 pt-3 text-xs text-secondary sm:text-right">
+                  Rango estimado (±{Math.round(metrics.marginPercent * 100)}% sobre total):{" "}
+                  <span className="font-semibold text-[#8B1C1C]">{scenarioRangeLabel}</span>
                 </div>
               </div>
             </div>
@@ -2305,7 +3601,8 @@ export default function CotizadorPreliminarPage() {
             <p className="max-w-xl text-xs text-secondary">
               Cierra la cita y guarda la estimación en la tarjeta del cliente. Con{" "}
               <span className="font-semibold text-emerald-800">Terminar y continuar</span> el formulario se
-              reinicia para otro espacio. El PDF no se descarga solo: úsalo desde la vista de clientes o con{" "}
+              reinicia para otro espacio. Al terminar, el PDF se descarga automáticamente y también queda
+              vinculado en la tarjeta del cliente. También puedes generarlo manualmente con{" "}
               <span className="font-semibold text-emerald-800">Generar estimación en PDF</span>.
             </p>
             <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
@@ -2334,24 +3631,62 @@ export default function CotizadorPreliminarPage() {
         </div>
       ) : null}
       <div
-        className={`fixed right-6 z-40 w-[260px] rounded-3xl border border-white/70 bg-white/90 p-4 shadow-2xl backdrop-blur-md ${
-          activeCitaTask ? "bottom-28" : "bottom-6"
+        className={`fixed right-6 z-40 w-[min(260px,calc(100vw-2rem))] rounded-3xl border border-white/70 bg-white/90 p-4 shadow-2xl backdrop-blur-md ${
+          activeCitaTask ? "bottom-28" : "top-24"
         }`}
       >
         <p className="text-xs uppercase tracking-[0.25em] text-secondary">Rango estimado</p>
         <p className="mt-2 text-xl font-semibold text-[#8B1C1C]">
           {scenarioRangeLabel}
         </p>
-        {levantamientoScopeMultiplier > 1.001 ? (
-          <p className="mt-1.5 text-[10px] leading-snug text-secondary">
-            Incluye ~{Math.round((levantamientoScopeMultiplier - 1) * 100)}% por volumen de información del levantamiento
-            (heurística; no son partidas).
-          </p>
-        ) : null}
         <p className="mt-2 text-[11px] text-secondary">
           {selectedSummary.meters} m lineales / {selectedSummary.label || "Selección en curso"}
         </p>
       </div>
+
+      {confirmChangeWallCountOpen ? (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-change-wall-count-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+            aria-label="Cerrar diálogo"
+            onClick={() => setConfirmChangeWallCountOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/60 bg-white/95 p-6 shadow-2xl backdrop-blur-md">
+            <h2 id="confirm-change-wall-count-title" className="text-lg font-semibold text-primary">
+              ¿Cambiar la cantidad de paredes?
+            </h2>
+            <p className="mt-3 text-sm leading-relaxed text-secondary">
+              Se borrarán las medidas capturadas en el flujo por pared. Esta acción no se puede deshacer desde aquí.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmChangeWallCountOpen(false)}
+                className="rounded-2xl border border-primary/15 bg-white px-5 py-2.5 text-sm font-semibold text-primary transition hover:border-primary/30"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmChangeWallCountOpen(false);
+                  clearWallFlowAndSlots();
+                }}
+                className="rounded-2xl bg-[#8B1C1C] px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:brightness-110"
+              >
+                Sí, cambiar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
+

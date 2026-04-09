@@ -107,6 +107,15 @@ export function buildPreliminarPdf(data: PreliminarData): string {
   return `%PDF-1.4\n${objects.join("\n\n")}\n${xref}\n${trailer}`;
 }
 
+/** Compatibilidad con Front_plataforna: data URL para persistencia temporal. */
+export function buildPreliminarPdfDataUrl(data: PreliminarData): string {
+  const pdf = buildPreliminarPdf(data);
+  const encoded = typeof window !== "undefined"
+    ? window.btoa(unescape(encodeURIComponent(pdf)))
+    : Buffer.from(pdf, "utf8").toString("base64");
+  return `data:application/pdf;base64,${encoded}`;
+}
+
 const openRemotePdf = (url: string): void => {
   window.open(url, "_blank", "noopener,noreferrer");
 };

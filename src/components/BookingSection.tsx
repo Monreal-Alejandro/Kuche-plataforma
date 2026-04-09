@@ -88,6 +88,10 @@ export default function BookingSection() {
     });
   };
 
+  const isWithinOneHourWindow = (slotHour: number, occupiedHour: number) => {
+    return Math.abs(slotHour - occupiedHour) <= 1;
+  };
+
   useEscapeClose(isModalOpen, () => setIsModalOpen(false));
   useEscapeClose(isSuccessModalOpen, () => setIsSuccessModalOpen(false));
   useEscapeClose(isErrorModalOpen, () => setIsErrorModalOpen(false));
@@ -125,19 +129,24 @@ export default function BookingSection() {
     cargarDisponibilidad();
   }, [selectedDate]);
 
-  // Verificar si un horario está disponible (considerando horarios ocupados)
+  // Verificar si un horario está disponible (ocupado +/-1h y anticipación mínima)
   const isTimeSlotAvailable = (timeSlot: string): boolean => {
     if (!selectedDate) return false;
 
     // Convertir timeSlot a hora numérica
     const [hours] = timeSlot.split(':').map(Number);
 
+    // Bloquear horarios sin al menos 1 hora de anticipación
+    if (!isTimeSlotInFuture(selectedDate, timeSlot)) {
+      return false;
+    }
+
     // Verificar cada horario ocupado
     for (const horarioOcupado of horariosOcupados) {
       const [horaOcupada] = horarioOcupado.split(':').map(Number);
 
-      // Bloquear la hora exacta ocupada y la hora siguiente (buffer de 1 hora)
-      if (hours === horaOcupada || hours === horaOcupada + 1) {
+      // Bloquear la hora exacta ocupada, una hora antes y una hora después
+      if (isWithinOneHourWindow(hours, horaOcupada)) {
         return false;
       }
     }
@@ -236,6 +245,30 @@ export default function BookingSection() {
     setSuccessClientCode(null);
 
     try {
+      // Revalidar disponibilidad antes de crear la cita para evitar colisiones por concurrencia.
+      const fechaISO = selectedDate.toISOString().split('T')[0];
+      const disponibilidadActual = await obtenerDisponibilidadDia(fechaISO);
+      const horariosActualizados =
+        disponibilidadActual.success && disponibilidadActual.data
+          ? disponibilidadActual.data.horariosOcupados
+          : horariosOcupados;
+
+      const [horaSeleccionada] = selectedTime.split(':').map(Number);
+      const bloqueadoPorDisponibilidad = horariosActualizados.some((horarioOcupado) => {
+        const [horaOcupada] = horarioOcupado.split(':').map(Number);
+        return isWithinOneHourWindow(horaSeleccionada, horaOcupada);
+      });
+
+      if (!isTimeSlotInFuture(selectedDate, selectedTime) || bloqueadoPorDisponibilidad) {
+        setHorariosOcupados(horariosActualizados);
+        setIsModalOpen(false);
+        setErrorMessage(
+          "El horario seleccionado ya no está disponible. Selecciona otro horario (se bloquea la hora ocupada y +/-1 hora).",
+        );
+        setIsErrorModalOpen(true);
+        return;
+      }
+
       // Formatear la fecha al formato que espera el backend
       const fechaAgendada = new Date(selectedDate);
       const [hours, minutes] = selectedTime.split(":");
@@ -490,7 +523,7 @@ export default function BookingSection() {
                   if (selectedDate && !isTimeSlotInFuture(selectedDate, time)) {
                     disabledReason = "Este horario no cumple con la anticipación mínima de 1 hora";
                   } else {
-                    disabledReason = "Este horario ya está ocupado";
+                    disabledReason = "Este horario está ocupado o dentro del bloqueo de +/-1 hora";
                   }
                 }
                 
@@ -521,7 +554,7 @@ export default function BookingSection() {
               })}
             </div>
             <p className="mt-3 text-[10px] text-secondary">
-              ℹ️ Los horarios disponibles son de lunes a viernes. Debes seleccionar un horario con mínimo 1 hora de anticipación.
+              ℹ️ Los horarios disponibles son de lunes a viernes. Se bloquea la hora ocupada y también una hora antes y una hora después.
             </p>
           </div>
         </div>

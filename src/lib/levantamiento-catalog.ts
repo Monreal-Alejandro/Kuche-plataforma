@@ -564,10 +564,11 @@ export const LIGHTING_PAGE_INDICES: number[][] = [
   [6, 7, 8],
 ];
 
-export type OtroMedidas = MedidasCampos & { descripcion: string };
+export type OtroMedidas = MedidasCampos & { descripcion: string; precioEstimado?: number };
 
 /** Payload opcional guardado con la cotización preliminar / PDF. */
 export type LevantamientoDetalle = {
+  [key: string]: any;
   sectionComments: Partial<Record<"a" | "b" | "c" | "d" | "e", string>>;
   wallMeasures: WallMeasuresMap;
   wallOtro: OtroMedidas;
@@ -575,10 +576,16 @@ export type LevantamientoDetalle = {
   applianceOtro: OtroMedidas;
   lightingMeasures: Record<string, MedidasCampos>;
   lightingOtro: OtroMedidas;
+  wallSlotCount: number;
+  applianceDocumentIds: string[];
+  applianceOtroInDocument: boolean;
+  lightingSelectedIds: string[];
+  lightingOtroInDocument: boolean;
+  conIsla: "si" | "no" | "";
 };
 
 export function emptyOtro(): OtroMedidas {
-  return { ...emptyMedidas(), descripcion: "" };
+  return { ...emptyMedidas(), descripcion: "", precioEstimado: 0 };
 }
 
 export function emptyMedidas(): MedidasCampos {
@@ -606,6 +613,12 @@ export function defaultLevantamientoDetalle(): LevantamientoDetalle {
     applianceOtro: emptyOtro(),
     lightingMeasures: initMeasuresMap(LIGHTING_ITEMS.map((l) => l.id)),
     lightingOtro: emptyOtro(),
+    wallSlotCount: 0,
+    applianceDocumentIds: [],
+    applianceOtroInDocument: false,
+    lightingSelectedIds: [],
+    lightingOtroInDocument: false,
+    conIsla: "",
   };
 }
 
@@ -669,6 +682,7 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
           ancho: String(r.wallOtro.ancho ?? ""),
           alto: String(r.wallOtro.alto ?? ""),
           fondo: String(r.wallOtro.fondo ?? ""),
+          precioEstimado: Number((r.wallOtro as any).precioEstimado ?? 0) || 0,
         }
       : d.wallOtro;
   const applianceOtro =
@@ -678,6 +692,7 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
           ancho: String(r.applianceOtro.ancho ?? ""),
           alto: String(r.applianceOtro.alto ?? ""),
           fondo: String(r.applianceOtro.fondo ?? ""),
+          precioEstimado: Number((r.applianceOtro as any).precioEstimado ?? 0) || 0,
         }
       : d.applianceOtro;
   const lightingOtro =
@@ -687,6 +702,7 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
           ancho: String(r.lightingOtro.ancho ?? ""),
           alto: String(r.lightingOtro.alto ?? ""),
           fondo: String(r.lightingOtro.fondo ?? ""),
+          precioEstimado: Number((r.lightingOtro as any).precioEstimado ?? 0) || 0,
         }
       : d.lightingOtro;
 
@@ -698,5 +714,43 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
     applianceOtro,
     lightingMeasures: mergeMeasuresMapFromRaw(r.lightingMeasures, LIGHTING_ITEMS.map((l) => l.id)),
     lightingOtro,
+    wallSlotCount: typeof (r as any).wallSlotCount === "number" ? Math.max(0, (r as any).wallSlotCount) : 0,
+    applianceDocumentIds: Array.isArray((r as any).applianceDocumentIds) ? (r as any).applianceDocumentIds : [],
+    applianceOtroInDocument: Boolean((r as any).applianceOtroInDocument),
+    lightingSelectedIds: Array.isArray((r as any).lightingSelectedIds) ? (r as any).lightingSelectedIds : [],
+    lightingOtroInDocument: Boolean((r as any).lightingOtroInDocument),
+    conIsla: (r as any).conIsla === "si" || (r as any).conIsla === "no" ? (r as any).conIsla : "",
   };
+}
+
+/** Compatibilidad Front_plataforna */
+export const WALL_SLOT_META_TYPE = "__typeId";
+export const WALL_SLOT_META_ALIAS = "__alias";
+
+export function wallSlotKey(index: number): string {
+  return `wall-${index}`;
+}
+
+export function isWallSlotKey(key: string): boolean {
+  return /^wall-\d+$/.test(key);
+}
+
+export function wallMeasureLetter(index: number): string {
+  return String.fromCharCode(65 + index);
+}
+
+export function wallSlotIsComplete(values: Record<string, string> | undefined): boolean {
+  if (!values) return false;
+  const wallId = (values[WALL_SLOT_META_TYPE] ?? "").trim();
+  if (!wallId) return false;
+  const defs = getWallMeasureFieldDefs(wallId);
+  if (!defs.length) return false;
+  return defs.every((field) => (values[field.key] ?? "").trim() !== "");
+}
+
+export function cotizacionIluminacionTotal(lev: LevantamientoDetalle): number {
+  const selected = Array.isArray(lev.lightingSelectedIds) ? lev.lightingSelectedIds : [];
+  const bySelected = selected.length * 1800;
+  const otro = Number((lev.lightingOtro as any)?.precioEstimado ?? 0) || 0;
+  return Math.max(0, bySelected + otro);
 }

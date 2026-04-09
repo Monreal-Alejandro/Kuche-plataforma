@@ -66,3 +66,8 @@ export function createFormalPdfKey(taskId: string, index: number): string {
 export function createWorkshopPdfKey(taskId: string, index: number): string {
   return `workshop-${taskId}-${index}-${Date.now()}`;
 }
+
+/** Compatibilidad con Front_plataforna. */
+export function createPreliminarSeguimientoPdfKey(taskId: string, index: number): string {
+  return createFormalPdfKey(taskId, index);
+}

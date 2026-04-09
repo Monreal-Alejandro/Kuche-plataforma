@@ -95,6 +95,26 @@ export interface HerrajePayload {
   disponible?: boolean;
 }
 
+type CatalogQueryValue = string | number | boolean | null | undefined;
+
+export interface MaterialFilters {
+  seccion?: SeccionMaterial;
+  secciones?: SeccionMaterial[];
+  categoria?: CategoriaCatalogo | string;
+  disponible?: boolean;
+  proveedor?: string;
+  q?: string;
+}
+
+export interface HerrajeFilters {
+  seccion?: SeccionMaterial;
+  secciones?: SeccionMaterial[];
+  categoria?: CategoriaCatalogo | string;
+  disponible?: boolean;
+  proveedor?: string;
+  q?: string;
+}
+
 const materialRoutes = {
   base: ['/api/catalogos/materiales', '/api/materiales', '/api/catalogo/materiales'],
 };
@@ -110,10 +130,25 @@ const getLastPathErrorMessage = (errors: unknown[]) => {
 
 const getUniquePaths = (paths: string[]) => Array.from(new Set(paths));
 
+const buildPathWithQuery = (path: string, query?: Record<string, CatalogQueryValue>) => {
+  if (!query) return path;
+  const params = new URLSearchParams();
+  for (const [key, rawValue] of Object.entries(query)) {
+    if (rawValue === undefined || rawValue === null) continue;
+    const value = String(rawValue).trim();
+    if (!value) continue;
+    params.append(key, value);
+  }
+  const queryString = params.toString();
+  if (!queryString) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}${queryString}`;
+};
+
 const requestWithFallback = async <T>(
   method: 'get' | 'post' | 'patch' | 'delete',
   paths: string[],
   data?: unknown,
+  query?: Record<string, CatalogQueryValue>,
 ): Promise<ApiResponse<T>> => {
   const errors: unknown[] = [];
 
@@ -121,7 +156,7 @@ const requestWithFallback = async <T>(
     try {
       const response = await axiosInstance.request<ApiResponse<T>>({
         method,
-        url: path,
+        url: method === 'get' ? buildPathWithQuery(path, query) : path,
         data,
       });
       return response.data;
@@ -144,11 +179,29 @@ const requestWithFallback = async <T>(
   } as ApiResponse<T>;
 };
 
+const buildMaterialQuery = (filters: MaterialFilters = {}): Record<string, CatalogQueryValue> => ({
+  seccion: filters.seccion,
+  secciones: Array.isArray(filters.secciones) ? filters.secciones.join(',') : undefined,
+  categoria: filters.categoria,
+  disponible: filters.disponible,
+  proveedor: filters.proveedor,
+  q: filters.q,
+});
+
+const buildHerrajeQuery = (filters: HerrajeFilters = {}): Record<string, CatalogQueryValue> => ({
+  seccion: filters.seccion,
+  secciones: Array.isArray(filters.secciones) ? filters.secciones.join(',') : undefined,
+  categoria: filters.categoria,
+  disponible: filters.disponible,
+  proveedor: filters.proveedor,
+  q: filters.q,
+});
+
 /**
  * Obtener catálogo de materiales base
  */
-export const obtenerMateriales = async (): Promise<ApiResponse<Material[]>> => {
-  return requestWithFallback<Material[]>('get', materialRoutes.base);
+export const obtenerMateriales = async (filters: MaterialFilters = {}): Promise<ApiResponse<Material[]>> => {
+  return requestWithFallback<Material[]>('get', materialRoutes.base, undefined, buildMaterialQuery(filters));
 };
 
 export const crearMaterial = async (data: MaterialPayload): Promise<ApiResponse<Material>> => {
@@ -173,8 +226,8 @@ export const eliminarMaterial = async (id: string): Promise<ApiResponse<void>> =
 /**
  * Obtener catálogo de herrajes
  */
-export const obtenerHerrajes = async (): Promise<ApiResponse<Herraje[]>> => {
-  return requestWithFallback<Herraje[]>('get', herrajeRoutes.base);
+export const obtenerHerrajes = async (filters: HerrajeFilters = {}): Promise<ApiResponse<Herraje[]>> => {
+  return requestWithFallback<Herraje[]>('get', herrajeRoutes.base, undefined, buildHerrajeQuery(filters));
 };
 
 export const crearHerraje = async (data: HerrajePayload): Promise<ApiResponse<Herraje>> => {

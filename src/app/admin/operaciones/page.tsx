@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, UserPlus, Calculator, FileText, MapPin, Calendar, Loader2, CheckCircle2, Clock, PencilLine, Upload } from "lucide-react";
+import { AlertCircle, UserPlus, Calculator, FileText, MapPin, Calendar, Loader2, CheckCircle2, Clock, PencilLine, Upload, XCircle, AlertTriangle, FileUp } from "lucide-react";
 
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -15,6 +15,7 @@ import {
   activeCotizacionFormalTaskStorageKey,
   citaReturnUrlStorageKey,
   finishedCitaTaskStorageKey,
+  getCotizacionesFormalesList,
   kanbanColumns,
   type TaskStage,
   type TaskPriority,
@@ -72,12 +73,22 @@ const formatDateTime = (isoDateTime?: string) => {
 };
 
 const FOLLOW_UP_WARNING_DAYS = 3;
+const FOLLOW_UP_URGENT_DAYS = 7;
+const FOLLOW_UP_EXPIRED_DAYS = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const getFollowUpDays = (enteredAt?: number, createdAt?: number, now = Date.now()) => {
   const reference = enteredAt ?? createdAt;
   if (!reference) return 0;
   return Math.max(0, Math.floor((now - reference) / DAY_MS));
+};
+
+const getFollowUpAlertLevel = (enteredAt?: number, createdAt?: number, now = Date.now()): "none" | "warning" | "urgent" | "expired" => {
+  const days = getFollowUpDays(enteredAt, createdAt, now);
+  if (days >= FOLLOW_UP_EXPIRED_DAYS) return "expired";
+  if (days >= FOLLOW_UP_URGENT_DAYS) return "urgent";
+  if (days >= FOLLOW_UP_WARNING_DAYS) return "warning";
+  return "none";
 };
 
 type TaskDraft = {
@@ -166,6 +177,7 @@ export default function OperacionesPage() {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [visitModalTaskId, setVisitModalTaskId] = useState<string | null>(null);
   const [finalDesignUploadTaskId, setFinalDesignUploadTaskId] = useState<string | null>(null);
+  const [cotizacionEntregadaTaskId, setCotizacionEntregadaTaskId] = useState<string | null>(null);
   const [pendingUploadTaskId, setPendingUploadTaskId] = useState<string | null>(null);
   const [uploadingTaskId, setUploadingTaskId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<ActionFeedbackState>(null);
@@ -209,6 +221,7 @@ export default function OperacionesPage() {
   useEscapeClose(Boolean(isAssignModalOpen), () => setIsAssignModalOpen(false));
   useEscapeClose(Boolean(isTeamModalOpen), () => setIsTeamModalOpen(false));
   useEscapeClose(Boolean(visitModalTaskId), () => setVisitModalTaskId(null));
+  useEscapeClose(Boolean(cotizacionEntregadaTaskId), () => setCotizacionEntregadaTaskId(null));
 
   useFocusTrap(Boolean(isTaskModalOpen), taskModalRef);
   useFocusTrap(Boolean(isAssignModalOpen), assignModalRef);
@@ -320,6 +333,11 @@ export default function OperacionesPage() {
 
     if (action === "pass-to-seguimiento" && !task.citaFinished) {
       showActionFeedback("No puedes pasar a seguimiento si la cita no está completada.", "warning");
+      return;
+    }
+
+    if (action === "pass-to-seguimiento" && getCotizacionesFormalesList(task).length === 0) {
+      showActionFeedback("Debes generar al menos una cotización formal antes de pasar a seguimiento.", "warning");
       return;
     }
 
@@ -508,6 +526,11 @@ export default function OperacionesPage() {
     [tasks, finalDesignUploadTaskId],
   );
 
+  const cotizacionEntregadaTask = useMemo(
+    () => tasks.find((task) => task.id === cotizacionEntregadaTaskId) ?? null,
+    [tasks, cotizacionEntregadaTaskId],
+  );
+
   const occupiedVisitSlots = useMemo(
     () =>
       tasks
@@ -689,7 +712,7 @@ export default function OperacionesPage() {
         relacionadoId: backendTaskId,
         clienteId: task.clientId,
         tareasId: backendTaskId,
-      });
+      } as Parameters<typeof subirArchivoConMetadata>[1]);
 
       if (uploadInfo.provider !== "dropbox") {
         throw new Error("El backend no devolvio Dropbox para un archivo de diseño final. Verifica metadata y reglas de provider.");
@@ -1115,13 +1138,19 @@ export default function OperacionesPage() {
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  void handleTaskAction(task, "pass-to-seguimiento");
+                                  setCotizacionEntregadaTaskId(task.id);
                                 }}
                                 className="inline-flex items-center rounded-full bg-emerald-700 px-3 py-1 text-[11px] font-semibold text-white"
-                                disabled={isSaving || !task.citaFinished}
-                                title={!task.citaFinished ? "La cita debe estar completada para pasar a seguimiento" : undefined}
+                                disabled={isSaving || !task.citaFinished || getCotizacionesFormalesList(task).length === 0}
+                                title={
+                                  !task.citaFinished
+                                    ? "La cita debe estar completada para pasar a seguimiento"
+                                    : getCotizacionesFormalesList(task).length === 0
+                                      ? "Debes generar una cotización formal antes de pasar a seguimiento"
+                                      : undefined
+                                }
                               >
-                                Pasar a seguimiento
+                                Cotización entregada
                               </button>
                             ) : null}
 
@@ -1321,6 +1350,42 @@ export default function OperacionesPage() {
           await handleFinalDesignUpload(finalDesignUploadTask, file);
         }}
       />
+
+      {cotizacionEntregadaTask ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" onClick={() => setCotizacionEntregadaTaskId(null)}>
+          <div
+            className="w-full max-w-md rounded-3xl border border-white/70 bg-white/95 p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">Confirmación</p>
+            <h3 className="mt-2 text-xl font-semibold text-gray-900">¿Cotización entregada?</h3>
+            <p className="mt-2 text-sm text-secondary">
+              Confirma que el cliente ya recibió su cotización formal para mover el proyecto a seguimiento.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setCotizacionEntregadaTaskId(null)}
+                className="rounded-2xl border border-primary/10 bg-white px-5 py-2 text-xs font-semibold text-secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleTaskAction(cotizacionEntregadaTask, "pass-to-seguimiento");
+                  setCotizacionEntregadaTaskId(null);
+                }}
+                disabled={isSaving}
+                className="rounded-2xl bg-emerald-700 px-5 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                Confirmar y mover
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isAssignModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setIsAssignModalOpen(false)}>
@@ -1640,32 +1705,57 @@ export default function OperacionesPage() {
                   </div>
 
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Responsable</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {taskDraft.assignedToIds.map((employeeId) => {
-                        const employeeName = employees.find((emp) => emp._id === employeeId)?.nombre ?? employeeId;
-                        return (
-                          <span key={employeeId} className="inline-flex items-center gap-2 rounded-full border border-primary/10 bg-white px-3 py-1.5 text-sm">
-                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
-                              {getInitials(employeeName)}
-                            </span>
-                            {employeeName}
-                          </span>
-                        );
-                      })}
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Responsables</p>
+                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
+                        {taskDraft.assignedToIds.length} seleccionado{taskDraft.assignedToIds.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 rounded-2xl border border-primary/10 bg-white p-3">
                       {taskDraft.assignedToIds.length === 0 ? (
                         <p className="text-xs text-secondary">Sin asignar</p>
-                      ) : null}
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {taskDraft.assignedToIds.map((employeeId) => {
+                            const employeeName = employees.find((emp) => emp._id === employeeId)?.nombre ?? employeeId;
+                            return (
+                              <span key={employeeId} className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1.5 text-sm text-gray-800">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-[10px] font-semibold text-primary shadow-sm">
+                                  {getInitials(employeeName)}
+                                </span>
+                                <span className="max-w-[10rem] truncate">{employeeName}</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setTaskDraft((prev) => ({
+                                      ...prev,
+                                      assignedToIds: prev.assignedToIds.filter((id) => id !== employeeId),
+                                    }))
+                                  }
+                                  className="rounded-full px-1.5 text-[11px] font-semibold text-secondary transition hover:bg-rose-100 hover:text-rose-700"
+                                  aria-label={`Quitar a ${employeeName}`}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-2xl border border-primary/10 bg-white p-3">
-                      {employees.map((employee) => {
-                        const checked = taskDraft.assignedToIds.includes(employee._id);
-                        return (
-                          <label key={employee._id} className="flex items-center gap-2 text-xs font-medium text-gray-800">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() =>
+
+                    <div className="mt-3 max-h-48 space-y-2 overflow-y-auto rounded-2xl border border-primary/10 bg-gradient-to-b from-white to-slate-50 p-2.5">
+                      {employees.length === 0 ? (
+                        <p className="px-2 py-3 text-xs text-secondary">No hay integrantes disponibles.</p>
+                      ) : (
+                        employees.map((employee) => {
+                          const checked = taskDraft.assignedToIds.includes(employee._id);
+                          return (
+                            <button
+                              key={employee._id}
+                              type="button"
+                              onClick={() =>
                                 setTaskDraft((prev) => ({
                                   ...prev,
                                   assignedToIds: checked
@@ -1673,14 +1763,286 @@ export default function OperacionesPage() {
                                     : [...prev.assignedToIds, employee._id],
                                 }))
                               }
-                              className="h-4 w-4 accent-primary"
-                            />
-                            <span>{employee.nombre}</span>
-                          </label>
-                        );
-                      })}
+                              className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition ${
+                                checked
+                                  ? "border-primary/30 bg-primary/10"
+                                  : "border-primary/10 bg-white hover:border-primary/20 hover:bg-primary/[0.03]"
+                              }`}
+                            >
+                              <span className="flex min-w-0 items-center gap-2.5">
+                                <span className={`flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-semibold ${checked ? "bg-primary text-white" : "bg-primary/10 text-primary"}`}>
+                                  {getInitials(employee.nombre)}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block truncate text-xs font-semibold text-gray-900">{employee.nombre}</span>
+                                  <span className="block truncate text-[11px] text-secondary">{employee.correo ?? "Sin correo"}</span>
+                                </span>
+                              </span>
+                              <span className={`ml-3 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${checked ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                                {checked ? "Activo" : "Agregar"}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
+
+                  {activeTask.stage === "citas" && activeTask.status === "pendiente" ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Flujo de cita</p>
+                      <div className="mt-3 space-y-2">
+                        <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaStarted ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                          {activeTask.citaStarted ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                          <span>1. Iniciar cita</span>
+                        </div>
+                        <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaFinished ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                          {activeTask.citaFinished ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                          <span>2. Terminar cita</span>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {!activeTask.citaStarted ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleTaskAction(activeTask, "start-cita")}
+                            className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
+                            disabled={isSaving || (activeTask.assignedToIds?.length ?? 0) === 0}
+                          >
+                            {(activeTask.assignedToIds?.length ?? 0) === 0 ? "Asigna responsable" : "Iniciar cita"}
+                          </button>
+                        ) : !activeTask.citaFinished ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleTaskAction(activeTask, "finish-cita")}
+                            className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                            disabled={isSaving}
+                          >
+                            Terminar cita
+                          </button>
+                        ) : (
+                          <span className="text-sm font-medium text-emerald-600">Cita completada</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {activeTask.stage === "cotizacion" ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Flujo de cotizacion formal</p>
+                      <div className="mt-3 space-y-2">
+                        <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaStarted ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                          {activeTask.citaStarted ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                          <span>1. Iniciar cotizacion</span>
+                        </div>
+                        <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${activeTask.citaFinished ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                          {activeTask.citaFinished ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                          <span>2. Terminar cotizacion</span>
+                        </div>
+                        <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${getCotizacionesFormalesList(activeTask).length > 0 ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                          {getCotizacionesFormalesList(activeTask).length > 0 ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                          <span>3. Cotizacion formal lista para entregar</span>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {!activeTask.citaStarted ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleTaskAction(activeTask, "start-cotizacion")}
+                            className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
+                            disabled={isSaving}
+                          >
+                            Iniciar cotizacion
+                          </button>
+                        ) : activeTask.citaStarted && !activeTask.citaFinished ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleTaskAction(activeTask, "finish-cotizacion")}
+                            className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                            disabled={isSaving}
+                          >
+                            Terminar cotizacion
+                          </button>
+                        ) : getCotizacionesFormalesList(activeTask).length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setCotizacionEntregadaTaskId(activeTask.id)}
+                            className="min-h-[36px] rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold leading-tight text-white"
+                            disabled={isSaving}
+                          >
+                            Cotizacion entregada
+                          </button>
+                        ) : (
+                          <p className="text-xs text-secondary">Genera y guarda la cotizacion formal en el cotizador; luego podras marcarla como entregada.</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {activeTask.stage === "disenos" ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Flujo de diseño</p>
+                      <div className="mt-3 space-y-2">
+                        <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${(activeTask.files?.length ?? 0) > 0 ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                          {(activeTask.files?.length ?? 0) > 0 ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                          <span>1. Subir archivo</span>
+                        </div>
+                        <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${(activeTask.designApprovedByAdmin ?? activeTask.visita?.aprobadaPorAdmin ?? false) ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                          {(activeTask.designApprovedByAdmin ?? activeTask.visita?.aprobadaPorAdmin ?? false) ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                          <span>2. Aprobación del admin</span>
+                        </div>
+                        <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${(activeTask.designApprovedByClient ?? activeTask.visita?.aprobadaPorCliente ?? false) ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                          {(activeTask.designApprovedByClient ?? activeTask.visita?.aprobadaPorCliente ?? false) ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-4 w-4 rounded-full border-2 border-gray-300" />}
+                          <span>3. Cliente acepta</span>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {(activeTask.files?.length ?? 0) === 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => requestDesignUpload(activeTask.id)}
+                            className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
+                            disabled={isSaving || uploadingTaskId === activeTask.id}
+                          >
+                            {(uploadingTaskId === activeTask.id) ? "Subiendo..." : "Subir archivo"}
+                          </button>
+                        ) : !(activeTask.designApprovedByAdmin ?? activeTask.visita?.aprobadaPorAdmin ?? false) ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleTaskAction(activeTask, "approve-design-admin")}
+                            className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white"
+                            disabled={isSaving}
+                          >
+                            Aprobar admin
+                          </button>
+                        ) : !(activeTask.designApprovedByClient ?? activeTask.visita?.aprobadaPorCliente ?? false) ? (
+                          <button
+                            type="button"
+                            onClick={() => setFinalDesignUploadTaskId(activeTask.id)}
+                            className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                            disabled={isSaving}
+                          >
+                            Cliente aceptó
+                          </button>
+                        ) : (
+                          <span className="text-sm font-medium text-emerald-600">Diseño aprobado</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {activeTask.stage === "contrato" && activeTask.followUpStatus === "pendiente" ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Alertas de seguimiento</p>
+                      {(() => {
+                        const alertLevel = getFollowUpAlertLevel(activeTask.followUpEnteredAt, activeTask.createdAt, clockNow);
+                        const days = getFollowUpDays(activeTask.followUpEnteredAt, activeTask.createdAt, clockNow);
+
+                        if (alertLevel === "urgent" || alertLevel === "expired") {
+                          return (
+                            <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3">
+                              <div className="flex items-center gap-2 text-rose-700">
+                                <AlertTriangle className="h-5 w-5 animate-pulse" />
+                                <span className="font-semibold">¡Contactar urgente!</span>
+                              </div>
+                              <p className="mt-1 text-xs text-rose-600">Han pasado {days} días. Contacta al cliente para saber si continúa con el proyecto.</p>
+                            </div>
+                          );
+                        }
+
+                        if (alertLevel === "warning") {
+                          return (
+                            <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3">
+                              <div className="flex items-center gap-2 text-amber-700">
+                                <Clock className="h-5 w-5" />
+                                <span className="font-semibold">Dar seguimiento</span>
+                              </div>
+                              <p className="mt-1 text-xs text-amber-600">Han pasado {days} días. Es momento de contactar al cliente.</p>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="mt-3 rounded-2xl bg-sky-50 px-4 py-3">
+                            <div className="flex items-center gap-2 text-sky-600">
+                              <Clock className="h-5 w-5" />
+                              <span className="font-semibold">En seguimiento</span>
+                            </div>
+                            <p className="mt-1 text-xs text-sky-500">{days > 0 ? `${days} día${days > 1 ? "s" : ""} en seguimiento.` : "Recién agregado."}</p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Estado del cliente</p>
+                    {activeTask.followUpStatus === "confirmado" ? (
+                      <div className="mt-3 flex items-center gap-2 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                        <CheckCircle2 className="h-5 w-5" />
+                        <span className="font-semibold">Cliente confirmado</span>
+                      </div>
+                    ) : activeTask.followUpStatus === "inactivo" ? (
+                      <div className="mt-3 flex items-center gap-2 rounded-2xl bg-gray-100 px-4 py-3 text-sm text-gray-500">
+                        <XCircle className="h-5 w-5" />
+                        <span className="font-semibold">Proyecto inactivo</span>
+                      </div>
+                    ) : (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleTaskAction(activeTask, "confirm-client")}
+                          className="flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                          disabled={isSaving}
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          Confirmar cliente
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleTaskAction(activeTask, "discard-client")}
+                          className="flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                          disabled={isSaving}
+                        >
+                          <XCircle className="h-4 w-4" />
+                          Marcar inactivo
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {activeTask.stage === "disenos" || activeTask.stage === "contrato" ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">Archivos</p>
+                      <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/20 bg-white px-4 py-6 text-sm text-secondary transition hover:border-primary/40 hover:bg-primary/[0.03]">
+                        <FileUp className="h-4 w-4" />
+                        Subir PDF o renders
+                        <input
+                          type="file"
+                          className="sr-only"
+                          accept="image/*,.pdf"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.currentTarget.value = "";
+                            if (!file) return;
+                            void handleDesignUpload(activeTask, file);
+                          }}
+                        />
+                      </label>
+                      <div className="mt-4 space-y-2">
+                        {(activeTask.files ?? []).length === 0 ? (
+                          <div className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-xs text-secondary">Sin archivos cargados.</div>
+                        ) : (
+                          (activeTask.files ?? []).map((file) => (
+                            <div key={file.id} className="flex items-center justify-between rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm">
+                              <span className="truncate pr-3">{file.name}</span>
+                              <span className="shrink-0 text-xs uppercase text-secondary">{file.type}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <label className="block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
                     Titulo

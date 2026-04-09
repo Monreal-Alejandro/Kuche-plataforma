@@ -2,6 +2,8 @@
  * Modelo y utilidades del proyecto de seguimiento del cliente (`kuche_project_${codigo}` en localStorage).
  */
 
+import type { CotizacionFormalData, PreliminarData, TaskStage, TaskStatus } from "@/lib/kanban";
+
 export const TIMELINE_STEPS = [
   "Diseño Aprobado",
   "Materiales en Taller",
@@ -105,17 +107,40 @@ export type SeguimientoClienteProject = {
     telefono?: string;
   };
   cliente: string;
+  projectType?: string;
+  location?: string;
   isProspect: boolean;
   inversion: number;
   fechaInicio: string;
   fechaEntrega: string;
   garantiaInicio: string;
   estadoProyecto: string;
+  stage?: TaskStage;
+  status?: TaskStatus;
+  sourceType?: "cita" | "diseno" | null;
+  notes?: string;
   etapaActual: TimelineStep;
   pagos: SeguimientoPagos;
   archivos: unknown[];
   cotizacionPreliminarImage: string;
   cotizacionFormalImage: string;
+  cita?: {
+    fechaAgendada?: string;
+    nombreCliente?: string;
+    correoCliente?: string;
+    telefonoCliente?: string;
+    ubicacion?: string;
+    informacionAdicional?: string;
+  };
+  visita?: {
+    fechaProgramada?: string;
+    aprobadaPorAdmin?: boolean;
+    aprobadaPorCliente?: boolean;
+  };
+  preliminarData?: PreliminarData;
+  cotizacionFormalData?: CotizacionFormalData;
+  preliminarCotizaciones?: PreliminarData[];
+  cotizacionesFormales?: CotizacionFormalData[];
 };
 
 /**
@@ -165,6 +190,8 @@ export function mergeSeguimientoFromStorage(parsed: Record<string, unknown>): Se
         }
       : undefined,
     cliente,
+    projectType: typeof parsed.projectType === "string" ? parsed.projectType : undefined,
+    location: typeof parsed.location === "string" ? parsed.location : undefined,
     isProspect: Boolean(parsed.isProspect),
     inversion,
     fechaInicio:
@@ -180,6 +207,17 @@ export function mergeSeguimientoFromStorage(parsed: Record<string, unknown>): Se
       typeof parsed.estadoProyecto === "string" && parsed.estadoProyecto.trim()
         ? parsed.estadoProyecto
         : "En proceso",
+    stage:
+      typeof parsed.stage === "string" && ["citas", "disenos", "cotizacion", "contrato"].includes(parsed.stage)
+        ? (parsed.stage as SeguimientoClienteProject["stage"])
+        : undefined,
+    status:
+      typeof parsed.status === "string" && ["pendiente", "completada"].includes(parsed.status)
+        ? (parsed.status as SeguimientoClienteProject["status"])
+        : undefined,
+    sourceType:
+      parsed.sourceType === "cita" || parsed.sourceType === "diseno" ? parsed.sourceType : undefined,
+    notes: typeof parsed.notes === "string" ? parsed.notes : undefined,
     etapaActual: normalizeEtapaForStorage(parsed.etapaActual),
     pagos,
     archivos: Array.isArray(parsed.archivos) ? parsed.archivos : [],
@@ -187,6 +225,22 @@ export function mergeSeguimientoFromStorage(parsed: Record<string, unknown>): Se
       typeof parsed.cotizacionPreliminarImage === "string" ? parsed.cotizacionPreliminarImage : "",
     cotizacionFormalImage:
       typeof parsed.cotizacionFormalImage === "string" ? parsed.cotizacionFormalImage : "",
+    cita: typeof parsed.cita === "object" && parsed.cita !== null ? (parsed.cita as SeguimientoClienteProject["cita"]) : undefined,
+    visita: typeof parsed.visita === "object" && parsed.visita !== null ? (parsed.visita as SeguimientoClienteProject["visita"]) : undefined,
+    preliminarData:
+      typeof parsed.preliminarData === "object" && parsed.preliminarData !== null
+        ? (parsed.preliminarData as PreliminarData)
+        : undefined,
+    cotizacionFormalData:
+      typeof parsed.cotizacionFormalData === "object" && parsed.cotizacionFormalData !== null
+        ? (parsed.cotizacionFormalData as CotizacionFormalData)
+        : undefined,
+    preliminarCotizaciones: Array.isArray(parsed.preliminarCotizaciones)
+      ? (parsed.preliminarCotizaciones as PreliminarData[])
+      : undefined,
+    cotizacionesFormales: Array.isArray(parsed.cotizacionesFormales)
+      ? (parsed.cotizacionesFormales as CotizacionFormalData[])
+      : undefined,
   } as SeguimientoClienteProject;
 }
 

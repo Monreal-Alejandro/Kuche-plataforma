@@ -202,7 +202,7 @@ export default function DisenosPage() {
         const backendTaskId = task.sourceId || task.id;
         try {
           const response = await obtenerArchivosTarea(backendTaskId);
-          const archivosDiseno = (response.data ?? []).filter(isDesignArchivo);
+          const archivosDiseno = (response.success ? response.data : []).filter(isDesignArchivo);
           const filesFromClienteArchivo = archivosDiseno.map((archivo) => ({
             id: archivo._id,
             name: archivo.nombre,

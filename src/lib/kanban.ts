@@ -1,3 +1,5 @@
+import { runtimeStore } from "@/lib/runtime-store";
+
 export type TaskStage = "citas" | "disenos" | "cotizacion" | "contrato";
 export type TaskStatus = "pendiente" | "completada";
 export type TaskPriority = "alta" | "media" | "baja";
@@ -27,6 +29,7 @@ export type PreliminarWallSpec = {
 };
 
 export type PreliminarData = {
+  [key: string]: unknown;
   client: string;
   /** Identificador estable del cliente para relacionar archivos y seguimientos. */
   clienteId?: string;
@@ -134,3 +137,8 @@ export const activeCotizacionFormalTaskStorageKey = "kuche-active-cotizacion-for
 
 /** Prefijo para guardar datos de seguimiento por código: kuche_project_${codigoProyecto} */
 export const seguimientoProjectStoragePrefix = "kuche_project_";
+
+/** Compatibilidad sin localStorage: persiste en memoria de runtime durante la sesión. */
+export function saveKanbanTasksToLocalStorage(tasks: KanbanTask[]): void {
+  runtimeStore.setItem(kanbanStorageKey, JSON.stringify(tasks));
+}
