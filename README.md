@@ -31,6 +31,14 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The repo is ready for Vercel deployment. Use the default Next.js framework detection, or rely on the included [vercel.json](vercel.json).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Before deploying, set these environment variables in the Vercel project settings:
+
+- `NEXT_PUBLIC_API_URL`: base URL of your backend API.
+- `NEXT_PUBLIC_FILE_UPLOAD_ENDPOINT`: upload endpoint used by the frontend.
+- `NEXT_PUBLIC_TURNSTILE_SITE_KEY`: optional captcha site key.
+
+Use [.env.example](.env.example) as the template for local and production values.
+
+If your backend is deployed separately, make sure it is reachable from Vercel over HTTPS and that CORS allows requests from the frontend domain.

@@ -6,6 +6,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Download,
   FileText,
   Image as ImageIcon,
   Loader2,
@@ -733,14 +734,26 @@ export default function DisenosPage() {
                     <p className="text-xs text-gray-400">Archivos disponibles: {project.files.length}</p>
                   ) : null}
                   {project.fileUrl ? (
-                    <a
-                      href={project.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-fit text-xs font-semibold text-[#8B1C1C] underline hover:no-underline"
-                    >
-                      Abrir archivo principal
-                    </a>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a
+                        href={project.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[#8B1C1C]/30 bg-[#8B1C1C]/5 px-3 py-1.5 text-xs font-semibold text-[#8B1C1C] transition hover:bg-[#8B1C1C]/10"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Descargar diseño
+                      </a>
+                      <a
+                        href={project.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-semibold text-[#8B1C1C] underline hover:no-underline"
+                      >
+                        Abrir archivo principal
+                      </a>
+                    </div>
                   ) : null}
                   {project.notes ? (
                     <p className="rounded-2xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -1000,7 +1013,7 @@ export default function DisenosPage() {
                 </div>
               ) : null}
               {activePreviewFile?.src ? (
-                <div className="border-b border-gray-100 px-6 py-2">
+                <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-6 py-2">
                   <a
                     href={activePreviewFile.src}
                     target="_blank"
@@ -1008,6 +1021,16 @@ export default function DisenosPage() {
                     className="break-all text-xs font-semibold text-[#8B1C1C] underline hover:no-underline"
                   >
                     Abrir archivo seleccionado: {activePreviewFile.src}
+                  </a>
+                  <a
+                    href={activePreviewFile.src}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[#8B1C1C]/30 bg-[#8B1C1C]/5 px-3 py-1.5 text-xs font-semibold text-[#8B1C1C] transition hover:bg-[#8B1C1C]/10"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Descargar
                   </a>
                 </div>
               ) : null}

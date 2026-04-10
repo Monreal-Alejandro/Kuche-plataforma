@@ -284,7 +284,8 @@ export const agregarArchivos = async (
   try {
     const response = await axiosInstance.post<ApiResponse<Tarea>>(
       `/api/tareas/${id}/archivos`,
-      { archivos: archivosSanitizados }
+      { archivos: archivosSanitizados },
+      ({ skipAuthRedirect: true } as any),
     );
     return response.data;
   } catch (error) {

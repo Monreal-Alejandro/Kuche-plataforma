@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, Calendar, Download, Eye, FileText, User } from "lucide-react";
+import { ArrowLeft, Calendar, Download, FileText, User } from "lucide-react";
 
 import { getAssignedLabel, type AdminWorkflowTask } from "@/lib/admin-workflow";
 import { getCotizacionesFormalesList, getPreliminarList } from "@/lib/kanban";
@@ -179,14 +179,6 @@ export default function ClientWorkflowGrid({
                             ) : null}
                             <button
                               type="button"
-                              onClick={() => openPreliminarPdfInNewTab(data)}
-                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                            >
-                              <Eye className="h-3 w-3" />
-                              Ver PDF
-                            </button>
-                            <button
-                              type="button"
                               onClick={() =>
                                 downloadPreliminarPdf(
                                   data,
@@ -224,14 +216,6 @@ export default function ClientWorkflowGrid({
                         {getCotizacionesFormalesList(task).map((data, index) => (
                           <div key={`${task.id}-formal-${index}`} className="flex flex-wrap items-center gap-2 rounded-xl bg-white/80 px-3 py-2">
                             <span className="text-xs font-medium text-violet-800">{data.projectType}</span>
-                            <button
-                              type="button"
-                              onClick={() => openFormalPdfInNewTab(data)}
-                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
-                            >
-                              <Eye className="h-3 w-3" />
-                              Ver PDF
-                            </button>
                             <button
                               type="button"
                               onClick={() =>
