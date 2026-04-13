@@ -295,7 +295,7 @@ export default function PreciosPage() {
           <div className="min-w-0">
             <p className="text-xs font-semibold text-gray-800">Actualización de costos base (piezas)</p>
             <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
-              El rango del PDF de levantamiento usa otra pantalla (escenarios, IVA, gamas); no es esta tabla.
+              El rango del PDF de levantamiento usa otra pantalla (escenarios, IVA y catálogo de materiales); no es esta tabla.
             </p>
           </div>
           <Link

@@ -1,14 +1,17 @@
 export const LEVANTAMIENTO_CONFIG_STORAGE_KEY = "kuche.config.levantamiento.v2";
 
 export type MaterialCategoria = "cubierta" | "frente" | "herraje";
+
+/** @deprecated Las gamas de material ya no clasifican el catálogo; solo persisten en datos viejos de localStorage. */
 export type MaterialGama = "Estandar" | "Tendencia" | "Premium";
 
 export interface MaterialConfig {
   id: string;
   nombre: string;
   categoria: MaterialCategoria;
-  gama: MaterialGama;
   precioPorMetro: number;
+  /** @deprecated Ignorado en lógica nueva; puede existir en datos guardados antes de la migración. */
+  gama?: MaterialGama;
 }
 
 export interface LevantamientoConfig {
@@ -16,29 +19,41 @@ export interface LevantamientoConfig {
   materiales: MaterialConfig[];
   ivaPercent: number;
   marginPercent: number;
+  /** Multiplicador de frentes y herrajes (lineal) cuando la cocina es hasta el techo. No aplica a cubiertas. */
+  factorHastaTecho: number;
 }
 
+/**
+ * Catálogo oficial por defecto (precios $/m). Misma lista que el showroom del Levantamiento Detallado.
+ */
+export const DEFAULT_LEVANTAMIENTO_MATERIALES: MaterialConfig[] = [
+  { id: "cub-cuarcita", nombre: "Cuarcita", categoria: "cubierta", precioPorMetro: 7000 },
+  { id: "cub-formaica", nombre: "Formaica", categoria: "cubierta", precioPorMetro: 1800 },
+  { id: "cub-granito", nombre: "Granito", categoria: "cubierta", precioPorMetro: 4000 },
+  { id: "cub-cuarzo", nombre: "Cuarzo", categoria: "cubierta", precioPorMetro: 5500 },
+  { id: "cub-cubierta-solida", nombre: "Cubierta solida", categoria: "cubierta", precioPorMetro: 6000 },
+  { id: "cub-marmol", nombre: "Mármol", categoria: "cubierta", precioPorMetro: 3500 },
+  { id: "cub-piedra-sinterizada", nombre: "Piedra sinterizada", categoria: "cubierta", precioPorMetro: 6500 },
+  { id: "fre-enchapados-naturales", nombre: "Enchapados naturales", categoria: "frente", precioPorMetro: 4000 },
+  { id: "fre-premium", nombre: "Premium", categoria: "frente", precioPorMetro: 10000 },
+  { id: "fre-melamina-1-estandar", nombre: "1 Melamina estandar", categoria: "frente", precioPorMetro: 3500 },
+  { id: "fre-madera-solida", nombre: "Madera solida", categoria: "frente", precioPorMetro: 6000 },
+  { id: "fre-melamina-2-tendencia", nombre: "2 Melamina Tendencia", categoria: "frente", precioPorMetro: 4500 },
+  { id: "fre-altos-brillos", nombre: "Altos Brillos", categoria: "frente", precioPorMetro: 7500 },
+  { id: "fre-supermates", nombre: "Supermates", categoria: "frente", precioPorMetro: 8000 },
+  { id: "her-basico", nombre: "Basico", categoria: "herraje", precioPorMetro: 500 },
+  {
+    id: "her-intermedio",
+    nombre: "Intermedio (cierre lento / push to open)",
+    categoria: "herraje",
+    precioPorMetro: 1000,
+  },
+  { id: "her-alta", nombre: "Alta", categoria: "herraje", precioPorMetro: 2000 },
+  { id: "her-premium", nombre: "Premium", categoria: "herraje", precioPorMetro: 4000 },
+];
+
 function defaultMateriales(): MaterialConfig[] {
-  return [
-    { id: "cub-est-1", nombre: "Laminado Blanco Nieve", categoria: "cubierta", gama: "Estandar", precioPorMetro: 1800 },
-    { id: "cub-est-2", nombre: "Granito San Gabriel", categoria: "cubierta", gama: "Estandar", precioPorMetro: 2200 },
-    { id: "cub-tend-1", nombre: "Cuarzo Clásico", categoria: "cubierta", gama: "Tendencia", precioPorMetro: 3400 },
-    { id: "cub-tend-2", nombre: "Porcelánico Terrazzo", categoria: "cubierta", gama: "Tendencia", precioPorMetro: 3600 },
-    { id: "cub-prem-1", nombre: "Mármol Calacatta", categoria: "cubierta", gama: "Premium", precioPorMetro: 5200 },
-    { id: "cub-prem-2", nombre: "Piedra sinterizada XL", categoria: "cubierta", gama: "Premium", precioPorMetro: 5800 },
-    { id: "fre-est-1", nombre: "Melamina blanca", categoria: "frente", gama: "Estandar", precioPorMetro: 950 },
-    { id: "fre-est-2", nombre: "MDF hidrófugo", categoria: "frente", gama: "Estandar", precioPorMetro: 1100 },
-    { id: "fre-tend-1", nombre: "Laca semimate", categoria: "frente", gama: "Tendencia", precioPorMetro: 2100 },
-    { id: "fre-tend-2", nombre: "Chapa nogal", categoria: "frente", gama: "Tendencia", precioPorMetro: 1950 },
-    { id: "fre-prem-1", nombre: "Laca alto brillo", categoria: "frente", gama: "Premium", precioPorMetro: 3600 },
-    { id: "fre-prem-2", nombre: "Madera maciza", categoria: "frente", gama: "Premium", precioPorMetro: 3400 },
-    { id: "her-est-1", nombre: "Bisagra estándar", categoria: "herraje", gama: "Estandar", precioPorMetro: 750 },
-    { id: "her-est-2", nombre: "Corredera básica", categoria: "herraje", gama: "Estandar", precioPorMetro: 850 },
-    { id: "her-tend-1", nombre: "Soft-close", categoria: "herraje", gama: "Tendencia", precioPorMetro: 1550 },
-    { id: "her-tend-2", nombre: "Push to open", categoria: "herraje", gama: "Tendencia", precioPorMetro: 1450 },
-    { id: "her-prem-1", nombre: "Servo drive", categoria: "herraje", gama: "Premium", precioPorMetro: 2600 },
-    { id: "her-prem-2", nombre: "Guías ocultas premium", categoria: "herraje", gama: "Premium", precioPorMetro: 2400 },
-  ];
+  return DEFAULT_LEVANTAMIENTO_MATERIALES.map((m) => ({ ...m }));
 }
 
 export function createDefaultLevantamientoConfig(): LevantamientoConfig {
@@ -47,6 +62,7 @@ export function createDefaultLevantamientoConfig(): LevantamientoConfig {
     materiales: defaultMateriales(),
     ivaPercent: 0.16,
     marginPercent: 0.08,
+    factorHastaTecho: 1.25,
   };
 }
 
@@ -65,19 +81,21 @@ export function getLevantamientoConfig(): LevantamientoConfig {
       },
       materiales:
         Array.isArray(parsed.materiales) && parsed.materiales.length > 0
-          ? parsed.materiales.map((m, i) => ({
-              id: typeof m.id === "string" ? m.id : `mat-${i}`,
-              nombre: typeof m.nombre === "string" ? m.nombre : "Material",
-              categoria:
-                m.categoria === "cubierta" || m.categoria === "frente" || m.categoria === "herraje"
-                  ? m.categoria
-                  : "cubierta",
-              gama:
-                m.gama === "Estandar" || m.gama === "Tendencia" || m.gama === "Premium"
-                  ? m.gama
-                  : "Estandar",
-              precioPorMetro: Math.max(0, Number(m.precioPorMetro) || 0),
-            }))
+          ? parsed.materiales.map((m, i) => {
+              const row: MaterialConfig = {
+                id: typeof m.id === "string" ? m.id : `mat-${i}`,
+                nombre: typeof m.nombre === "string" ? m.nombre : "Material",
+                categoria:
+                  m.categoria === "cubierta" || m.categoria === "frente" || m.categoria === "herraje"
+                    ? m.categoria
+                    : "cubierta",
+                precioPorMetro: Math.max(0, Number(m.precioPorMetro) || 0),
+              };
+              if (m.gama === "Estandar" || m.gama === "Tendencia" || m.gama === "Premium") {
+                row.gama = m.gama;
+              }
+              return row;
+            })
           : base.materiales,
       ivaPercent:
         typeof parsed.ivaPercent === "number" && Number.isFinite(parsed.ivaPercent)
@@ -87,6 +105,10 @@ export function getLevantamientoConfig(): LevantamientoConfig {
         typeof parsed.marginPercent === "number" && Number.isFinite(parsed.marginPercent)
           ? Math.min(0.5, Math.max(0, parsed.marginPercent))
           : base.marginPercent,
+      factorHastaTecho:
+        typeof parsed.factorHastaTecho === "number" && Number.isFinite(parsed.factorHastaTecho)
+          ? Math.min(5, Math.max(1, parsed.factorHastaTecho))
+          : base.factorHastaTecho,
     };
   } catch {
     return createDefaultLevantamientoConfig();
@@ -110,16 +132,51 @@ export function resetLevantamientoConfigToDefault(): LevantamientoConfig {
   return fresh;
 }
 
-/**
- * Promedio de precioPorMetro para materiales que coinciden en categoría y gama.
- */
-export function getAveragePriceByTier(
-  materiales: MaterialConfig[],
-  categoria: MaterialCategoria,
-  gama: MaterialGama,
-): number {
-  const list = materiales.filter((m) => m.categoria === categoria && m.gama === gama);
+/** Promedio de precioPorMetro en una categoría (respaldo si no hay match por id/nombre). */
+export function getAveragePrecioPorCategoria(materiales: MaterialConfig[], categoria: MaterialCategoria): number {
+  const list = materiales.filter((m) => m.categoria === categoria);
   if (list.length === 0) return 0;
   const sum = list.reduce((acc, m) => acc + (Number.isFinite(m.precioPorMetro) ? m.precioPorMetro : 0), 0);
   return sum / list.length;
+}
+
+function normalizeMaterialName(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}|\uFEFF/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Selección del showroom (id + nombre visibles), alineada al catálogo de configuración. */
+export type ShowroomMaterialPick = {
+  id: string;
+  name: string;
+};
+
+/**
+ * Precio $/m del material en configuración para una opción del showroom.
+ * Orden: id exacto en config → coincidencia por nombre → promedio por categoría.
+ */
+export function resolvePrecioPorMetroForShowroomSelection(
+  materiales: MaterialConfig[],
+  categoria: MaterialCategoria,
+  selection: ShowroomMaterialPick | null | undefined,
+): number {
+  if (!selection) return 0;
+  const byId = materiales.find((m) => m.id === selection.id);
+  if (byId && Number.isFinite(byId.precioPorMetro)) return Math.max(0, byId.precioPorMetro);
+
+  const n = normalizeMaterialName(selection.name);
+  const pool = materiales.filter((m) => m.categoria === categoria);
+  let hit = pool.find((m) => normalizeMaterialName(m.nombre) === n);
+  if (hit && Number.isFinite(hit.precioPorMetro)) return Math.max(0, hit.precioPorMetro);
+  hit = pool.find((m) => {
+    const mn = normalizeMaterialName(m.nombre);
+    return mn.includes(n) || n.includes(mn);
+  });
+  if (hit && Number.isFinite(hit.precioPorMetro)) return Math.max(0, hit.precioPorMetro);
+
+  return getAveragePrecioPorCategoria(materiales, categoria);
 }

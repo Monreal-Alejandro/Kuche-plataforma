@@ -9,6 +9,7 @@ import {
   applianceOtroAppearsInPdf,
   getWallMeasureFieldDefs,
   isWallSlotKey,
+  getLightingEffectiveQty,
   LIGHTING_ITEMS,
   lightingAppearsInPdf,
   lightingOtroAppearsInPdf,
@@ -20,6 +21,7 @@ import {
   wallMeasuresTieneValor,
 } from "@/lib/levantamiento-catalog";
 import { getFormalPdf, resolveWorkshopPdfKeysToTry } from "@/lib/formal-pdf-storage";
+import { KUCHE_PRELIMINAR_PDF_FOOTER_LINE } from "@/lib/kuche-contact";
 
 /** Tiempo antes de revocar el object URL (la pestaña nueva debe terminar de cargar). */
 const PDF_OBJECT_URL_TAB_MS = 120_000;
@@ -53,8 +55,7 @@ const ZEBRA_FILL: [number, number, number] = [248, 248, 248];
 /** Encabezados de tabla autoTable (gris institucional, secundario al rojo de marca). */
 const TABLE_HEAD_GRAY: [number, number, number] = [78, 78, 78];
 
-const FOOTER_LINE =
-  "Copal No. 303 Fracc. Vista Hermosa Tel. 618 101 7363 | cocinasinteligentesdgo@gmail.com";
+const FOOTER_LINE = KUCHE_PRELIMINAR_PDF_FOOTER_LINE;
 
 function getPageH(doc: jsPDF): number {
   return doc.internal.pageSize.getHeight();
@@ -117,8 +118,11 @@ function financeFromPreliminar(data: PreliminarData) {
   const cb = data.costoBase;
   const cm = data.costoMateriales;
   const ci = data.costoIluminacion;
+  const ca = data.costoAccesoriosEspeciales;
+  const accExtra = typeof ca === "number" && Number.isFinite(ca) ? ca : 0;
   const sub =
-    data.subtotal ?? (cb != null && cm != null && ci != null ? cb + cm + ci : undefined);
+    data.subtotal ??
+    (cb != null && cm != null && ci != null ? cb + cm + ci + accExtra : undefined);
   const iva = data.iva ?? (sub != null ? sub * 0.16 : undefined);
   const total = data.total ?? (sub != null ? sub * 1.16 : undefined);
   return { cb, cm, ci, sub, iva, total };
@@ -563,7 +567,9 @@ function addFichaTecnica(doc: jsPDF, data: PreliminarData, lev: LevantamientoDet
   }
   for (const l of lights) {
     const m = lev.lightingMeasures[l.id];
-    rows.push([`Luz - ${l.label}`, safeText(m?.ancho, "-"), safeText(m?.alto, "-"), safeText(m?.fondo, "-")]);
+    const q = getLightingEffectiveQty(lev, l.id);
+    const label = q > 1 ? `Luz - ${l.label} (×${q})` : `Luz - ${l.label}`;
+    rows.push([label, safeText(m?.ancho, "-"), safeText(m?.alto, "-"), safeText(m?.fondo, "-")]);
   }
   if (lightingOtroAppearsInPdf(lev)) {
     rows.push([`Luz - Otro: ${safeText(lev.lightingOtro.descripcion, "(sin descripcion)")}`, safeText(lev.lightingOtro.ancho, "-"), safeText(lev.lightingOtro.alto, "-"), safeText(lev.lightingOtro.fondo, "-")]);

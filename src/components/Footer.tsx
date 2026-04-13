@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { Facebook, Instagram } from "lucide-react";
 
+import {
+  KUCHE_EMAIL,
+  KUCHE_EMAIL_MAILTO_HREF,
+  KUCHE_PHONE_DISPLAY,
+  KUCHE_PHONE_TEL_HREF,
+} from "@/lib/kuche-contact";
+import { SHOWROOM_ADDRESS_LINE } from "@/lib/site-location";
+
 export default function Footer() {
   return (
     <footer className="bg-black text-white">
@@ -57,9 +65,17 @@ export default function Footer() {
               Showroom
             </h3>
             <div className="space-y-2 text-sm text-gray-400">
-              <p>Calle Industrial 45, CDMX</p>
-              <p>+52 55 1234 5678</p>
-              <p>hola@Küche.mx</p>
+              <p>{SHOWROOM_ADDRESS_LINE}</p>
+              <p>
+                <a href={KUCHE_PHONE_TEL_HREF} className="transition hover:text-accent">
+                  {KUCHE_PHONE_DISPLAY}
+                </a>
+              </p>
+              <p>
+                <a href={KUCHE_EMAIL_MAILTO_HREF} className="text-sky-300 transition hover:text-accent">
+                  {KUCHE_EMAIL}
+                </a>
+              </p>
             </div>
           </div>
 
@@ -94,7 +110,7 @@ export default function Footer() {
 
         <div className="mt-10 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-6 text-sm text-gray-400">
           <span>
-            © 2024 Küche Cocinas Inteligentes. Todos los derechos reservados.
+            © 2026 Küche Cocinas Inteligentes. Todos los derechos reservados.
           </span>
           <Link
             href="/login"

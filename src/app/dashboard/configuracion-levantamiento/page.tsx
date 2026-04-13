@@ -12,11 +12,9 @@ import {
   type LevantamientoConfig,
   type MaterialCategoria,
   type MaterialConfig,
-  type MaterialGama,
 } from "@/lib/config-levantamiento";
 
 const CATEGORIAS: MaterialCategoria[] = ["cubierta", "frente", "herraje"];
-const GAMAS: MaterialGama[] = ["Estandar", "Tendencia", "Premium"];
 type FiltroCategoria = "todas" | MaterialCategoria;
 
 /** Fracción 0–0.5 → puntos porcentuales para mostrar (p. ej. 0.16 → 16). */
@@ -102,7 +100,6 @@ export default function ConfiguracionLevantamientoPage() {
   const [newMat, setNewMat] = useState({
     nombre: "",
     categoria: "cubierta" as MaterialCategoria,
-    gama: "Estandar" as MaterialGama,
     precioPorMetro: 0,
   });
   const [materialSearch, setMaterialSearch] = useState("");
@@ -118,12 +115,8 @@ export default function ConfiguracionLevantamientoPage() {
 
   const sortedMateriales = useMemo(() => {
     const order = { cubierta: 0, frente: 1, herraje: 2 };
-    const gOrder = { Estandar: 0, Tendencia: 1, Premium: 2 };
     return [...config.materiales].sort(
-      (a, b) =>
-        order[a.categoria] - order[b.categoria] ||
-        gOrder[a.gama] - gOrder[b.gama] ||
-        a.nombre.localeCompare(b.nombre),
+      (a, b) => order[a.categoria] - order[b.categoria] || a.nombre.localeCompare(b.nombre),
     );
   }, [config.materiales]);
 
@@ -132,11 +125,7 @@ export default function ConfiguracionLevantamientoPage() {
     return sortedMateriales.filter((m) => {
       if (filterCategoria !== "todas" && m.categoria !== filterCategoria) return false;
       if (!q) return true;
-      return (
-        m.nombre.toLowerCase().includes(q) ||
-        m.id.toLowerCase().includes(q) ||
-        m.gama.toLowerCase().includes(q)
-      );
+      return m.nombre.toLowerCase().includes(q) || m.id.toLowerCase().includes(q);
     });
   }, [sortedMateriales, materialSearch, filterCategoria]);
 
@@ -185,7 +174,6 @@ export default function ConfiguracionLevantamientoPage() {
           id,
           nombre,
           categoria: newMat.categoria,
-          gama: newMat.gama,
           precioPorMetro: precio,
         },
       ],
@@ -216,8 +204,8 @@ export default function ConfiguracionLevantamientoPage() {
                 Gestor de Levantamiento
               </h1>
               <p className="mt-3 max-w-2xl text-sm text-secondary md:text-base">
-                Precios base por escenario, IVA, margen de rango y catálogo de materiales por gama. El
-                Levantamiento Detallado usa estos valores en vivo.
+                Precios base por escenario (Esencial / Tendencia / Premium), IVA, margen de rango y catálogo de
+                materiales ($/m). El Levantamiento Detallado usa estos valores en vivo.
               </p>
             </div>
           </div>
@@ -264,7 +252,6 @@ export default function ConfiguracionLevantamientoPage() {
                   <label key={key} className="block">
                     <span className="text-xs font-medium text-secondary">{label}</span>
                     <NumericInputEmptyZero
-                      type="number"
                       min={0}
                       step={100}
                       parseAs="float"
@@ -328,15 +315,38 @@ export default function ConfiguracionLevantamientoPage() {
                   </span>
                 </label>
               </div>
+              <label className="mt-4 block">
+                <span className="text-xs font-medium text-secondary">
+                  Factor hasta el techo (carpintería: frentes + herrajes)
+                </span>
+                <NumericInputEmptyZero
+                  min={1}
+                  max={5}
+                  step={0.05}
+                  parseAs="float"
+                  placeholder="1.25"
+                  className="mt-1 w-full max-w-xs rounded-xl border border-primary/15 bg-white px-3 py-2 text-sm font-semibold text-primary outline-none ring-primary/20 focus:ring-2"
+                  value={config.factorHastaTecho}
+                  onValueChange={(n) =>
+                    setConfig((c) => ({
+                      ...c,
+                      factorHastaTecho: Math.min(5, Math.max(1, n)),
+                    }))
+                  }
+                />
+                <span className="mt-1 block text-[11px] text-secondary">
+                  Se aplica en Levantamiento detallado solo si se marca «cocina hasta el techo» (1–5; por defecto 1.25).
+                </span>
+              </label>
             </div>
           </div>
 
           <div className="mt-10 rounded-3xl border border-primary/10 bg-white/90 p-6 shadow-lg backdrop-blur-sm">
             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-secondary">
-              Materiales por gama (precio $/m)
+              Catálogo de materiales (precio $/m)
             </h2>
             <p className="mt-2 text-xs text-secondary">
-              El promedio por categoría y gama alimenta el cálculo del Levantamiento Detallado.
+              Cada material tiene su precio por metro; el escenario solo define el costo base de referencia lineal.
             </p>
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -348,7 +358,7 @@ export default function ConfiguracionLevantamientoPage() {
                     type="search"
                     value={materialSearch}
                     onChange={(e) => setMaterialSearch(e.target.value)}
-                    placeholder="Nombre, id o gama…"
+                    placeholder="Nombre o id…"
                     className="w-full rounded-xl border border-primary/15 bg-white py-2 pl-9 pr-3 text-sm outline-none ring-primary/20 focus:ring-2"
                   />
                 </div>
@@ -371,12 +381,11 @@ export default function ConfiguracionLevantamientoPage() {
             </div>
 
             <div className="mt-4 overflow-x-auto rounded-2xl border border-primary/10">
-              <table className="w-full min-w-[720px] text-left text-sm">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-primary/10 bg-primary/[0.03] text-xs uppercase tracking-wide text-secondary">
                     <th className="px-3 py-3 font-semibold">Nombre</th>
                     <th className="px-3 py-3 font-semibold">Categoría</th>
-                    <th className="px-3 py-3 font-semibold">Gama</th>
                     <th className="px-3 py-3 font-semibold">$/m</th>
                     <th className="w-12 px-2 py-3" />
                   </tr>
@@ -384,7 +393,7 @@ export default function ConfiguracionLevantamientoPage() {
                 <tbody>
                   {filteredMateriales.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-3 py-8 text-center text-sm text-secondary">
+                      <td colSpan={4} className="px-3 py-8 text-center text-sm text-secondary">
                         No hay materiales con estos criterios.
                       </td>
                     </tr>
@@ -414,21 +423,7 @@ export default function ConfiguracionLevantamientoPage() {
                         </select>
                       </td>
                       <td className="px-3 py-2">
-                        <select
-                          className="rounded-lg border border-primary/10 bg-white px-2 py-1.5 text-sm outline-none"
-                          value={m.gama}
-                          onChange={(e) => updateMaterial(m.id, { gama: e.target.value as MaterialGama })}
-                        >
-                          {GAMAS.map((g) => (
-                            <option key={g} value={g}>
-                              {g}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-3 py-2">
                         <NumericInputEmptyZero
-                          type="number"
                           min={0}
                           step={50}
                           parseAs="float"
@@ -485,23 +480,8 @@ export default function ConfiguracionLevantamientoPage() {
                 </select>
               </label>
               <label>
-                <span className="text-xs font-medium text-secondary">Gama</span>
-                <select
-                  className="mt-1 rounded-xl border border-primary/15 bg-white px-3 py-2 text-sm outline-none"
-                  value={newMat.gama}
-                  onChange={(e) => setNewMat((n) => ({ ...n, gama: e.target.value as MaterialGama }))}
-                >
-                  {GAMAS.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
                 <span className="text-xs font-medium text-secondary">$/m</span>
                 <NumericInputEmptyZero
-                  type="number"
                   min={0}
                   parseAs="float"
                   placeholder="0"

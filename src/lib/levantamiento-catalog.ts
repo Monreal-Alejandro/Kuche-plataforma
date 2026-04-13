@@ -15,6 +15,8 @@ export type ItemCatalogo = {
   image: string;
   /** Precio fijo (iluminación), no por metro. */
   precioFijo?: number;
+  /** Precio unitario base por cantidad (accesorios especiales); configurable después. */
+  precioBase?: number;
 };
 
 export const WALL_ITEMS: ItemCatalogo[] = [
@@ -671,57 +673,8 @@ export function formatWallMeasuresForPdf(wallId: string, values: Record<string, 
 /** Respaldo del ítem en catálogo (rutas antiguas render/cocina no existen en `public`). */
 export const APPLIANCE_CATALOGO_IMAGE_FALLBACK = "/images/hero-placeholder.svg";
 
-/** Tipos de electrodomésticos (catálogo Excel: microondas, estufas, refrigeradores, parrillas). */
+/** Tipos de electrodomésticos (orden de presentación: refrigeración, estufas, tarjas, luego el resto). */
 export const APPLIANCE_ITEMS: ItemCatalogo[] = [
-  {
-    id: "micro-sobremesa",
-    categoria: "Microondas",
-    label: "De libre instalación (sobremesa)",
-    hint: "Se colocan sobre la encimera; fáciles de instalar y transportar.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "micro-empotrable",
-    categoria: "Microondas",
-    label: "Empotrables o de integración",
-    hint: "Dentro de muebles de cocina; estética limpia y más espacio en encimera.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "micro-campana",
-    categoria: "Microondas",
-    label: "Con campana extractora",
-    hint: "Sobre la estufa; también extraen humo y olores.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "estufa-gas",
-    categoria: "Estufas",
-    label: "Estufas de gas (LP o natural)",
-    hint: "Tradicionales; buena potencia y horno integrado. Parrillas hierro fundido, encendido electrónico.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "estufa-electrica",
-    categoria: "Estufas",
-    label: "Estufas eléctricas",
-    hint: "Resistencia, vitrocerámica o inducción; sin instalación de gas.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "estufa-piso-material",
-    categoria: "Estufas",
-    label: "Estufas de piso (diseño y material)",
-    hint: "Inox durables; porcelanizadas blanco/negro, resistentes a corrosión.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "estufa-compacta",
-    categoria: "Estufas",
-    label: "Estufas compactas o de puesto",
-    hint: "Más pequeñas; de uno a cuatro quemadores.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
   {
     id: "refri-top-mount",
     categoria: "Refrigeradores",
@@ -758,6 +711,83 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
     image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
+    id: "estufa-gas",
+    categoria: "Estufas",
+    label: "Estufas de gas (LP o natural)",
+    hint: "Tradicionales; buena potencia y horno integrado. Parrillas hierro fundido, encendido electrónico.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "estufa-electrica",
+    categoria: "Estufas",
+    label: "Estufas eléctricas",
+    hint: "Resistencia, vitrocerámica o inducción; sin instalación de gas.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "estufa-piso-material",
+    categoria: "Estufas",
+    label: "Estufas de piso (diseño y material)",
+    hint: "Inox durables; porcelanizadas blanco/negro, resistentes a corrosión.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "estufa-compacta",
+    categoria: "Estufas",
+    label: "Estufas compactas o de puesto",
+    hint: "Más pequeñas; de uno a cuatro quemadores.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "tarja-simple",
+    categoria: "Tarjas",
+    label: "Tarja seno único",
+    hint: "Una cubeta; la más común en cocinas compactas.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "tarja-doble",
+    categoria: "Tarjas",
+    label: "Tarja doble taza",
+    hint: "Dos cubetas para lavar y escurrir por separado.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "tarja-farmhouse",
+    categoria: "Tarjas",
+    label: "Tarja tipo granja (apron front)",
+    hint: "Frente visto; estilo rústico o escandinavo.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "tarja-trabajo",
+    categoria: "Tarjas",
+    label: "Tarja de gran formato / estación de trabajo",
+    hint: "Mayor profundidad o ancho para preparación intensa.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "micro-sobremesa",
+    categoria: "Microondas",
+    label: "De libre instalación (sobremesa)",
+    hint: "Se colocan sobre la encimera; fáciles de instalar y transportar.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "micro-empotrable",
+    categoria: "Microondas",
+    label: "Empotrables o de integración",
+    hint: "Dentro de muebles de cocina; estética limpia y más espacio en encimera.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
+    id: "micro-campana",
+    categoria: "Microondas",
+    label: "Con campana extractora",
+    hint: "Sobre la estufa; también extraen humo y olores.",
+    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+  },
+  {
     id: "parrilla-gas",
     categoria: "Parrillas",
     label: "Parrillas de gas",
@@ -790,34 +820,6 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
     categoria: "Parrillas",
     label: "Parrillas dominó",
     hint: "Módulos pequeños combinables para personalizar la cocción.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "tarja-simple",
-    categoria: "Tarjas",
-    label: "Tarja seno único",
-    hint: "Una cubeta; la más común en cocinas compactas.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "tarja-doble",
-    categoria: "Tarjas",
-    label: "Tarja doble taza",
-    hint: "Dos cubetas para lavar y escurrir por separado.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "tarja-farmhouse",
-    categoria: "Tarjas",
-    label: "Tarja tipo granja (apron front)",
-    hint: "Frente visto; estilo rústico o escandinavo.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
-  },
-  {
-    id: "tarja-trabajo",
-    categoria: "Tarjas",
-    label: "Tarja de gran formato / estación de trabajo",
-    hint: "Mayor profundidad o ancho para preparación intensa.",
     image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
@@ -995,11 +997,11 @@ export function getApplianceCategoryProgress(globalIndex: number): {
 
 /** Orden fijo de categorías en el catálogo (misma secuencia que en `APPLIANCE_ITEMS`). */
 export const APPLIANCE_CATEGORIAS: readonly string[] = [
-  "Microondas",
-  "Estufas",
   "Refrigeradores",
-  "Parrillas",
+  "Estufas",
   "Tarjas",
+  "Microondas",
+  "Parrillas",
   "Campanas",
   "Otros",
 ];
@@ -1085,6 +1087,127 @@ export const LIGHTING_ITEMS: ItemCatalogo[] = [
 /** Un solo grupo (compatibilidad); la UI mapea `LIGHTING_ITEMS` directamente. */
 export const LIGHTING_PAGE_INDICES: number[][] = [[0, 1, 2, 3, 4, 5]];
 
+export function defaultLightingQty(): Record<string, number> {
+  const o: Record<string, number> = {};
+  for (const item of LIGHTING_ITEMS) {
+    o[item.id] = 0;
+  }
+  return o;
+}
+
+type LightingQtySlice = {
+  lightingQty?: Record<string, number>;
+  lightingMeasures: Record<string, MedidasCampos>;
+};
+
+/** Ids de luminarios con cantidad &gt; 0 o con medidas capturadas (PDF / compatibilidad). */
+export function computeLightingSelectedIds(lev: LightingQtySlice): string[] {
+  return LIGHTING_ITEMS.filter((l) => {
+    const q = Math.max(0, Math.floor(Number(lev.lightingQty?.[l.id]) || 0));
+    if (q > 0) return true;
+    const m = lev.lightingMeasures[l.id];
+    return m ? medidasCamposTieneValor(m) : false;
+  }).map((l) => l.id);
+}
+
+type LightingEffectiveQtyLev = LightingQtySlice & { lightingSelectedIds?: string[] };
+
+/**
+ * Cantidad efectiva para cotización/PDF: `lightingQty`, o 1 si legado (solo ids/medidas sin mapa de cantidades).
+ */
+export function getLightingEffectiveQty(lev: LightingEffectiveQtyLev, lightingId: string): number {
+  const raw = lev.lightingQty?.[lightingId];
+  const q = Math.max(0, Math.floor(Number(raw) || 0));
+  if (q > 0) return Math.min(999, q);
+  const ids = lev.lightingSelectedIds ?? [];
+  if (ids.includes(lightingId)) return 1;
+  const m = lev.lightingMeasures[lightingId];
+  if (m && medidasCamposTieneValor(m)) return 1;
+  return 0;
+}
+
+const SPECIAL_ACCESSORY_IMAGES = [
+  "/images/materiales/cabinet_hinge.jpg",
+  "/images/materiales/drawer_slide.jpg",
+  "/images/materiales/smooth_stone.jpg",
+  "/images/materiales/metalic_textures.jpg",
+  "/images/materiales/white_marble_texture.jpg",
+  "/images/materiales/walnut_wood_texture.jpg",
+  "/images/materiales/plywood_texture.jpg",
+  "/images/materiales/stainless_steel_hinge.jpg",
+] as const;
+
+/**
+ * Accesorios y herrajes especiales (Sección E · extras).
+ * `precioBase` simbólico por ítem; se reemplazará por valores de configuración.
+ */
+export const SPECIAL_ACCESSORIES_ITEMS: ItemCatalogo[] = [
+  {
+    id: "alacena-extraible",
+    label: "Alacena extraíble",
+    categoria: "Accesorios especiales",
+    image: SPECIAL_ACCESSORY_IMAGES[0]!,
+    precioBase: 0,
+  },
+  {
+    id: "bote-basura",
+    label: "Bote de basura",
+    categoria: "Accesorios especiales",
+    image: SPECIAL_ACCESSORY_IMAGES[1]!,
+    precioBase: 0,
+  },
+  {
+    id: "space-tower",
+    label: "Space Tower",
+    categoria: "Accesorios especiales",
+    image: SPECIAL_ACCESSORY_IMAGES[2]!,
+    precioBase: 0,
+  },
+  {
+    id: "mecanismos-electronicos",
+    label: "Mecanismos electrónicos",
+    categoria: "Accesorios especiales",
+    image: SPECIAL_ACCESSORY_IMAGES[3]!,
+    precioBase: 0,
+  },
+  {
+    id: "sistemas-inteligentes-alexa",
+    label: "Sistemas inteligentes (Alexa)",
+    categoria: "Accesorios especiales",
+    image: SPECIAL_ACCESSORY_IMAGES[4]!,
+    precioBase: 0,
+  },
+  {
+    id: "esquinas-magicas",
+    label: "Esquinas mágicas",
+    categoria: "Accesorios especiales",
+    image: SPECIAL_ACCESSORY_IMAGES[5]!,
+    precioBase: 0,
+  },
+  {
+    id: "persianas-enrollables",
+    label: "Persianas enrollables",
+    categoria: "Accesorios especiales",
+    image: SPECIAL_ACCESSORY_IMAGES[6]!,
+    precioBase: 0,
+  },
+  {
+    id: "botelleros",
+    label: "Botelleros",
+    categoria: "Accesorios especiales",
+    image: SPECIAL_ACCESSORY_IMAGES[7]!,
+    precioBase: 0,
+  },
+];
+
+export function defaultSpecialAccessoriesQty(): Record<string, number> {
+  const o: Record<string, number> = {};
+  for (const item of SPECIAL_ACCESSORIES_ITEMS) {
+    o[item.id] = 0;
+  }
+  return o;
+}
+
 export type OtroMedidas = MedidasCampos & {
   descripcion: string;
   /** Solo iluminación «Otro»: precio manual opcional (MXN). */
@@ -1101,6 +1224,10 @@ export type LevantamientoDetalle = {
   /** Medidas generales del espacio (m), formulario preliminar / PDF. */
   largo?: string;
   alto?: string;
+  /** Opciones de cálculo ligadas a medidas generales (p. ej. cocina hasta el techo). */
+  medidasGenerales?: {
+    hastaTecho?: boolean;
+  };
   sectionComments: Partial<Record<"a" | "b" | "c" | "d" | "e", string>>;
   /** Cantidad de paredes del flujo dinámico (wall-0 … wall-N-1). 0 = sin definir. */
   wallSlotCount: number;
@@ -1114,10 +1241,14 @@ export type LevantamientoDetalle = {
   applianceOtro: OtroMedidas;
   /** Luminarios del catálogo elegidos para el proyecto/PDF (varios a la vez; medidas opcionales). */
   lightingSelectedIds: string[];
+  /** Cantidades por id de luminario de catálogo (varios / mismo tipo). */
+  lightingQty: Record<string, number>;
   /** Incluir bloque «Otro luminario» en PDF. */
   lightingOtroInDocument: boolean;
   lightingMeasures: Record<string, MedidasCampos>;
   lightingOtro: OtroMedidas;
+  /** Cantidades por id de `SPECIAL_ACCESSORIES_ITEMS`. */
+  specialAccessoriesQty: Record<string, number>;
 };
 
 export function emptyOtro(): OtroMedidas {
@@ -1147,12 +1278,9 @@ export function applianceOtroAppearsInPdf(lev: LevantamientoDetalle): boolean {
   return o.descripcion.trim() !== "" || medidasCamposTieneValor(o);
 }
 
-/** PDF: luminario de catálogo si está seleccionado o tenía medidas (datos antiguos). */
+/** PDF: luminario de catálogo si cantidad &gt; 0 o tenía medidas / selección legada. */
 export function lightingAppearsInPdf(lev: LevantamientoDetalle, lightingId: string): boolean {
-  const ids = lev.lightingSelectedIds ?? [];
-  if (ids.includes(lightingId)) return true;
-  const m = lev.lightingMeasures[lightingId];
-  return m ? medidasCamposTieneValor(m) : false;
+  return getLightingEffectiveQty(lev, lightingId) > 0;
 }
 
 /** PDF: bloque Otro luminario si está marcado o tenía contenido (datos antiguos). */
@@ -1166,12 +1294,13 @@ export function lightingOtroAppearsInPdf(lev: LevantamientoDetalle): boolean {
   );
 }
 
-/** Suma precios fijos de iluminación seleccionada + precio manual «Otro». */
+/** Suma (cantidad × precio fijo) por luminario + precio manual «Otro». */
 export function cotizacionIluminacionTotal(lev: LevantamientoDetalle): number {
   let sum = 0;
   for (const item of LIGHTING_ITEMS) {
-    if (lightingAppearsInPdf(lev, item.id)) {
-      sum += item.precioFijo ?? 0;
+    const q = getLightingEffectiveQty(lev, item.id);
+    if (q > 0) {
+      sum += q * (item.precioFijo ?? 0);
     }
   }
   const extra = lev.lightingOtro.precioEstimado;
@@ -1179,6 +1308,23 @@ export function cotizacionIluminacionTotal(lev: LevantamientoDetalle): number {
     sum += extra;
   }
   return sum;
+}
+
+/** Suma cantidad × precio base por accesorio especial. */
+export function cotizacionSpecialAccessoriesTotal(lev: LevantamientoDetalle): number {
+  const qtyMap = lev.specialAccessoriesQty ?? defaultSpecialAccessoriesQty();
+  let sum = 0;
+  for (const item of SPECIAL_ACCESSORIES_ITEMS) {
+    const q = Math.max(0, Math.floor(Number(qtyMap[item.id]) || 0));
+    const unit = item.precioBase ?? item.precioFijo ?? 0;
+    sum += q * unit;
+  }
+  return sum;
+}
+
+/** Iluminación + accesorios especiales (línea «Extras» en cotización). */
+export function cotizacionExtrasTotal(lev: LevantamientoDetalle): number {
+  return cotizacionIluminacionTotal(lev) + cotizacionSpecialAccessoriesTotal(lev);
 }
 
 export function initMeasuresMap(ids: string[]): Record<string, MedidasCampos> {
@@ -1201,9 +1347,12 @@ export function defaultLevantamientoDetalle(): LevantamientoDetalle {
     applianceMeasures: initMeasuresMap(APPLIANCE_ITEMS.map((a) => a.id)),
     applianceOtro: emptyOtro(),
     lightingSelectedIds: [],
+    lightingQty: defaultLightingQty(),
     lightingOtroInDocument: false,
     lightingMeasures: initMeasuresMap(LIGHTING_ITEMS.map((l) => l.id)),
     lightingOtro: emptyOtro(),
+    specialAccessoriesQty: defaultSpecialAccessoriesQty(),
+    medidasGenerales: {},
   };
 }
 
@@ -1321,18 +1470,64 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
     }
   }
 
+  const lightingQty = (() => {
+    const merged = defaultLightingQty();
+    const rawLq = r.lightingQty;
+    if (typeof rawLq === "object" && rawLq !== null && !Array.isArray(rawLq)) {
+      const o = rawLq as Record<string, unknown>;
+      for (const item of LIGHTING_ITEMS) {
+        const v = o[item.id];
+        if (typeof v === "number" && Number.isFinite(v)) {
+          merged[item.id] = Math.min(999, Math.max(0, Math.floor(v)));
+        }
+      }
+    }
+    for (const l of LIGHTING_ITEMS) {
+      if (lightingSelectedIds.includes(l.id) && (merged[l.id] ?? 0) === 0) {
+        merged[l.id] = 1;
+      }
+    }
+    return merged;
+  })();
+
+  lightingSelectedIds = computeLightingSelectedIds({ lightingQty, lightingMeasures });
+
   let lightingOtroInDocument = r.lightingOtroInDocument === true;
   if (!lightingOtroInDocument && (lightingOtro.descripcion.trim() !== "" || medidasCamposTieneValor(lightingOtro))) {
     lightingOtroInDocument = true;
   }
 
+  const specialAccessoriesQty = (() => {
+    const merged = defaultSpecialAccessoriesQty();
+    const rawSa = r.specialAccessoriesQty;
+    if (typeof rawSa === "object" && rawSa !== null && !Array.isArray(rawSa)) {
+      const o = rawSa as Record<string, unknown>;
+      for (const item of SPECIAL_ACCESSORIES_ITEMS) {
+        const v = o[item.id];
+        if (typeof v === "number" && Number.isFinite(v)) {
+          merged[item.id] = Math.min(999, Math.max(0, Math.floor(v)));
+        }
+      }
+    }
+    return merged;
+  })();
+
   const largoGen = typeof r.largo === "string" ? r.largo : undefined;
   const altoGen = typeof r.alto === "string" ? r.alto : undefined;
+
+  const rawMg = r.medidasGenerales;
+  const medidasGenerales =
+    typeof rawMg === "object" && rawMg !== null && !Array.isArray(rawMg)
+      ? {
+          hastaTecho: (rawMg as { hastaTecho?: unknown }).hastaTecho === true,
+        }
+      : { ...d.medidasGenerales };
 
   return {
     conIsla,
     largo: largoGen,
     alto: altoGen,
+    medidasGenerales,
     sectionComments,
     wallSlotCount,
     wallMeasures: normalizeWallMeasuresPayload(r.wallMeasures),
@@ -1342,8 +1537,10 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
     applianceMeasures,
     applianceOtro,
     lightingSelectedIds,
+    lightingQty,
     lightingOtroInDocument,
     lightingMeasures,
     lightingOtro,
+    specialAccessoriesQty,
   };
 }

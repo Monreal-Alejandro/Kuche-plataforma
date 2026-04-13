@@ -40,6 +40,8 @@ export type PreliminarData = {
   costoBase?: number;
   costoMateriales?: number;
   costoIluminacion?: number;
+  /** Suma accesorios especiales (cantidad × precio base); legados sin campo = 0. */
+  costoAccesoriosEspeciales?: number;
   subtotal?: number;
   iva?: number;
   total?: number;

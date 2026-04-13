@@ -40,6 +40,7 @@ import {
 } from "@/lib/seguimiento-project";
 import { CatalogProjectTypeField } from "@/components/CatalogProjectTypeField";
 import { CATALOG_PROJECT_TYPES, normalizeLegacyProjectTypeToCatalog } from "@/lib/catalog-project-types";
+import { KUCHE_EMAIL, KUCHE_FORMAL_PDF_FOOTER_LINE_1 } from "@/lib/kuche-contact";
 /** Precio por metro lineal para material base (según ítem de ESTRUCTURA seleccionado). */
 const MATERIAL_BASE_PRICE_PER_METER: Record<string, number> = {
   est_mdf_natural: 6500,
@@ -818,6 +819,14 @@ export default function CotizadorPage() {
     }
   };
 
+  const downloadExcelTemplate = () => {
+    const headers = ["CATEGORIA", "DESCRIPCIÓN", "CANTIDAD", "PRECIO_UNITARIO"] as const;
+    const worksheet = XLSX.utils.aoa_to_sheet([headers]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Plantilla");
+    XLSX.writeFile(workbook, "Plantilla_Kuche.xlsx");
+  };
+
   const handleExcelImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const [file] = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -845,6 +854,9 @@ export default function CotizadorPage() {
         defval: null,
       });
 
+      /** Evita colisiones de id si se importa más de un Excel en la misma sesión. */
+      const importBatchId = Date.now();
+
       let imported = 0;
       let skipped = 0;
       const errors: string[] = [];
@@ -856,6 +868,8 @@ export default function CotizadorPage() {
         precioUnitario: number;
         total: number;
       }> = [];
+      const nuevasCantidades: Record<string, number> = { ...quantities };
+      const itemsPorCategoria: Record<string, CatalogoItem[]> = {};
 
       const headerKeys = {
         categoria: ["Categoria", "CATEGORIA", "category", "CATEGORY"],
@@ -886,7 +900,6 @@ export default function CotizadorPage() {
         const rawCantidad = getCell(row, headerKeys.cantidad);
         const rawCategoria = getCell(row, headerKeys.categoria);
         const rawPrecio = getCell(row, headerKeys.precioUnitario);
-        const rawCodigo = getCell(row, headerKeys.codigo);
 
         const descripcion = rawDescripcion ? String(rawDescripcion).trim() : "";
         if (!descripcion) {
@@ -913,7 +926,7 @@ export default function CotizadorPage() {
         const categoriaName = rawCategoria
           ? String(rawCategoria).toUpperCase().trim()
           : "SIN CATEGORIA";
-        const id = `excel-${index}-${toCatalogId(descripcion)}`;
+        const id = `excel-${importBatchId}-${index}-${toCatalogId(descripcion)}`;
         const total = precioUnitario * cantidadValue;
 
         previewLines.push({
@@ -925,8 +938,41 @@ export default function CotizadorPage() {
           total,
         });
 
+        if (!itemsPorCategoria[categoriaName]) {
+          itemsPorCategoria[categoriaName] = [];
+        }
+        itemsPorCategoria[categoriaName].push({
+          id,
+          label: descripcion,
+          unitPrice: precioUnitario,
+          unitType: "pieza",
+        });
+        nuevasCantidades[id] = cantidadValue;
+
         imported += 1;
       });
+
+      if (imported > 0) {
+        setCatalogoKuche((prevCatalogo) => {
+          const nuevoCatalogo = prevCatalogo.map((c) => ({
+            ...c,
+            items: [...c.items],
+          }));
+          Object.entries(itemsPorCategoria).forEach(([catName, itemsNuevos]) => {
+            const catIndex = nuevoCatalogo.findIndex((c) => c.category === catName);
+            if (catIndex >= 0) {
+              nuevoCatalogo[catIndex] = {
+                ...nuevoCatalogo[catIndex],
+                items: [...nuevoCatalogo[catIndex].items, ...itemsNuevos],
+              };
+            } else {
+              nuevoCatalogo.push({ category: catName, items: itemsNuevos });
+            }
+          });
+          return nuevoCatalogo;
+        });
+        setQuantities(nuevasCantidades);
+      }
 
       setExcelPreviewLines(previewLines);
       setExcelImportSummary({
@@ -1774,8 +1820,8 @@ export default function CotizadorPage() {
     doc.setFont("helvetica", "normal");
     doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2]);
     doc.setFontSize(8);
-    doc.text("Copal No. 303 Fracc. Vista Hermosa · Tel. 618 101 7363", marginX, footerY - 2);
-    doc.text("cocinasinteligentesdgo@gmail.com", marginX, footerY + 10);
+    doc.text(KUCHE_FORMAL_PDF_FOOTER_LINE_1, marginX, footerY - 2);
+    doc.text(KUCHE_EMAIL, marginX, footerY + 10);
 
     const filename = `cotizacion-formal-${(client || "cliente").replace(/\s+/g, "-").toLowerCase()}.pdf`;
     if (returnDataUrl) {
@@ -2083,24 +2129,35 @@ export default function CotizadorPage() {
               <p className="mt-1 text-[11px] text-secondary">
                 Sube un archivo Excel con columnas como{" "}
                 <span className="font-semibold">Categoria, Descripcion, Cantidad, PrecioUnitario</span>.
+                Puedes usar la plantilla para que los encabezados coincidan.
               </p>
             </div>
-            <label className="ml-auto inline-flex cursor-pointer items-center rounded-2xl bg-accent px-4 py-2 text-xs font-semibold text-white">
-              Subir Excel de materiales
-              <input
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleExcelImport}
-                className="hidden"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={resetCatalogToDefault}
-              className="rounded-2xl border border-primary/10 bg-white px-4 py-2 text-xs font-semibold text-secondary hover:border-primary/30"
-            >
-              Restablecer catálogo base
-            </button>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={downloadExcelTemplate}
+                className="inline-flex items-center gap-2 rounded-2xl border border-primary/15 bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition hover:border-accent/35 hover:bg-accent/5"
+              >
+                <Star className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Descargar Plantilla
+              </button>
+              <label className="inline-flex cursor-pointer items-center rounded-2xl bg-accent px-4 py-2 text-xs font-semibold text-white transition hover:opacity-95">
+                Subir Excel de materiales
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleExcelImport}
+                  className="hidden"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={resetCatalogToDefault}
+                className="rounded-2xl border border-primary/10 bg-white px-4 py-2 text-xs font-semibold text-secondary hover:border-primary/30"
+              >
+                Restablecer catálogo base
+              </button>
+            </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
             <span className="rounded-full border border-primary/10 bg-primary/5 px-3 py-1 text-secondary">
@@ -2147,7 +2204,8 @@ export default function CotizadorPage() {
                 <p className="text-xs uppercase tracking-[0.3em] text-secondary">Vista Excel</p>
                 <h3 className="mt-2 text-lg font-semibold">Resumen de materiales importados</h3>
                 <p className="mt-1 text-[11px] text-secondary">
-                  Tabla generada a partir del archivo Excel. El catálogo base no se modifica.
+                  Tabla generada a partir del archivo Excel. Las filas válidas se fusionan al catálogo y
+                  cantidades para totales y PDFs.
                 </p>
               </div>
             </div>

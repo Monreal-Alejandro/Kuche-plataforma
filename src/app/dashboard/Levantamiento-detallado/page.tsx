@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Minus, Plus, Search } from "lucide-react";
 import {
   activeCitaTaskStorageKey,
   kanbanStorageKey,
@@ -32,12 +32,19 @@ import {
   APPLIANCE_ITEMS,
   APPLIANCE_OTRO_STEP_INDEX,
   defaultLevantamientoDetalle,
+  emptyMedidas,
   emptyWallMeasuresForId,
   getApplianceCategoryProgress,
   getWallMeasureFieldDefs,
+  computeLightingSelectedIds,
   cotizacionIluminacionTotal,
+  cotizacionSpecialAccessoriesTotal,
+  cotizacionExtrasTotal,
+  defaultLightingQty,
+  getLightingEffectiveQty,
   isWallSlotKey,
   LIGHTING_ITEMS,
+  SPECIAL_ACCESSORIES_ITEMS,
   wallMeasuresTieneValor,
   WALL_SLOT_META_TYPE,
   WALL_SLOT_META_ALIAS,
@@ -69,10 +76,11 @@ import {
 } from "@/lib/seguimiento-project";
 import {
   createDefaultLevantamientoConfig,
-  getAveragePriceByTier,
+  DEFAULT_LEVANTAMIENTO_MATERIALES,
   getLevantamientoConfig,
+  resolvePrecioPorMetroForShowroomSelection,
   type LevantamientoConfig,
-  type MaterialGama,
+  type MaterialCategoria,
 } from "@/lib/config-levantamiento";
 import { DashboardBackButton } from "@/components/dashboard/DashboardBackButton";
 
@@ -132,12 +140,10 @@ function WallCountIcon({ count, className }: { count: number; className?: string
 type MaterialOption = {
   id: string;
   name: string;
-  tier: "Estandar" | "Tendencia" | "Premium";
   image: string;
 };
 
 type MaterialCategory = "cubiertas" | "frentes" | "herrajes";
-type MaterialTierFilter = "Todos" | MaterialOption["tier"];
 
 const materialImageMap: Record<MaterialCategory, { match: RegExp; src: string }[]> = {
   cubiertas: [
@@ -215,9 +221,8 @@ type MaterialGridProps = {
   category: MaterialCategory;
   largoLineal: number;
   materialSearch: string;
-  tierFilter: MaterialTierFilter;
-  /** Promedios $/m por gama (desde configuración de levantamiento). */
-  tierPriceByTier: Record<MaterialOption["tier"], number>;
+  /** Precio unitario $/m según catálogo de configuración (id/nombre). */
+  unitPricePerM: (option: MaterialOption) => number;
 } & (
   | { multiSelect?: false; selectedId: string | null; onSelect: (id: string) => void }
   | { multiSelect: true; selectedIds: string[]; onToggle: (id: string) => void }
@@ -231,8 +236,7 @@ const MaterialGrid = ({
   category,
   largoLineal,
   materialSearch,
-  tierFilter,
-  tierPriceByTier,
+  unitPricePerM,
   ...rest
 }: MaterialGridProps) => {
   const isMulti = rest.multiSelect === true;
@@ -240,8 +244,7 @@ const MaterialGrid = ({
   const normalizedSearch = materialSearch.trim().toLowerCase();
   const filtered = options.filter((option) => {
     const matchesSearch = !normalizedSearch || option.name.toLowerCase().includes(normalizedSearch);
-    const matchesTier = tierFilter === "Todos" || option.tier === tierFilter;
-    return matchesSearch && matchesTier;
+    return matchesSearch;
   });
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -262,7 +265,7 @@ const MaterialGrid = ({
             ? rest.selectedIds.includes(option.id)
             : rest.selectedId !== null && option.id === rest.selectedId;
           const imageSrc = resolveMaterialImage(option.name, category, option.image);
-          const pricePerM = tierPriceByTier[option.tier];
+          const pricePerM = unitPricePerM(option);
           const optionPrice = Math.max(0, largoLineal * pricePerM);
           return (
             <button
@@ -296,9 +299,9 @@ const MaterialGrid = ({
                 ) : null}
               </div>
               <p className="mt-3 text-xs font-medium text-secondary">{option.name}</p>
-              <span className="mt-2 inline-flex w-fit rounded-full bg-primary/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                {option.tier}
-              </span>
+              <p className="mt-2 text-[11px] font-medium tabular-nums text-secondary">
+                {formatCurrency(pricePerM)} / m
+              </p>
               <p className="mt-2 text-xs font-semibold text-[#8B1C1C]">
                 Estimado con tus medidas {formatCurrency(optionPrice)}
               </p>
@@ -333,442 +336,30 @@ const MaterialGrid = ({
   );
 };
 
-const materialCatalog = {
-  cubiertas: [
-    {
-      id: "cuarzo-calacatta",
-      name: "Cuarzo Calacatta",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/white%20calacatta%20quartz%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "granito-negro",
-      name: "Granito Negro",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/black%20granite%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "laminado-blanco",
-      name: "Laminado Blanco",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/white%20laminate%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "cuarzo-marfil",
-      name: "Cuarzo Marfil",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/ivory%20quartz%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "granito-ivory",
-      name: "Granito Ivory",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/ivory%20granite%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "sinterizada-nieve",
-      name: "Piedra Sinterizada Nieve",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/pure%20white%20sintered%20stone%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "cuarzo-marbella",
-      name: "Cuarzo Marbella",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/beige%20marbella%20quartz%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "cuarzo-gris-humo",
-      name: "Cuarzo Gris Humo",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/smoky%20grey%20quartz%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "granito-verde",
-      name: "Granito Verde Selva",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/jungle%20green%20granite%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "granito-azul",
-      name: "Granito Azul Profundo",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/deep%20blue%20granite%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "cuarzo-onix",
-      name: "Cuarzo ?nix",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/onyx%20quartz%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "sinterizada-grafito",
-      name: "Sinterizada Grafito",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/graphite%20sintered%20stone%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "porcelanato-marfil",
-      name: "Porcelanato Marfil",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/ivory%20porcelain%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "granito-cobre",
-      name: "Granito Cobre",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/copper%20granite%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "cuarzo-nieve",
-      name: "Cuarzo Nieve",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/snow%20white%20quartz%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "sinterizada-arena",
-      name: "Sinterizada Arena",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/sand%20sintered%20stone%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "granito-perla",
-      name: "Granito Perla",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/pearl%20granite%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "cuarzo-negro-zen",
-      name: "Cuarzo Negro Zen",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/zen%20black%20quartz%20texture?width=500&height=500&nologo=true",
-    },
-  ] satisfies MaterialOption[],
-  frentes: [
-    {
-      id: "melamina-premium",
-      name: "Melamina Premium",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/premium%20wood%20melamine%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "mdf-laca",
-      name: "MDF Laca Mate",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/matte%20lacquer%20mdf%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "chapa-natural",
-      name: "Chapa Natural",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/natural%20wood%20veneer%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "melamina-texturizada",
-      name: "Melamina Texturizada",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/textured%20grey%20melamine%20surface?width=500&height=500&nologo=true",
-    },
-    {
-      id: "laca-brillo",
-      name: "Laca Alto Brillo",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/high%20gloss%20lacquer%20cabinet%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "madera-nogal",
-      name: "Madera Nogal",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/walnut%20wood%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "melamina-blanca",
-      name: "Melamina Blanca",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/white%20melamine%20board%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "melamina-ceniza",
-      name: "Melamina Ceniza",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/ash%20wood%20melamine%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "melamina-grafito",
-      name: "Melamina Grafito",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/graphite%20grey%20melamine%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "melamina-olmo",
-      name: "Melamina Olmo",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/elm%20wood%20melamine%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "laca-satinada",
-      name: "Laca Satinada",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/satin%20lacquer%20cabinet%20surface?width=500&height=500&nologo=true",
-    },
-    {
-      id: "laca-metalica",
-      name: "Laca Met?lica",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/metallic%20lacquer%20surface%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "chapa-encino",
-      name: "Chapa Encino",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/oak%20wood%20veneer%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "chapa-cedro",
-      name: "Chapa Cedro",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/cedar%20wood%20veneer%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "madera-parota",
-      name: "Madera Parota",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/parota%20wood%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "mdf-textura",
-      name: "MDF Texturizado",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/beige%20textured%20mdf%20surface?width=500&height=500&nologo=true",
-    },
-    {
-      id: "mdf-grafito",
-      name: "MDF Grafito",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/dark%20graphite%20mdf%20texture?width=500&height=500&nologo=true",
-    },
-    {
-      id: "melamina-menta",
-      name: "Melamina Menta",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/mint%20green%20melamine%20texture?width=500&height=500&nologo=true",
-    },
-  ] satisfies MaterialOption[],
-  herrajes: [
-    {
-      id: "soft-close",
-      name: "Soft Close",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/soft%20close%20cabinet%20hinge%20hardware?width=500&height=500&nologo=true",
-    },
-    {
-      id: "blum-aventoz",
-      name: "Blum Aventos",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/blum%20aventos%20lift%20system%20hardware?width=500&height=500&nologo=true",
-    },
-    {
-      id: "premium-tech",
-      name: "Premium Tech",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/modern%20premium%20cabinet%20drawer%20slide%20hardware?width=500&height=500&nologo=true",
-    },
-    {
-      id: "push-to-open",
-      name: "Push to Open",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/push%20to%20open%20cabinet%20mechanism?width=500&height=500&nologo=true",
-    },
-    {
-      id: "herrajes-inox",
-      name: "Herrajes Inox",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/stainless%20steel%20cabinet%20hardware%20hinge?width=500&height=500&nologo=true",
-    },
-    {
-      id: "soft-basic",
-      name: "Soft Basic",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/basic%20metal%20cabinet%20hinge?width=500&height=500&nologo=true",
-    },
-    {
-      id: "soft-plus",
-      name: "Soft Plus",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/high%20quality%20metal%20cabinet%20hinge?width=500&height=500&nologo=true",
-    },
-    {
-      id: "soft-pro",
-      name: "Soft Pro",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/professional%20cabinet%20hinge%20mechanism?width=500&height=500&nologo=true",
-    },
-    {
-      id: "inox-premium",
-      name: "Inox Premium",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/brushed%20stainless%20steel%20cabinet%20hinge?width=500&height=500&nologo=true",
-    },
-    {
-      id: "grafito-matte",
-      name: "Grafito Matte",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/matte%20graphite%20black%20cabinet%20hinge?width=500&height=500&nologo=true",
-    },
-    {
-      id: "cierre-suave",
-      name: "Cierre Suave",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/soft%20close%20drawer%20slide%20metal?width=500&height=500&nologo=true",
-    },
-    {
-      id: "push-premium",
-      name: "Push Premium",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/premium%20push%20to%20open%20drawer%20hardware?width=500&height=500&nologo=true",
-    },
-    {
-      id: "push-lujo",
-      name: "Push Lujo",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/luxury%20push%20open%20cabinet%20hardware?width=500&height=500&nologo=true",
-    },
-    {
-      id: "amortiguado",
-      name: "Amortiguado",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/cabinet%20hinge%20with%20damper%20mechanism?width=500&height=500&nologo=true",
-    },
-    {
-      id: "hidraulico",
-      name: "Hidr?ulico",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/hydraulic%20cabinet%20hinge%20piston?width=500&height=500&nologo=true",
-    },
-    {
-      id: "lux-autom",
-      name: "Lux Autom?tico",
-      tier: "Premium",
-      image:
-        "https://image.pollinations.ai/prompt/motorized%20automatic%20cabinet%20drawer%20hardware?width=500&height=500&nologo=true",
-    },
-    {
-      id: "smart-close",
-      name: "Smart Close",
-      tier: "Tendencia",
-      image:
-        "https://image.pollinations.ai/prompt/smart%20close%20cabinet%20hardware%20system?width=500&height=500&nologo=true",
-    },
-    {
-      id: "soft-basic-plus",
-      name: "Soft Basic Plus",
-      tier: "Estandar",
-      image:
-        "https://image.pollinations.ai/prompt/standard%20cabinet%20drawer%20slide%20metal?width=500&height=500&nologo=true",
-    },
-  ] satisfies MaterialOption[],
-};
-
-type ShowroomMaterialTier = MaterialOption["tier"];
-type AutoScenarioId = "esencial" | "tendencia" | "premium";
-
-/** Material → escenario de inversión ($/m). */
-function tierToScenario(tier: ShowroomMaterialTier): AutoScenarioId {
-  switch (tier) {
-    case "Estandar":
-      return "esencial";
-    case "Tendencia":
-      return "tendencia";
-    case "Premium":
-      return "premium";
+function buildMaterialShowroomCatalog(): {
+  cubiertas: MaterialOption[];
+  frentes: MaterialOption[];
+  herrajes: MaterialOption[];
+} {
+  const out: { cubiertas: MaterialOption[]; frentes: MaterialOption[]; herrajes: MaterialOption[] } = {
+    cubiertas: [],
+    frentes: [],
+    herrajes: [],
+  };
+  const key: Record<MaterialCategoria, "cubiertas" | "frentes" | "herrajes"> = {
+    cubierta: "cubiertas",
+    frente: "frentes",
+    herraje: "herrajes",
+  };
+  for (const m of DEFAULT_LEVANTAMIENTO_MATERIALES) {
+    out[key[m.categoria]].push({ id: m.id, name: m.nombre, image: "" });
   }
+  return out;
 }
 
-/** Moda de gamas; empates o tres distintos → Tendencia (regla de negocio). */
-function predominantShowroomTier(votes: ShowroomMaterialTier[]): ShowroomMaterialTier {
-  if (votes.length === 0) return "Tendencia";
-  const c = { Estandar: 0, Tendencia: 0, Premium: 0 };
-  for (const v of votes) c[v]++;
-  const max = Math.max(c.Estandar, c.Tendencia, c.Premium);
-  const winners = (["Estandar", "Tendencia", "Premium"] as const).filter((k) => c[k] === max);
-  if (winners.length !== 1) return "Tendencia";
-  return winners[0]!;
-}
+const materialCatalog = buildMaterialShowroomCatalog();
 
-/**
- * Escenario automático a partir de Sección D (cubierta, frentes, herraje).
- * Frentes: moda entre los seleccionados; luego moda entre las tres familias.
- */
-function autoScenarioFromShowroom(
-  cubiertaId: string | null,
-  frenteIds: string[],
-  herrajeId: string | null,
-): AutoScenarioId {
-  const tierC =
-    materialCatalog.cubiertas.find((item) => item.id === cubiertaId)?.tier ?? "Estandar";
-  const tiersF =
-    frenteIds.length === 0
-      ? ([] as ShowroomMaterialTier[])
-      : frenteIds.map(
-          (id) => materialCatalog.frentes.find((item) => item.id === id)?.tier ?? "Estandar",
-        );
-  const tierF = tiersF.length === 0 ? "Estandar" : predominantShowroomTier(tiersF);
-  const tierH =
-    materialCatalog.herrajes.find((item) => item.id === herrajeId)?.tier ?? "Estandar";
-  const winner = predominantShowroomTier([tierC, tierF, tierH]);
-  return tierToScenario(winner);
-}
+type AutoScenarioId = "esencial" | "tendencia" | "premium";
 
 export default function CotizadorPreliminarPage() {
   const router = useRouter();
@@ -788,13 +379,8 @@ export default function CotizadorPreliminarPage() {
   const [levantamientoConfig, setLevantamientoConfig] = useState<LevantamientoConfig>(() =>
     createDefaultLevantamientoConfig(),
   );
-  const [selectedScenario, setSelectedScenario] = useState<AutoScenarioId>(() =>
-    autoScenarioFromShowroom(null, [], null),
-  );
+  const [selectedScenario, setSelectedScenario] = useState<AutoScenarioId>("esencial");
   const [materialSearch, setMaterialSearch] = useState("");
-  const [tierFilter, setTierFilter] = useState<"Todos" | "Estandar" | "Tendencia" | "Premium">(
-    "Todos",
-  );
   const [pages, setPages] = useState({ cubiertas: 1, frentes: 1, herrajes: 1 });
   const [finishError, setFinishError] = useState<string | null>(null);
   const [levantamiento, setLevantamiento] = useState<LevantamientoDetalle>(() => defaultLevantamientoDetalle());
@@ -802,6 +388,8 @@ export default function CotizadorPreliminarPage() {
   const [currentWallIndex, setCurrentWallIndex] = useState(0);
   /** Búsqueda en el catálogo de tipos de muro (Sección B). */
   const [wallSearch, setWallSearch] = useState("");
+  /** Pantalla inicial de cantidad de paredes: muestra 4 tarjetas y un botón «+ opciones» hasta expandir. */
+  const [showAllInitialWallOptions, setShowAllInitialWallOptions] = useState(false);
   /** Diálogo in-app al cambiar cantidad de paredes (sustituye `window.confirm`). */
   const [confirmChangeWallCountOpen, setConfirmChangeWallCountOpen] = useState(false);
   /** Un paso por electrodoméstico (orden por categoría); el último índice es «Otro». */
@@ -842,6 +430,7 @@ export default function CotizadorPreliminarPage() {
   };
 
   const applyWallSlotCount = (n: number) => {
+    setShowAllInitialWallOptions(false);
     setWallSearch("");
     setLevantamiento((prev) => {
       const wm = { ...prev.wallMeasures };
@@ -860,6 +449,7 @@ export default function CotizadorPreliminarPage() {
   };
 
   const clearWallFlowAndSlots = () => {
+    setShowAllInitialWallOptions(false);
     setWallSearch("");
     setLevantamiento((prev) => {
       const wm = { ...prev.wallMeasures };
@@ -1007,19 +597,72 @@ export default function CotizadorPreliminarPage() {
 
   const setLightingInDocument = useCallback((id: string, included: boolean) => {
     setLevantamiento((prev) => {
-      const next = new Set(prev.lightingSelectedIds ?? []);
-      if (included) next.add(id);
-      else next.delete(id);
-      return { ...prev, lightingSelectedIds: [...next] };
+      const base = { ...defaultLightingQty(), ...(prev.lightingQty ?? {}) };
+      base[id] = included ? Math.max(1, base[id] ?? 0) : 0;
+      return {
+        ...prev,
+        lightingQty: base,
+        lightingSelectedIds: computeLightingSelectedIds({
+          lightingQty: base,
+          lightingMeasures: prev.lightingMeasures,
+        }),
+      };
     });
   }, []);
 
   const toggleLightingSelected = useCallback((id: string) => {
     setLevantamiento((prev) => {
-      const next = new Set(prev.lightingSelectedIds ?? []);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return { ...prev, lightingSelectedIds: [...next] };
+      const base = { ...defaultLightingQty(), ...(prev.lightingQty ?? {}) };
+      const eff = getLightingEffectiveQty(prev, id);
+      base[id] = eff > 0 ? 0 : 1;
+      return {
+        ...prev,
+        lightingQty: base,
+        lightingSelectedIds: computeLightingSelectedIds({
+          lightingQty: base,
+          lightingMeasures: prev.lightingMeasures,
+        }),
+      };
+    });
+  }, []);
+
+  const updateLightingQty = useCallback((id: string, delta: number) => {
+    setLevantamiento((prev) => {
+      const base = { ...defaultLightingQty(), ...(prev.lightingQty ?? {}) };
+      const cur = Math.max(0, Math.floor(Number(base[id]) || 0));
+      if (delta < 0 && cur === 0 && getLightingEffectiveQty(prev, id) > 0) {
+        const measures = { ...prev.lightingMeasures, [id]: emptyMedidas() };
+        return {
+          ...prev,
+          lightingMeasures: measures,
+          lightingSelectedIds: computeLightingSelectedIds({
+            lightingQty: base,
+            lightingMeasures: measures,
+          }),
+        };
+      }
+      const nextQty = Math.min(999, Math.max(0, cur + delta));
+      base[id] = nextQty;
+      const nextMeasures = { ...prev.lightingMeasures };
+      return {
+        ...prev,
+        lightingQty: base,
+        lightingMeasures: nextMeasures,
+        lightingSelectedIds: computeLightingSelectedIds({
+          lightingQty: base,
+          lightingMeasures: nextMeasures,
+        }),
+      };
+    });
+  }, []);
+
+  const updateSpecialAccessoryQty = useCallback((id: string, delta: number) => {
+    setLevantamiento((prev) => {
+      const map = { ...(prev.specialAccessoriesQty ?? {}) };
+      const cur = Math.max(0, Math.floor(Number(map[id]) || 0));
+      const nextQty = Math.min(999, Math.max(0, cur + delta));
+      map[id] = nextQty;
+      return { ...prev, specialAccessoriesQty: map };
     });
   }, []);
 
@@ -1137,6 +780,7 @@ export default function CotizadorPreliminarPage() {
       costoBase: metrics.costoBase,
       costoMateriales: metrics.costoMateriales,
       costoIluminacion: metrics.costoIluminacion,
+      costoAccesoriosEspeciales: metrics.costoAccesoriosEspeciales,
       subtotal: metrics.subtotal,
       iva: metrics.iva,
       total: metrics.total,
@@ -1333,6 +977,7 @@ export default function CotizadorPreliminarPage() {
     setSelectedHerraje(null);
     setLevantamiento(defaultLevantamientoDetalle());
     setCurrentWallIndex(0);
+    setShowAllInitialWallOptions(false);
     setWallSearch("");
     setApplianceStep(0);
     setApplianceSearch("");
@@ -1345,45 +990,79 @@ export default function CotizadorPreliminarPage() {
 
   const metrics = useMemo(() => {
     const largoValue = Math.max(0, Number.parseFloat(largo) || 0);
-    const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
-    const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
-    const tierC = (cubierta?.tier ?? "Estandar") as MaterialGama;
-    const tierH = (herraje?.tier ?? "Estandar") as MaterialGama;
     const mats = levantamientoConfig.materiales;
-    const sumPrecioFrentePorM = selectedFrenteIds.reduce((acc, fid) => {
+
+    const cubiertaOpt = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
+    const herrajeOpt = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
+
+    const pickC = cubiertaOpt ? { id: cubiertaOpt.id, name: cubiertaOpt.name } : null;
+    const pickH = herrajeOpt ? { id: herrajeOpt.id, name: herrajeOpt.name } : null;
+
+    const precioCubiertaM = resolvePrecioPorMetroForShowroomSelection(mats, "cubierta", pickC);
+    const precioHerrajeM = resolvePrecioPorMetroForShowroomSelection(mats, "herraje", pickH);
+    const precioFrentesPorM = selectedFrenteIds.reduce((acc, fid) => {
       const f = materialCatalog.frentes.find((item) => item.id === fid);
-      const tierF = (f?.tier ?? "Estandar") as MaterialGama;
-      return acc + getAveragePriceByTier(mats, "frente", tierF);
+      if (!f) return acc;
+      const pickF = { id: f.id, name: f.name };
+      return acc + resolvePrecioPorMetroForShowroomSelection(mats, "frente", pickF);
     }, 0);
-    /** Sin selección en showroom → no se imputan promedios de gama (evita “materiales fantasma”). */
-    const avgCubierta =
-      selectedCubierta !== null ? getAveragePriceByTier(mats, "cubierta", tierC) : 0;
-    const avgHerraje =
-      selectedHerraje !== null ? getAveragePriceByTier(mats, "herraje", tierH) : 0;
-    const costoMateriales = largoValue * (avgCubierta + sumPrecioFrentePorM + avgHerraje);
+
+    const factorConfig = Math.min(
+      5,
+      Math.max(1, levantamientoConfig.factorHastaTecho ?? 1.25),
+    );
+    const factorActivo =
+      levantamiento.medidasGenerales?.hastaTecho === true ? factorConfig : 1;
+
+    const costoCubiertas = largoValue * precioCubiertaM;
+    const costoFrentes = largoValue * precioFrentesPorM * factorActivo;
+    const costoHerrajes = largoValue * precioHerrajeM * factorActivo;
     const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
-    const precioEscenario =
+    const costoAccesoriosEspeciales = cotizacionSpecialAccessoriesTotal(levantamiento);
+    const costoExtras = cotizacionExtrasTotal(levantamiento);
+
+    const nuevoSubtotal = costoCubiertas + costoFrentes + costoHerrajes + costoExtras;
+    const costoMateriales = costoCubiertas + costoFrentes + costoHerrajes;
+
+    const precioEscenarioLineal =
       levantamientoConfig.scenarioPrices[selectedScenario] ?? 5000;
-    const costoBase = largoValue * precioEscenario;
-    const subtotal = costoBase + costoMateriales + costoIluminacion;
-    const iva = subtotal * levantamientoConfig.ivaPercent;
-    const total = subtotal + iva;
+    const costoReferenciaEscenario = largoValue * precioEscenarioLineal;
+
+    const iva = nuevoSubtotal * levantamientoConfig.ivaPercent;
+    const total = nuevoSubtotal + iva;
     const m = levantamientoConfig.marginPercent;
     const rangeMin = total * (1 - m);
     const rangeMax = total * (1 + m);
 
+    const hastaTechoActivo = levantamiento.medidasGenerales?.hastaTecho === true;
+    const factorHastaTechoLegendText = hastaTechoActivo
+      ? `(Incluye factor hasta el techo: x${new Intl.NumberFormat("es-MX", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2,
+        }).format(factorConfig)})`
+      : null;
+
     return {
       largoValue,
-      costoBase,
+      /** Cateo: solo referencia visual; no entra al subtotal real. */
+      costoReferenciaEscenario,
+      /** @deprecated en UI; mantener alias para PDF/legado: mismo valor que costoReferenciaEscenario. */
+      costoBase: costoReferenciaEscenario,
+      costoCubiertas,
+      costoFrentes,
+      costoHerrajes,
       costoMateriales,
       costoIluminacion,
-      subtotal,
+      costoAccesoriosEspeciales,
+      costoExtras,
+      subtotal: nuevoSubtotal,
       iva,
       total,
       rangeMin,
       rangeMax,
       rangeLabel: `${formatCurrency(rangeMin)} - ${formatCurrency(rangeMax)}`,
       marginPercent: m,
+      factorHastaTechoLegendText,
     };
   }, [
     largo,
@@ -1434,69 +1113,25 @@ export default function CotizadorPreliminarPage() {
 
   const scenarioRangeLabel = metrics.rangeLabel;
 
-  /** Rango por tarjeta de escenario (mismo largo, materiales e iluminación; cambia solo $/m del escenario). */
-  const scenarioCardRanges = useMemo(() => {
-    const largoValue = Math.max(0, Number.parseFloat(largo) || 0);
-    const cubierta = materialCatalog.cubiertas.find((item) => item.id === selectedCubierta);
-    const herraje = materialCatalog.herrajes.find((item) => item.id === selectedHerraje);
-    const tierC = (cubierta?.tier ?? "Estandar") as MaterialGama;
-    const tierH = (herraje?.tier ?? "Estandar") as MaterialGama;
+  const materialUnitPriceByCategory = useMemo(() => {
     const mats = levantamientoConfig.materiales;
-    const sumPrecioFrentePorM = selectedFrenteIds.reduce((acc, fid) => {
-      const f = materialCatalog.frentes.find((item) => item.id === fid);
-      const tierF = (f?.tier ?? "Estandar") as MaterialGama;
-      return acc + getAveragePriceByTier(mats, "frente", tierF);
-    }, 0);
-    const avgCubierta =
-      selectedCubierta !== null ? getAveragePriceByTier(mats, "cubierta", tierC) : 0;
-    const avgHerraje =
-      selectedHerraje !== null ? getAveragePriceByTier(mats, "herraje", tierH) : 0;
-    const costoMateriales = largoValue * (avgCubierta + sumPrecioFrentePorM + avgHerraje);
-    const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
-    const ivaP = levantamientoConfig.ivaPercent;
-    const m = levantamientoConfig.marginPercent;
-    const def = createDefaultLevantamientoConfig().scenarioPrices;
-    return scenarioOptions.map((s) => {
-      const costoBaseS = largoValue * (levantamientoConfig.scenarioPrices[s.id as keyof typeof def] ?? def.esencial);
-      const sub = costoBaseS + costoMateriales + costoIluminacion;
-      const tot = sub + sub * ivaP;
-      return { id: s.id, min: tot * (1 - m), max: tot * (1 + m) };
-    });
-  }, [
-    largo,
-    selectedCubierta,
-    selectedFrenteIds,
-    selectedHerraje,
-    levantamiento,
-    scenarioOptions,
-    levantamientoConfig,
-  ]);
-
-  const materialTierAverages = useMemo(() => {
-    const m = levantamientoConfig.materiales;
-    const row = (c: "cubierta" | "frente" | "herraje") =>
-      ({
-        Estandar: getAveragePriceByTier(m, c, "Estandar"),
-        Tendencia: getAveragePriceByTier(m, c, "Tendencia"),
-        Premium: getAveragePriceByTier(m, c, "Premium"),
-      }) satisfies Record<MaterialOption["tier"], number>;
+    const mk =
+      (categoria: MaterialCategoria) =>
+      (option: MaterialOption): number =>
+        resolvePrecioPorMetroForShowroomSelection(mats, categoria, {
+          id: option.id,
+          name: option.name,
+        });
     return {
-      cubiertas: row("cubierta"),
-      frentes: row("frente"),
-      herrajes: row("herraje"),
+      cubiertas: mk("cubierta"),
+      frentes: mk("frente"),
+      herrajes: mk("herraje"),
     };
   }, [levantamientoConfig.materiales]);
 
-  /** Auto-escenario según moda de gamas en showroom; el usuario puede corregir con las tarjetas (se respeta hasta el próximo cambio de material). */
-  useEffect(() => {
-    setSelectedScenario(
-      autoScenarioFromShowroom(selectedCubierta, selectedFrenteIds, selectedHerraje),
-    );
-  }, [selectedCubierta, selectedFrenteIds, selectedHerraje]);
-
   useEffect(() => {
     setPages({ cubiertas: 1, frentes: 1, herrajes: 1 });
-  }, [materialSearch, tierFilter]);
+  }, [materialSearch]);
 
   const handleGeneratePdf = () => {
     const data = buildPreliminarDataFromForm();
@@ -1683,7 +1318,7 @@ export default function CotizadorPreliminarPage() {
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-secondary">
                 Datos del proyecto
               </p>
-              <div className="mt-4 grid grid-cols-1 items-end gap-x-4 gap-y-5 md:grid-cols-12">
+              <div className="mt-4 grid grid-cols-1 items-start gap-x-4 gap-y-5 md:grid-cols-12 md:items-center">
                 {/* Fila md: Cliente | Tipo | Ubicación (4+4+4) */}
                 <div className="col-span-12 md:col-span-4">
                   <label
@@ -1716,9 +1351,14 @@ export default function CotizadorPreliminarPage() {
                       <CatalogProjectTypeField
                         value={projectType}
                         onChange={(next) => {
+                          setShowAllInitialWallOptions(false);
                           setProjectType(next);
                           if (!isCocinasProjectTypeForConIsla(next)) {
-                            setLevantamiento((prev) => ({ ...prev, conIsla: "" }));
+                            setLevantamiento((prev) => ({
+                              ...prev,
+                              conIsla: "",
+                              medidasGenerales: { ...prev.medidasGenerales, hastaTecho: false },
+                            }));
                           }
                         }}
                         placeholder="Categoría…"
@@ -1752,46 +1392,89 @@ export default function CotizadorPreliminarPage() {
                   />
                 </div>
 
-                {/* Fila md: ¿Con isla? | Medidas | Tiempo (3+5+4) */}
+                {/* Fila md: Cocina (isla + techo) | Medidas | Tiempo (3+5+4) */}
                 {isCocinasProjectTypeForConIsla(projectType) ? (
-                  <div className="col-span-12 md:col-span-3">
-                    <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
-                      ¿Con isla?
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "si" }))}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                          levantamiento.conIsla === "si"
-                            ? "bg-[#8B1C1C] text-white shadow-sm"
-                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
-                        }`}
-                      >
-                        Sí
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "no" }))}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                          levantamiento.conIsla === "no"
-                            ? "bg-[#8B1C1C] text-white shadow-sm"
-                            : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
-                        }`}
-                      >
-                        No
-                      </button>
+                  <div className="col-span-12 flex flex-col gap-4 md:col-span-3">
+                    <div>
+                      <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                        ¿Con isla?
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "si" }))}
+                          className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                            levantamiento.conIsla === "si"
+                              ? "bg-[#8B1C1C] text-white shadow-sm"
+                              : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                          }`}
+                        >
+                          Sí
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLevantamiento((prev) => ({ ...prev, conIsla: "no" }))}
+                          className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                            levantamiento.conIsla === "no"
+                              ? "bg-[#8B1C1C] text-white shadow-sm"
+                              : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                          }`}
+                        >
+                          No
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
+                        ¿Hasta el techo?
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLevantamiento((prev) => ({
+                              ...prev,
+                              medidasGenerales: { ...prev.medidasGenerales, hastaTecho: true },
+                            }))
+                          }
+                          className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                            levantamiento.medidasGenerales?.hastaTecho === true
+                              ? "bg-[#8B1C1C] text-white shadow-sm"
+                              : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                          }`}
+                        >
+                          Sí
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLevantamiento((prev) => ({
+                              ...prev,
+                              medidasGenerales: { ...prev.medidasGenerales, hastaTecho: false },
+                            }))
+                          }
+                          className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                            levantamiento.medidasGenerales?.hastaTecho === false
+                              ? "bg-[#8B1C1C] text-white shadow-sm"
+                              : "border border-primary/15 bg-white text-secondary hover:border-primary/35"
+                          }`}
+                        >
+                          No
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ) : null}
 
                 <div
-                  className="col-span-12 md:col-span-5"
+                  className={`col-span-12 md:col-span-5 ${
+                    isCocinasProjectTypeForConIsla(projectType) ? "md:-translate-y-4" : ""
+                  }`}
                   role="group"
-                  aria-label="Medidas generales en metros"
+                  aria-label="Metros lineales totales en metros"
                 >
                   <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
-                    Medidas generales (m)
+                    Metros lineales totales (m)
                   </p>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -1861,7 +1544,13 @@ export default function CotizadorPreliminarPage() {
                   </div>
                 </div>
 
-                <div className="col-span-12 md:col-span-4" role="group" aria-label="Tiempo de entrega en semanas">
+                <div
+                  className={`col-span-12 md:col-span-4 ${
+                    isCocinasProjectTypeForConIsla(projectType) ? "md:-translate-y-4" : ""
+                  }`}
+                  role="group"
+                  aria-label="Tiempo de entrega en semanas"
+                >
                   <p className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.15em] text-secondary">
                     Tiempo de entrega (sem)
                   </p>
@@ -1985,13 +1674,16 @@ export default function CotizadorPreliminarPage() {
                   Elige un número para comenzar. Podrás cambiarlo después (se pedirá confirmación si ya había datos).
                 </p>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                  {WALL_COUNT_OPTIONS.map((count) => {
+                  {WALL_COUNT_OPTIONS.map((count, index) => {
+                    if (!showAllInitialWallOptions && index >= 4) {
+                      return null;
+                    }
                     return (
                       <button
                         key={count}
                         type="button"
                         onClick={() => applyWallSlotCount(count)}
-                        className="group flex flex-col items-center justify-center gap-3 rounded-3xl border border-primary/10 bg-white p-6 text-center shadow-md transition duration-300 ease-out hover:-translate-y-0.5 hover:border-[#8B1C1C]/30 hover:shadow-lg"
+                        className="group flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-3xl border border-primary/10 bg-white p-6 text-center shadow-md transition duration-300 ease-out hover:-translate-y-0.5 hover:border-[#8B1C1C]/30 hover:shadow-lg"
                       >
                         <div className="flex h-24 w-full max-w-[8.5rem] items-center justify-center rounded-2xl bg-primary/[0.06] text-primary transition duration-300 group-hover:bg-primary/10">
                           <WallCountIcon count={count} className="h-11 w-11 shrink-0" />
@@ -2005,6 +1697,19 @@ export default function CotizadorPreliminarPage() {
                       </button>
                     );
                   })}
+                  {!showAllInitialWallOptions && WALL_COUNT_OPTIONS.length > 4 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllInitialWallOptions(true)}
+                      className="flex min-h-[140px] flex-col items-center justify-center rounded-3xl border border-dashed border-primary/20 bg-stone-50 p-6 text-center transition-colors hover:border-primary/40 hover:bg-stone-100"
+                    >
+                      <Plus className="mb-2 h-8 w-8 text-secondary" aria-hidden />
+                      <span className="text-sm font-bold text-primary">+ 4 Opciones</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-secondary">
+                        MÁS PAREDES
+                      </span>
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ) : (
@@ -2018,11 +1723,12 @@ export default function CotizadorPreliminarPage() {
                   : slotData;
                 const wallFields = item ? getWallMeasureFieldDefs(item.id) : [];
                 const canGoNext = currentWallIndex < levantamiento.wallSlotCount - 1;
+                const totalWallSlots = levantamiento.wallSlotCount;
                 return (
                   <div className="space-y-6">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <p className="rounded-full border border-primary/15 bg-primary/[0.05] px-4 py-2 text-sm font-semibold tabular-nums text-primary">
-                        Pared {currentWallIndex + 1} de {levantamiento.wallSlotCount}
+                        Pared {currentWallIndex + 1} de {totalWallSlots}
                       </p>
                       <button
                         type="button"
@@ -2042,8 +1748,43 @@ export default function CotizadorPreliminarPage() {
                       </button>
                     </div>
 
+                    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Seleccionar pared">
+                      {Array.from({ length: totalWallSlots }).map((_, index) => {
+                        const wIndex = index + 1;
+                        const isSelected = currentWallIndex === index;
+                        const isComplete = wallSlotIsComplete(
+                          levantamiento.wallMeasures[wallSlotKey(index)] ?? {},
+                        );
+
+                        return (
+                          <button
+                            key={wIndex}
+                            type="button"
+                            role="tab"
+                            aria-selected={isSelected}
+                            onClick={() => setCurrentWallIndex(index)}
+                            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition ${
+                              isSelected
+                                ? "bg-[#8B1C1C] text-white shadow-md"
+                                : isComplete
+                                  ? "border border-[#8B1C1C]/30 bg-[#8B1C1C]/5 text-[#8B1C1C] hover:bg-[#8B1C1C]/10"
+                                  : "border border-primary/15 bg-white text-primary hover:border-primary/30 hover:bg-stone-50"
+                            }`}
+                          >
+                            {isComplete ? (
+                              <CheckCircle2
+                                className={`h-4 w-4 shrink-0 ${isSelected ? "text-white" : "text-[#8B1C1C]"}`}
+                                aria-hidden
+                              />
+                            ) : null}
+                            Pared {wIndex}
+                          </button>
+                        );
+                      })}
+                    </div>
+
                     <InteractiveCroquis
-                      wallCount={levantamiento.wallSlotCount}
+                      wallCount={totalWallSlots}
                       activeWallIndex={currentWallIndex}
                       onSelectWall={setCurrentWallIndex}
                       isWallComplete={(i) =>
@@ -2279,10 +2020,13 @@ export default function CotizadorPreliminarPage() {
               </p>
               <p className="mt-2 text-sm text-secondary">
                 Pósters grandes (2:3); el nombre va en la parte baja de la foto. Clic abre el detalle en la página.
-                Indica si el ítem entra al PDF; las medidas en metros son útiles pero opcionales. Incluye filas por
-                microondas, estufa, refrigeración, parrilla,{" "}
-                <span className="font-medium text-primary/90">tarjas</span>,{" "}
-                <span className="font-medium text-primary/90">campanas</span> y una fila{" "}
+                Indica si el ítem entra al PDF; las medidas en metros son útiles pero opcionales. El carrusel muestra
+                primero <span className="font-medium text-primary/90">refrigeración</span>, luego{" "}
+                <span className="font-medium text-primary/90">estufas</span> y{" "}
+                <span className="font-medium text-primary/90">tarjas</span>; después{" "}
+                <span className="font-medium text-primary/90">microondas</span>,{" "}
+                <span className="font-medium text-primary/90">parrillas</span>,{" "}
+                <span className="font-medium text-primary/90">campanas</span> y la fila{" "}
                 <span className="font-medium text-primary/90">Otros</span> (cafetera, lavavajillas, freidora de aire,
                 horno de gas, tostadora, dispensador de agua, enfriador de vinos, tarja extra).
               </p>
@@ -2637,31 +2381,13 @@ export default function CotizadorPreliminarPage() {
               <h2 className="mt-2 text-2xl font-semibold">Cubiertas / frentes / herrajes</h2>
               <p className="mt-2 text-sm text-secondary">Personaliza el look con el catálogo digital.</p>
             </div>
-            <div className="flex flex-col gap-3 rounded-2xl border border-primary/10 bg-white/90 p-4 md:flex-row md:items-center md:justify-between">
-              <div className="flex-1">
-                <input
-                  value={materialSearch}
-                  onChange={(event) => setMaterialSearch(event.target.value)}
-                  placeholder="Buscar material..."
-                  className="w-full rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm outline-none"
-                />
-              </div>
-              <div className="flex flex-wrap gap-2 text-xs font-semibold">
-                {(["Todos", "Estandar", "Tendencia", "Premium"] as const).map((tier) => (
-                  <button
-                    key={tier}
-                    type="button"
-                    onClick={() => setTierFilter(tier)}
-                    className={`rounded-full px-4 py-2 transition ${
-                      tierFilter === tier
-                        ? "bg-[#8B1C1C] text-white"
-                        : "border border-primary/10 bg-white text-secondary hover:border-primary/30"
-                    }`}
-                  >
-                    {tier}
-                  </button>
-                ))}
-              </div>
+            <div className="rounded-2xl border border-primary/10 bg-white/90 p-4">
+              <input
+                value={materialSearch}
+                onChange={(event) => setMaterialSearch(event.target.value)}
+                placeholder="Buscar material..."
+                className="w-full rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm outline-none"
+              />
             </div>
             <MaterialGrid
               title="Cubiertas"
@@ -2673,8 +2399,7 @@ export default function CotizadorPreliminarPage() {
               category="cubiertas"
               largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
-              tierFilter={tierFilter}
-              tierPriceByTier={materialTierAverages.cubiertas}
+              unitPricePerM={materialUnitPriceByCategory.cubiertas}
             />
             <MaterialGrid
               title="Frentes / Material base"
@@ -2687,8 +2412,7 @@ export default function CotizadorPreliminarPage() {
               category="frentes"
               largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
-              tierFilter={tierFilter}
-              tierPriceByTier={materialTierAverages.frentes}
+              unitPricePerM={materialUnitPriceByCategory.frentes}
             />
             <MaterialGrid
               title="Herrajes"
@@ -2700,8 +2424,7 @@ export default function CotizadorPreliminarPage() {
               category="herrajes"
               largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
-              tierFilter={tierFilter}
-              tierPriceByTier={materialTierAverages.herrajes}
+              unitPricePerM={materialUnitPriceByCategory.herrajes}
             />
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
@@ -2723,9 +2446,9 @@ export default function CotizadorPreliminarPage() {
                 Sección E · Iluminación
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Pósters grandes; título sobre la imagen. Clic en el póster para elegir o quitar luminarios (puedes
-                marcar varios). «Medidas opcionales» abre el detalle si necesitas anotar medidas. La lista definitiva la
-                confirma la empresa.
+                Pósters grandes; título sobre la imagen. Clic en el póster activa o anula (1 unidad); usa + / − para
+                varias unidades del mismo tipo. «Medidas opcionales» abre el detalle. La lista definitiva la confirma la
+                empresa.
               </p>
             </div>
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
@@ -2855,11 +2578,34 @@ export default function CotizadorPreliminarPage() {
                       <input
                         type="checkbox"
                         className="h-4 w-4 shrink-0 rounded border-primary/30 accent-[#8B1C1C]"
-                        checked={levantamiento.lightingSelectedIds.includes(lightingDetailItem.id)}
+                        checked={getLightingEffectiveQty(levantamiento, lightingDetailItem.id) > 0}
                         onChange={(e) => setLightingInDocument(lightingDetailItem.id, e.target.checked)}
                       />
-                      <span>Seleccionar (medidas opcionales)</span>
+                      <span>Incluir en documento (usa + / − para cantidad)</span>
                     </label>
+                    <div className="flex items-center justify-between gap-1 rounded-xl border border-primary/10 bg-white px-1.5 py-1.5 shadow-inner">
+                      <button
+                        type="button"
+                        aria-label={`Menos unidades · ${lightingDetailItem.label}`}
+                        disabled={getLightingEffectiveQty(levantamiento, lightingDetailItem.id) <= 0}
+                        onClick={() => updateLightingQty(lightingDetailItem.id, -1)}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-white text-primary transition hover:bg-primary/[0.06] disabled:opacity-35"
+                      >
+                        <Minus className="h-4 w-4" strokeWidth={2.5} />
+                      </button>
+                      <span className="min-w-[2rem] text-center text-sm font-semibold tabular-nums text-primary">
+                        {getLightingEffectiveQty(levantamiento, lightingDetailItem.id)}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`Más unidades · ${lightingDetailItem.label}`}
+                        disabled={getLightingEffectiveQty(levantamiento, lightingDetailItem.id) >= 999}
+                        onClick={() => updateLightingQty(lightingDetailItem.id, 1)}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-white text-primary transition hover:bg-primary/[0.06] disabled:opacity-35"
+                      >
+                        <Plus className="h-4 w-4" strokeWidth={2.5} />
+                      </button>
+                    </div>
                     <div className="grid gap-3 sm:grid-cols-3">
                       {(["ancho", "alto", "fondo"] as const).map((field) => {
                         const m =
@@ -2960,15 +2706,17 @@ export default function CotizadorPreliminarPage() {
                           <span className={streamRankClass} aria-hidden>
                             {rank + 1}
                           </span>
-                          <div className="flex flex-col items-start gap-1">
+                          <div className="flex w-[min(10.5rem,52vw)] shrink-0 flex-col items-stretch gap-2 sm:w-[min(12.5rem,38vw)]">
                             <button
                               type="button"
                               onClick={() => toggleLightingSelected(item.id)}
                               className="text-left"
-                              title="Clic para seleccionar o quitar"
+                              title="Clic para activar (1 u.) o anular · + / − para varios"
                             >
                               <div
-                                className={streamPosterClass(levantamiento.lightingSelectedIds.includes(item.id))}
+                                className={streamPosterClass(
+                                  getLightingEffectiveQty(levantamiento, item.id) > 0,
+                                )}
                               >
                                 <LightingTypeImage
                                   item={item}
@@ -2990,6 +2738,29 @@ export default function CotizadorPreliminarPage() {
                             >
                               Medidas opcionales
                             </button>
+                            <div className="flex items-center justify-between gap-1 rounded-xl border border-white/10 bg-zinc-900/90 px-1.5 py-1.5 shadow-inner">
+                              <button
+                                type="button"
+                                aria-label={`Menos ${item.label}`}
+                                disabled={getLightingEffectiveQty(levantamiento, item.id) <= 0}
+                                onClick={() => updateLightingQty(item.id, -1)}
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-zinc-800 text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-35"
+                              >
+                                <Minus className="h-4 w-4" strokeWidth={2.5} />
+                              </button>
+                              <span className="min-w-[2rem] text-center text-sm font-semibold tabular-nums text-white">
+                                {getLightingEffectiveQty(levantamiento, item.id)}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label={`Más ${item.label}`}
+                                disabled={getLightingEffectiveQty(levantamiento, item.id) >= 999}
+                                onClick={() => updateLightingQty(item.id, 1)}
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-zinc-800 text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-35"
+                              >
+                                <Plus className="h-4 w-4" strokeWidth={2.5} />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -3022,7 +2793,7 @@ export default function CotizadorPreliminarPage() {
                 <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
                   <div>
                     <p className={streamRowHeading}>Iluminación</p>
-                    <p className={streamRowHint}>Catálogo de referencia</p>
+                    <p className={streamRowHint}>Catálogo de referencia · + / − para varios por tipo</p>
                   </div>
                   <button
                     type="button"
@@ -3046,15 +2817,17 @@ export default function CotizadorPreliminarPage() {
                       <span className={streamRankClass} aria-hidden>
                         {rank + 1}
                       </span>
-                      <div className="flex flex-col items-start gap-1">
+                      <div className="flex w-[min(10.5rem,52vw)] shrink-0 flex-col items-stretch gap-2 sm:w-[min(12.5rem,38vw)]">
                         <button
                           type="button"
                           onClick={() => toggleLightingSelected(item.id)}
                           className="text-left"
-                          title="Clic para seleccionar o quitar"
+                          title="Clic para activar (1 u.) o anular · + / − para varios"
                         >
                           <div
-                            className={streamPosterClass(levantamiento.lightingSelectedIds.includes(item.id))}
+                            className={streamPosterClass(
+                              getLightingEffectiveQty(levantamiento, item.id) > 0,
+                            )}
                           >
                             <LightingTypeImage
                               item={item}
@@ -3076,6 +2849,29 @@ export default function CotizadorPreliminarPage() {
                         >
                           Medidas opcionales
                         </button>
+                        <div className="flex items-center justify-between gap-1 rounded-xl border border-white/10 bg-zinc-900/90 px-1.5 py-1.5 shadow-inner">
+                          <button
+                            type="button"
+                            aria-label={`Menos ${item.label}`}
+                            disabled={getLightingEffectiveQty(levantamiento, item.id) <= 0}
+                            onClick={() => updateLightingQty(item.id, -1)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-zinc-800 text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-35"
+                          >
+                            <Minus className="h-4 w-4" strokeWidth={2.5} />
+                          </button>
+                          <span className="min-w-[2rem] text-center text-sm font-semibold tabular-nums text-white">
+                            {getLightingEffectiveQty(levantamiento, item.id)}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Más ${item.label}`}
+                            disabled={getLightingEffectiveQty(levantamiento, item.id) >= 999}
+                            onClick={() => updateLightingQty(item.id, 1)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-zinc-800 text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-35"
+                          >
+                            <Plus className="h-4 w-4" strokeWidth={2.5} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -3117,13 +2913,90 @@ export default function CotizadorPreliminarPage() {
                 </div>
               </div>
             )}
+            <div className={streamRowShell}>
+              <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <p className={streamRowHeading}>Accesorios de Organización y Tecnología</p>
+                  <p className={streamRowHint}>
+                    Cantidades con + / − · precios base se definirán en configuración
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = lightingRowRefs.current.accesoriosCatalogo;
+                    if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+                  }}
+                  className={streamVerTodosClass}
+                >
+                  Ver todos
+                </button>
+              </div>
+              <div
+                ref={(el) => {
+                  lightingRowRefs.current.accesoriosCatalogo = el;
+                }}
+                className={streamScrollClass}
+              >
+                {SPECIAL_ACCESSORIES_ITEMS.map((item, rank) => {
+                  const qty = Math.max(
+                    0,
+                    Math.floor(Number(levantamiento.specialAccessoriesQty?.[item.id]) || 0),
+                  );
+                  return (
+                    <div key={item.id} className="flex shrink-0 items-end gap-1">
+                      <span className={streamRankClass} aria-hidden>
+                        {rank + 1}
+                      </span>
+                      <div className="flex w-[min(10.5rem,52vw)] shrink-0 flex-col items-stretch gap-2 sm:w-[min(12.5rem,38vw)]">
+                        <div
+                          className={`relative z-10 aspect-[2/3] w-full shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl ring-1 ring-white/10`}
+                        >
+                          <img
+                            src={item.image}
+                            alt=""
+                            className="absolute inset-0 z-0 h-full w-full object-cover object-center"
+                          />
+                          <div className={streamPosterTitleOverlay}>
+                            <p className={streamPosterLabelClass}>{item.label}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-1 rounded-xl border border-white/10 bg-zinc-900/90 px-1.5 py-1.5 shadow-inner">
+                          <button
+                            type="button"
+                            aria-label={`Menos ${item.label}`}
+                            disabled={qty <= 0}
+                            onClick={() => updateSpecialAccessoryQty(item.id, -1)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-zinc-800 text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-35"
+                          >
+                            <Minus className="h-4 w-4" strokeWidth={2.5} />
+                          </button>
+                          <span className="min-w-[2rem] text-center text-sm font-semibold tabular-nums text-white">
+                            {qty}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Más ${item.label}`}
+                            disabled={qty >= 999}
+                            onClick={() => updateSpecialAccessoryQty(item.id, 1)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-zinc-800 text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-35"
+                          >
+                            <Plus className="h-4 w-4" strokeWidth={2.5} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
               <textarea
                 value={levantamiento.sectionComments.e ?? ""}
                 onChange={(e) => setSectionComment("e", e.target.value)}
                 rows={3}
-                placeholder="Circuitos, dimmers, temperatura de color…"
+                placeholder="Circuitos, dimmers, temperatura de color, accesorios…"
                 className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white/90 px-4 py-3 text-sm outline-none placeholder:text-secondary/50"
               />
             </label>
@@ -3142,14 +3015,17 @@ export default function CotizadorPreliminarPage() {
               </p>
               <p className="mt-2 text-xs text-secondary/90">
                 El escenario se alinea al cambiar cubierta, frentes u herrajes; puedes elegir otro nivel aquí si lo
-                necesitas.
+                necesitas. El importe del escenario es solo referencia (cateo); el total del cliente suma materiales
+                reales de la configuración.
               </p>
             </div>
             <div className="grid gap-6 lg:grid-cols-3">
               {scenarioOptions.map((scenario) => {
-                const cardRange = scenarioCardRanges.find((r) => r.id === scenario.id);
-                const min = cardRange?.min ?? 0;
-                const max = cardRange?.max ?? 0;
+                const largoCard = Math.max(0, Number.parseFloat(largo) || 0);
+                const precioLineal =
+                  levantamientoConfig.scenarioPrices[scenario.id as keyof LevantamientoConfig["scenarioPrices"]] ??
+                  0;
+                const referenciaCateo = largoCard * precioLineal;
                 const isActive = selectedScenario === scenario.id;
                 return (
                   <button
@@ -3174,11 +3050,19 @@ export default function CotizadorPreliminarPage() {
                         {scenario.title}
                       </p>
                       <h3 className="text-lg font-semibold">{scenario.subtitle}</h3>
-                      <div className="rounded-2xl bg-primary/5 px-4 py-3 text-center text-lg font-semibold text-[#8B1C1C]">
-                        {formatCurrency(min)} - {formatCurrency(max)}
+                      <div className="rounded-2xl bg-primary/5 px-4 py-3 text-center">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary/80">
+                          Referencia (cateo)
+                        </p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums text-[#8B1C1C]">
+                          {formatCurrency(referenciaCateo)}
+                        </p>
+                        <p className="mt-1 text-[10px] text-secondary/90">
+                          Precio escenario × largo · no es el subtotal del cliente
+                        </p>
                       </div>
                       <p className="text-xs text-secondary">
-                        Basado en medidas generales y selección del showroom.
+                        Total y rango con IVA se calculan con materiales seleccionados (panel de cierre).
                       </p>
                     </div>
                   </button>
@@ -3213,16 +3097,25 @@ export default function CotizadorPreliminarPage() {
                 </p>
                 <div className="mt-2 space-y-1.5 tabular-nums">
                   <div className="flex justify-between gap-3">
-                    <span>Costo base (escenario)</span>
-                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoBase)}</span>
+                    <span>Cubiertas</span>
+                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoCubiertas)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 items-start">
+                    <span className="min-w-0">
+                      <span className="block">Carpintería</span>
+                      {metrics.factorHastaTechoLegendText ? (
+                        <span className="mt-0.5 block text-[10px] font-normal normal-case tracking-normal text-secondary/85">
+                          {metrics.factorHastaTechoLegendText}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 text-primary/90">
+                      {formatCurrency(metrics.costoFrentes + metrics.costoHerrajes)}
+                    </span>
                   </div>
                   <div className="flex justify-between gap-3">
-                    <span>Materiales</span>
-                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoMateriales)}</span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span>Iluminación</span>
-                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoIluminacion)}</span>
+                    <span>Extras</span>
+                    <span className="shrink-0 text-primary/90">{formatCurrency(metrics.costoExtras)}</span>
                   </div>
                 </div>
               </div>
@@ -3255,7 +3148,7 @@ export default function CotizadorPreliminarPage() {
                   </div>
                 </div>
                 <div className="border-t border-primary/10 pt-3 text-xs text-secondary sm:text-right">
-                  Rango estimado (±{Math.round(metrics.marginPercent * 100)}% sobre total):{" "}
+                  Rango estimado (±{Math.round(metrics.marginPercent * 100)}% sobre total con IVA):{" "}
                   <span className="font-semibold text-[#8B1C1C]">{scenarioRangeLabel}</span>
                 </div>
               </div>
