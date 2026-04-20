@@ -6,6 +6,7 @@
     "fix:checkerboard-electro": "node scripts/fix-checkerboard-bg.mjs",
     "normalize:electrodomesticos": "node scripts/normalize-electrodomesticos.mjs",
     "normalize:electrodomesticos:win": "powershell -ExecutionPolicy Bypass -File scripts/normalize-electrodomesticos.ps1",
+    "extract:excel-images": "node scripts/extract-excel-embedded-images.mjs",
     "dev": "next dev --webpack",
     "dev:turbo": "next dev",
     "build": "next build",
@@ -32,6 +33,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "exceljs": "^4.4.0",
     "jimp": "^1.6.0",
     "tailwindcss": "^4",
     "typescript": "^5"

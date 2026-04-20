@@ -13,6 +13,7 @@ import {
   type MaterialCategoria,
   type MaterialConfig,
 } from "@/lib/config-levantamiento";
+import { LIGHTING_ITEMS, SPECIAL_ACCESSORIES_ITEMS } from "@/lib/levantamiento-catalog";
 
 const CATEGORIAS: MaterialCategoria[] = ["cubierta", "frente", "herraje"];
 type FiltroCategoria = "todas" | MaterialCategoria;
@@ -205,7 +206,8 @@ export default function ConfiguracionLevantamientoPage() {
               </h1>
               <p className="mt-3 max-w-2xl text-sm text-secondary md:text-base">
                 Precios base por escenario (Esencial / Tendencia / Premium), IVA, margen de rango y catálogo de
-                materiales ($/m). El Levantamiento Detallado usa estos valores en vivo.
+                materiales ($/m); al final, precios unitarios de extras (iluminación y accesorios del apartado E). El
+                Levantamiento Detallado usa estos valores en vivo.
               </p>
             </div>
           </div>
@@ -499,6 +501,81 @@ export default function ConfiguracionLevantamientoPage() {
               </button>
             </div>
           </div>
+
+          <div className="mt-10 rounded-3xl border border-primary/10 bg-white/90 p-6 shadow-lg backdrop-blur-sm">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-secondary">
+              Extras — iluminación y accesorios (precio unitario MXN)
+            </h2>
+            <p className="mt-2 text-xs text-secondary">
+              Aplica a la sección E del Levantamiento Detallado (luminarios del catálogo y accesorios como Alexa,
+              botelleros, etc.). Cada unidad cotizada multiplica este precio.
+            </p>
+
+            <div className="mt-6 grid gap-8 lg:grid-cols-2">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-secondary">Iluminación</h3>
+                <div className="mt-3 space-y-3">
+                  {LIGHTING_ITEMS.map((item) => (
+                    <label key={item.id} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                      <span className="min-w-0 flex-1 text-sm text-primary">{item.label}</span>
+                      <NumericInputEmptyZero
+                        min={0}
+                        step={50}
+                        parseAs="float"
+                        placeholder="0"
+                        className="w-full rounded-xl border border-primary/15 bg-white px-3 py-2 text-sm font-semibold tabular-nums outline-none ring-primary/20 focus:ring-2 sm:w-36"
+                        value={config.extrasPrecios.iluminacion[item.id] ?? 0}
+                        onValueChange={(n) =>
+                          setConfig((c) => ({
+                            ...c,
+                            extrasPrecios: {
+                              ...c.extrasPrecios,
+                              iluminacion: {
+                                ...c.extrasPrecios.iluminacion,
+                                [item.id]: Math.max(0, n),
+                              },
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                  Accesorios especiales
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {SPECIAL_ACCESSORIES_ITEMS.map((item) => (
+                    <label key={item.id} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                      <span className="min-w-0 flex-1 text-sm text-primary">{item.label}</span>
+                      <NumericInputEmptyZero
+                        min={0}
+                        step={50}
+                        parseAs="float"
+                        placeholder="0"
+                        className="w-full rounded-xl border border-primary/15 bg-white px-3 py-2 text-sm font-semibold tabular-nums outline-none ring-primary/20 focus:ring-2 sm:w-36"
+                        value={config.extrasPrecios.accesoriosEspeciales[item.id] ?? 0}
+                        onValueChange={(n) =>
+                          setConfig((c) => ({
+                            ...c,
+                            extrasPrecios: {
+                              ...c.extrasPrecios,
+                              accesoriosEspeciales: {
+                                ...c.extrasPrecios.accesoriosEspeciales,
+                                [item.id]: Math.max(0, n),
+                              },
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -514,8 +591,8 @@ export default function ConfiguracionLevantamientoPage() {
               ¿Guardar configuración?
             </h3>
             <p className="mt-3 text-sm text-secondary">
-              Se guardarán en este navegador los escenarios, IVA, margen y la lista de materiales. El
-              Levantamiento Detallado usará estos valores de inmediato.
+              Se guardarán en este navegador los escenarios, IVA, margen, la lista de materiales y los precios de
+              extras. El Levantamiento Detallado usará estos valores de inmediato.
             </p>
             <div className="mt-6 flex flex-wrap justify-end gap-2">
               <button
@@ -550,8 +627,8 @@ export default function ConfiguracionLevantamientoPage() {
               ¿Restaurar valores por defecto?
             </h3>
             <p className="mt-3 text-sm text-secondary">
-              Se reemplazará la configuración por la predeterminada (precios de ejemplo y lista inicial de
-              materiales). Los cambios no guardados en pantalla se perderán; puedes cancelar y usar
+              Se reemplazará la configuración por la predeterminada (precios de ejemplo, lista inicial de materiales y
+              precios de extras del catálogo). Los cambios no guardados en pantalla se perderán; puedes cancelar y usar
               «Guardar» antes si necesitas conservar algo.
             </p>
             <div className="mt-6 flex flex-wrap justify-end gap-2">

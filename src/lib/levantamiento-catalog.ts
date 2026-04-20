@@ -739,32 +739,74 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
     image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
   },
   {
-    id: "tarja-simple",
+    id: "tarja-empotrar-sobreponer",
     categoria: "Tarjas",
-    label: "Tarja seno único",
-    hint: "Una cubeta; la más común en cocinas compactas.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+    label: "De empotrar o de sobreponer",
+    hint: "Encimera o sobreponer; el borde apoya sobre la cubierta.",
+    image: "/images/electrodomesticos/tarja-empotrar-sobreponer.jpeg",
   },
   {
-    id: "tarja-doble",
+    id: "tarja-submontar-bajo-cubierta",
     categoria: "Tarjas",
-    label: "Tarja doble taza",
-    hint: "Dos cubetas para lavar y escurrir por separado.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+    label: "De submontar o bajo cubierta",
+    hint: "Bajo la cubierta; terminación limpia sin borde visible.",
+    image: "/images/electrodomesticos/tarja-submontar-bajo-cubierta.jpeg",
   },
   {
     id: "tarja-farmhouse",
     categoria: "Tarjas",
-    label: "Tarja tipo granja (apron front)",
-    hint: "Frente visto; estilo rústico o escandinavo.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+    label: "Tipo farmhouse o granjero",
+    hint: "Frente expuesto (apron); cubeta profunda, estilo clásico o rústico.",
+    image: "/images/electrodomesticos/tarja-farmhouse.jpeg",
+  },
+  {
+    id: "tarja-con-escurridor",
+    categoria: "Tarjas",
+    label: "Con escurridor",
+    hint: "Incluyen una superficie integrada para secar los trastes.",
+    image: "/images/electrodomesticos/tarja-con-escurridor.png",
+  },
+  {
+    id: "tarja-simple",
+    categoria: "Tarjas",
+    label: "Sencilla",
+    hint: "Seno único; práctica en cocinas compactas.",
+    image: "/images/electrodomesticos/tarja-sencilla.png",
+  },
+  {
+    id: "tarja-doble",
+    categoria: "Tarjas",
+    label: "Doble",
+    hint: "Permite separar tareas (lavar y enjuagar simultáneamente).",
+    image: "/images/electrodomesticos/tarja-doble.png",
   },
   {
     id: "tarja-trabajo",
     categoria: "Tarjas",
-    label: "Tarja de gran formato / estación de trabajo",
-    hint: "Mayor profundidad o ancho para preparación intensa.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+    label: "Tina grande (o tipo granja)",
+    hint: "Gran capacidad para ollas grandes; formato amplio.",
+    image: "/images/electrodomesticos/tarja-tina-grande.png",
+  },
+  {
+    id: "tarja-acero-inoxidable",
+    categoria: "Tarjas",
+    label: "Acero inoxidable",
+    hint: "Material duradero; atención al calibre (gauge) y acabado.",
+    image: "/images/electrodomesticos/tarja-acero-inoxidable.jpeg",
+  },
+  {
+    id: "tarja-granito-cuarzo",
+    categoria: "Tarjas",
+    label: "Granito o cuarzo compuesto",
+    hint: "Muy duraderos; resistentes a manchas y rayones.",
+    image: "/images/electrodomesticos/tarja-granito-cuarzo.jpeg",
+  },
+  {
+    id: "tarja-ceramica-arcilla",
+    categoria: "Tarjas",
+    label: "Cerámica / arcilla refractaria",
+    hint: "Resistentes al calor; estilo clásico.",
+    image: "/images/electrodomesticos/tarja-ceramica-arcilla.jpeg",
   },
   {
     id: "micro-sobremesa",
@@ -924,6 +966,16 @@ const APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
   "refri-side-side": "/images/electrodomesticos/side-by-side.png",
   "refri-french-door": "/images/electrodomesticos/french-door.jpg",
   "refri-frigobar": "/images/electrodomesticos/frigobar1.jpg",
+  "tarja-empotrar-sobreponer": "/images/electrodomesticos/tarja-empotrar-sobreponer.jpeg",
+  "tarja-submontar-bajo-cubierta": "/images/electrodomesticos/tarja-submontar-bajo-cubierta.jpeg",
+  "tarja-farmhouse": "/images/electrodomesticos/tarja-farmhouse.jpeg",
+  "tarja-con-escurridor": "/images/electrodomesticos/tarja-con-escurridor.png",
+  "tarja-granito-cuarzo": "/images/electrodomesticos/tarja-granito-cuarzo.jpeg",
+  "tarja-ceramica-arcilla": "/images/electrodomesticos/tarja-ceramica-arcilla.jpeg",
+  "tarja-simple": "/images/electrodomesticos/tarja-sencilla.png",
+  "tarja-doble": "/images/electrodomesticos/tarja-doble.png",
+  "tarja-trabajo": "/images/electrodomesticos/tarja-tina-grande.png",
+  "tarja-acero-inoxidable": "/images/electrodomesticos/tarja-acero-inoxidable.jpeg",
   "parrilla-gas": "/images/electrodomesticos/parrilla-gas1.jpg",
   "parrilla-induccion": "/images/electrodomesticos/parrillas-induccion1.jpg",
   "parrilla-electrica-vitro": "/images/electrodomesticos/parrillas-electricas.jpeg",
@@ -947,6 +999,11 @@ const APPLIANCE_LEVANTAMIENTO_IMAGE_EXTRAS: Record<string, readonly string[]> = 
     "/images/electrodomesticos/parrilla-electrica2.png",
     "/images/electrodomesticos/parrilla-electrica3.jpeg",
   ],
+  "tarja-granito-cuarzo": [
+    "/images/electrodomesticos/tarja-granito-cuarzo-variante.jpeg",
+    "/images/electrodomesticos/tarja-granito-cuarzo-escurridor.jpeg",
+  ],
+  "tarja-ceramica-arcilla": ["/images/electrodomesticos/tarja-ceramica-arcilla-variante.jpeg"],
 };
 
 const ELECTRO_PUBLIC_PREFIX = "/images/electrodomesticos/";
@@ -1229,10 +1286,15 @@ export type LevantamientoDetalle = {
     hastaTecho?: boolean;
   };
   sectionComments: Partial<Record<"a" | "b" | "c" | "d" | "e", string>>;
-  /** Cantidad de paredes del flujo dinámico (wall-0 … wall-N-1). 0 = sin definir. */
+  /** Cantidad de paredes del flujo dinámico (wall-0 … wall-N-1). 0 = sin definir. Máximo 4 en UI. */
   wallSlotCount: number;
   wallMeasures: WallMeasuresMap;
   wallOtro: OtroMedidas;
+  /**
+   * Medidas de muros solo por texto + ancho/alto/fondo (sin slots wall-0…).
+   * Sustituye el antiguo flujo de 5–8 paredes.
+   */
+  wallMedidasModoLibre?: boolean;
   /** Electrodomésticos del catálogo a incluir en PDF; las medidas son opcionales. */
   applianceDocumentIds: string[];
   /** Incluir bloque «Otro electrodoméstico» en PDF. */
@@ -1294,13 +1356,27 @@ export function lightingOtroAppearsInPdf(lev: LevantamientoDetalle): boolean {
   );
 }
 
+/** Overrides opcionales desde `LevantamientoConfig.extrasPrecios` (precio unitario MXN por id). */
+export type CotizacionExtrasPreciosMaps = {
+  iluminacion?: Record<string, number>;
+  accesoriosEspeciales?: Record<string, number>;
+};
+
 /** Suma (cantidad × precio fijo) por luminario + precio manual «Otro». */
-export function cotizacionIluminacionTotal(lev: LevantamientoDetalle): number {
+export function cotizacionIluminacionTotal(
+  lev: LevantamientoDetalle,
+  preciosPorId?: Record<string, number>,
+): number {
   let sum = 0;
   for (const item of LIGHTING_ITEMS) {
     const q = getLightingEffectiveQty(lev, item.id);
     if (q > 0) {
-      sum += q * (item.precioFijo ?? 0);
+      const fromCfg = preciosPorId?.[item.id];
+      const unit =
+        typeof fromCfg === "number" && Number.isFinite(fromCfg)
+          ? Math.max(0, fromCfg)
+          : (item.precioFijo ?? 0);
+      sum += q * unit;
     }
   }
   const extra = lev.lightingOtro.precioEstimado;
@@ -1311,20 +1387,33 @@ export function cotizacionIluminacionTotal(lev: LevantamientoDetalle): number {
 }
 
 /** Suma cantidad × precio base por accesorio especial. */
-export function cotizacionSpecialAccessoriesTotal(lev: LevantamientoDetalle): number {
+export function cotizacionSpecialAccessoriesTotal(
+  lev: LevantamientoDetalle,
+  preciosPorId?: Record<string, number>,
+): number {
   const qtyMap = lev.specialAccessoriesQty ?? defaultSpecialAccessoriesQty();
   let sum = 0;
   for (const item of SPECIAL_ACCESSORIES_ITEMS) {
     const q = Math.max(0, Math.floor(Number(qtyMap[item.id]) || 0));
-    const unit = item.precioBase ?? item.precioFijo ?? 0;
+    const fromCfg = preciosPorId?.[item.id];
+    const unit =
+      typeof fromCfg === "number" && Number.isFinite(fromCfg)
+        ? Math.max(0, fromCfg)
+        : (item.precioBase ?? item.precioFijo ?? 0);
     sum += q * unit;
   }
   return sum;
 }
 
 /** Iluminación + accesorios especiales (línea «Extras» en cotización). */
-export function cotizacionExtrasTotal(lev: LevantamientoDetalle): number {
-  return cotizacionIluminacionTotal(lev) + cotizacionSpecialAccessoriesTotal(lev);
+export function cotizacionExtrasTotal(
+  lev: LevantamientoDetalle,
+  maps?: CotizacionExtrasPreciosMaps,
+): number {
+  return (
+    cotizacionIluminacionTotal(lev, maps?.iluminacion) +
+    cotizacionSpecialAccessoriesTotal(lev, maps?.accesoriosEspeciales)
+  );
 }
 
 export function initMeasuresMap(ids: string[]): Record<string, MedidasCampos> {
@@ -1342,6 +1431,7 @@ export function defaultLevantamientoDetalle(): LevantamientoDetalle {
     wallSlotCount: 0,
     wallMeasures: initWallMeasuresMap(),
     wallOtro: emptyOtro(),
+    wallMedidasModoLibre: false,
     applianceDocumentIds: [],
     applianceOtroInDocument: false,
     applianceMeasures: initMeasuresMap(APPLIANCE_ITEMS.map((a) => a.id)),
@@ -1424,10 +1514,16 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
       : d.lightingOtro;
 
   const wallSlotCountRaw = r.wallSlotCount;
-  const wallSlotCount =
-    typeof wallSlotCountRaw === "number" && Number.isFinite(wallSlotCountRaw)
-      ? Math.min(20, Math.max(0, Math.floor(wallSlotCountRaw)))
-      : d.wallSlotCount;
+  let wallMedidasModoLibre = r.wallMedidasModoLibre === true;
+  let wallSlotCount: number;
+  if (wallMedidasModoLibre) {
+    wallSlotCount = 0;
+  } else {
+    wallSlotCount =
+      typeof wallSlotCountRaw === "number" && Number.isFinite(wallSlotCountRaw)
+        ? Math.min(4, Math.max(0, Math.floor(wallSlotCountRaw)))
+        : d.wallSlotCount;
+  }
 
   const applianceMeasures = mergeMeasuresMapFromRaw(r.applianceMeasures, APPLIANCE_ITEMS.map((a) => a.id));
 
@@ -1523,6 +1619,22 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
         }
       : { ...d.medidasGenerales };
 
+  let wallMeasures = normalizeWallMeasuresPayload(r.wallMeasures);
+  if (wallMedidasModoLibre) {
+    wallSlotCount = 0;
+    wallMeasures = { ...wallMeasures };
+    for (const k of Object.keys(wallMeasures)) {
+      if (isWallSlotKey(k)) delete wallMeasures[k];
+    }
+  } else {
+    wallMeasures = { ...wallMeasures };
+    for (const k of Object.keys(wallMeasures)) {
+      if (!isWallSlotKey(k)) continue;
+      const idx = Number(k.slice(5));
+      if (Number.isFinite(idx) && idx >= wallSlotCount) delete wallMeasures[k];
+    }
+  }
+
   return {
     conIsla,
     largo: largoGen,
@@ -1530,8 +1642,9 @@ export function normalizeLevantamientoDetalle(raw: unknown): LevantamientoDetall
     medidasGenerales,
     sectionComments,
     wallSlotCount,
-    wallMeasures: normalizeWallMeasuresPayload(r.wallMeasures),
+    wallMeasures,
     wallOtro,
+    wallMedidasModoLibre,
     applianceDocumentIds,
     applianceOtroInDocument,
     applianceMeasures,

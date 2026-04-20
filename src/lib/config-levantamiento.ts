@@ -1,3 +1,5 @@
+import { LIGHTING_ITEMS, SPECIAL_ACCESSORIES_ITEMS } from "@/lib/levantamiento-catalog";
+
 export const LEVANTAMIENTO_CONFIG_STORAGE_KEY = "kuche.config.levantamiento.v2";
 
 export type MaterialCategoria = "cubierta" | "frente" | "herraje";
@@ -14,6 +16,54 @@ export interface MaterialConfig {
   gama?: MaterialGama;
 }
 
+/** Precios unitarios fijos (MXN) para iluminación y accesorios especiales del Levantamiento Detallado. */
+export type ExtrasPreciosConfig = {
+  iluminacion: Record<string, number>;
+  accesoriosEspeciales: Record<string, number>;
+};
+
+export function defaultExtrasPrecios(): ExtrasPreciosConfig {
+  return {
+    iluminacion: Object.fromEntries(
+      LIGHTING_ITEMS.map((i) => [i.id, Math.max(0, Number(i.precioFijo) || 0)]),
+    ),
+    accesoriosEspeciales: Object.fromEntries(
+      SPECIAL_ACCESSORIES_ITEMS.map((i) => [
+        i.id,
+        Math.max(0, Number(i.precioBase ?? i.precioFijo) || 0),
+      ]),
+    ),
+  };
+}
+
+function mergeExtrasPreciosMap(
+  defaults: Record<string, number>,
+  partial: unknown,
+): Record<string, number> {
+  const out = { ...defaults };
+  if (typeof partial !== "object" || partial === null) return out;
+  const p = partial as Record<string, unknown>;
+  for (const id of Object.keys(defaults)) {
+    const v = p[id];
+    if (typeof v === "number" && Number.isFinite(v)) {
+      out[id] = Math.max(0, v);
+    } else if (typeof v === "string" && v.trim() !== "") {
+      const n = Number.parseFloat(v.replace(",", "."));
+      if (Number.isFinite(n)) out[id] = Math.max(0, n);
+    }
+  }
+  return out;
+}
+
+export function mergeExtrasPrecios(raw: unknown, base: ExtrasPreciosConfig): ExtrasPreciosConfig {
+  if (typeof raw !== "object" || raw === null) return base;
+  const r = raw as Partial<ExtrasPreciosConfig>;
+  return {
+    iluminacion: mergeExtrasPreciosMap(base.iluminacion, r.iluminacion),
+    accesoriosEspeciales: mergeExtrasPreciosMap(base.accesoriosEspeciales, r.accesoriosEspeciales),
+  };
+}
+
 export interface LevantamientoConfig {
   scenarioPrices: { esencial: number; tendencia: number; premium: number };
   materiales: MaterialConfig[];
@@ -21,6 +71,8 @@ export interface LevantamientoConfig {
   marginPercent: number;
   /** Multiplicador de frentes y herrajes (lineal) cuando la cocina es hasta el techo. No aplica a cubiertas. */
   factorHastaTecho: number;
+  /** Precios unitarios (MXN) para catálogo de iluminación y accesorios especiales (sección E). */
+  extrasPrecios: ExtrasPreciosConfig;
 }
 
 /**
@@ -63,6 +115,7 @@ export function createDefaultLevantamientoConfig(): LevantamientoConfig {
     ivaPercent: 0.16,
     marginPercent: 0.08,
     factorHastaTecho: 1.25,
+    extrasPrecios: defaultExtrasPrecios(),
   };
 }
 
@@ -73,6 +126,7 @@ export function getLevantamientoConfig(): LevantamientoConfig {
     if (!raw) return createDefaultLevantamientoConfig();
     const parsed = JSON.parse(raw) as Partial<LevantamientoConfig>;
     const base = createDefaultLevantamientoConfig();
+    const extrasBase = defaultExtrasPrecios();
     return {
       scenarioPrices: {
         esencial: Number(parsed.scenarioPrices?.esencial) || base.scenarioPrices.esencial,
@@ -109,6 +163,7 @@ export function getLevantamientoConfig(): LevantamientoConfig {
         typeof parsed.factorHastaTecho === "number" && Number.isFinite(parsed.factorHastaTecho)
           ? Math.min(5, Math.max(1, parsed.factorHastaTecho))
           : base.factorHastaTecho,
+      extrasPrecios: mergeExtrasPrecios(parsed.extrasPrecios, extrasBase),
     };
   } catch {
     return createDefaultLevantamientoConfig();

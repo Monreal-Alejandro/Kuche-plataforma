@@ -10,7 +10,16 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Minus, Plus, Search } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  FilePenLine,
+  Minus,
+  Plus,
+  Search,
+} from "lucide-react";
 import {
   activeCitaTaskStorageKey,
   kanbanStorageKey,
@@ -33,7 +42,9 @@ import {
   APPLIANCE_OTRO_STEP_INDEX,
   defaultLevantamientoDetalle,
   emptyMedidas,
+  emptyOtro,
   emptyWallMeasuresForId,
+  medidasCamposTieneValor,
   getApplianceCategoryProgress,
   getWallMeasureFieldDefs,
   computeLightingSelectedIds,
@@ -64,6 +75,7 @@ import { createPreliminarSeguimientoPdfKey, saveFormalPdf } from "@/lib/formal-p
 import { formatDeliveryWeeksLabel } from "@/lib/delivery-weeks";
 import { emptyWhenZeroIntString, emptyWhenZeroNumericString } from "@/lib/numeric-input-empty-zero";
 import ApplianceTypeImage from "@/components/levantamiento/ApplianceTypeImage";
+import HorizontalScrollStrip from "@/components/levantamiento/HorizontalScrollStrip";
 import LightingTypeImage from "@/components/levantamiento/LightingTypeImage";
 import { WallTypeIcon } from "@/components/levantamiento/WallTypeIcons";
 import { InteractiveCroquis } from "@/components/levantamiento/InteractiveCroquis";
@@ -97,7 +109,7 @@ const parseMeasure = (raw: string | undefined): number | null => {
   return Number.isFinite(v) ? v : null;
 };
 
-const WALL_COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+const WALL_COUNT_OPTIONS = [1, 2, 3, 4] as const;
 
 const wallCountSvgProps = {
   viewBox: "0 0 24 24",
@@ -124,18 +136,13 @@ function WallCountIcon({ count, className }: { count: number; className?: string
       return svg(<path d="M 6 5 L 6 19 L 18 19 L 18 5" />);
     case 4:
       return svg(<path d="M 6 6 L 18 6 L 18 18 L 6 18 Z" />);
-    case 5:
-      return svg(<path d="M 5 5 L 5 19 L 19 19 L 19 10 L 13 10 L 13 5" />);
-    case 6:
-      return svg(<path d="M 4 4 L 4 13 L 12 13 L 12 8 L 20 8 L 20 18" />);
-    case 7:
-      return svg(<path d="M 3 6 L 3 18 L 11 18 L 11 10 L 17 10 L 17 18 L 21 18 L 21 6" />);
-    case 8:
-      return svg(<path d="M 3 5 L 3 16 L 9 16 L 9 9 L 15 9 L 15 17 L 21 17 L 21 8 L 14 8" />);
     default:
       return svg(<line x1="4" y1="12" x2="20" y2="12" />);
   }
 }
+
+/** Campos de «Otro tipo de muro» reutilizados para el modo libre (texto + ancho / alto / fondo en m). */
+const WALL_LIBRE_FIELD_DEFS = getWallMeasureFieldDefs("pared-otro");
 
 type MaterialOption = {
   id: string;
@@ -208,16 +215,25 @@ const streamPosterLabelClass =
 /** Miniaturas de carrusel: `cover` sin `object-center` aquí — el centro choca con `object-[…]` en iluminación. */
 const streamCatalogThumbBase = "absolute inset-0 z-0 h-full w-full object-cover";
 const streamCatalogThumbImageClass = `${streamCatalogThumbBase} object-center`;
+/** Filas de tabla anchas (texto | foto): en póster 2:3 con `cover`, el centro cae en el texto; alinear a la derecha. */
+function applianceStreamCatalogThumbClass(item: ItemCatalogo): string {
+  if (item.id === "tarja-con-escurridor" || item.id === "tarja-doble") {
+    return `${streamCatalogThumbBase} object-right`;
+  }
+  return streamCatalogThumbImageClass;
+}
 /** Encuadre por ítem: `LightingTypeImage` aplica `object-position` inline (catálogo). */
 const streamLightingThumbClass = `${streamCatalogThumbBase} object-center`;
 const streamScrollClass =
-  "flex gap-3 overflow-x-auto pb-2 pt-1 pl-0.5 [-ms-overflow-style:none] [scrollbar-color:rgba(255,255,255,0.2)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 sm:gap-4";
+  "flex min-w-0 flex-1 gap-3 overflow-x-auto scroll-smooth pb-2 pt-1 pl-0.5 [-ms-overflow-style:none] [scrollbar-color:rgba(255,255,255,0.2)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 sm:gap-4";
+
+/** Carrusel horizontal del showroom (cubiertas / frentes / herrajes) sobre fondo claro. `@container` + cqw: el ancho visible del carril (4 tarjetas caben sin scroll en desktop). */
+const materialShowroomScrollClass =
+  "@container flex min-w-0 flex-1 gap-3 overflow-x-auto scroll-smooth pb-2 pt-1 pl-0.5 [-ms-overflow-style:none] [scrollbar-color:rgba(139,28,28,0.28)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-primary/25 sm:gap-4";
 
 type MaterialGridProps = {
   title: string;
   options: MaterialOption[];
-  page: number;
-  onPageChange: (page: number) => void;
   category: MaterialCategory;
   largoLineal: number;
   materialSearch: string;
@@ -231,8 +247,6 @@ type MaterialGridProps = {
 const MaterialGrid = ({
   title,
   options,
-  page,
-  onPageChange,
   category,
   largoLineal,
   materialSearch,
@@ -240,16 +254,11 @@ const MaterialGrid = ({
   ...rest
 }: MaterialGridProps) => {
   const isMulti = rest.multiSelect === true;
-  const pageSize = 4;
   const normalizedSearch = materialSearch.trim().toLowerCase();
   const filtered = options.filter((option) => {
     const matchesSearch = !normalizedSearch || option.name.toLowerCase().includes(normalizedSearch);
     return matchesSearch;
   });
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * pageSize;
-  const paginated = filtered.slice(start, start + pageSize);
 
   return (
     <div className="space-y-4">
@@ -259,79 +268,65 @@ const MaterialGrid = ({
           <p className="mt-1 text-[11px] font-medium text-secondary/85">Puedes elegir más de uno.</p>
         ) : null}
       </div>
-      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
-        {paginated.map((option) => {
-          const isActive = isMulti
-            ? rest.selectedIds.includes(option.id)
-            : rest.selectedId !== null && option.id === rest.selectedId;
-          const imageSrc = resolveMaterialImage(option.name, category, option.image);
-          const pricePerM = unitPricePerM(option);
-          const optionPrice = Math.max(0, largoLineal * pricePerM);
-          return (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => (isMulti ? rest.onToggle(option.id) : rest.onSelect(option.id))}
-              className={`group w-full rounded-2xl border border-primary/10 bg-white p-3 text-left shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl ${
-                isActive ? "ring-2 ring-[#8B1C1C] ring-offset-2 ring-offset-white" : ""
-              }`}
-            >
-              <div className="relative overflow-hidden rounded-2xl">
-                <div className="relative aspect-square w-full overflow-hidden bg-primary/[0.04]">
-                  <img
-                    src={imageSrc}
-                    alt={option.name}
-                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    onError={(event) => {
-                      event.currentTarget.src = "/images/hero-placeholder.svg";
-                    }}
-                  />
-                </div>
-                <div className="pointer-events-none absolute left-3 top-3 z-[1] max-w-[calc(100%-1.5rem)] truncate rounded-full bg-white/70 px-3 py-1 text-[11px] font-semibold text-primary shadow-md backdrop-blur">
-                  {option.name}
-                </div>
-                {isActive ? (
-                  <span className="absolute right-3 top-3 z-[1] rounded-full bg-[#8B1C1C] p-1 text-white shadow-md">
-                    <Check className="h-3 w-3" />
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-3 text-xs font-medium text-secondary">{option.name}</p>
-              <p className="mt-2 text-[11px] font-medium tabular-nums text-secondary">
-                {formatCurrency(pricePerM)} / m
-              </p>
-              <p className="mt-2 text-xs font-semibold text-[#8B1C1C]">
-                Estimado con tus medidas {formatCurrency(optionPrice)}
-              </p>
-            </button>
-          );
-        })}
-      </div>
       {filtered.length === 0 ? (
         <div className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-xs text-secondary">
           No encontramos materiales con ese criterio.
         </div>
-      ) : null}
-      {totalPages > 1 ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-secondary">
-          {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
-            <button
-              key={`${title}-${pageNumber}`}
-              type="button"
-              onClick={() => onPageChange(pageNumber)}
-              className={`h-8 w-8 rounded-full transition ${
-                safePage === pageNumber
-                  ? "bg-[#8B1C1C] text-white"
-                  : "border border-primary/10 bg-white hover:border-primary/30"
-              }`}
-            >
-              {pageNumber}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      ) : (
+        <HorizontalScrollStrip scrollClassName={materialShowroomScrollClass} variant="light">
+          {filtered.map((option) => {
+            const isActive = isMulti
+              ? rest.selectedIds.includes(option.id)
+              : rest.selectedId !== null && option.id === rest.selectedId;
+            const imageSrc = resolveMaterialImage(option.name, category, option.image);
+            const pricePerM = unitPricePerM(option);
+            const optionPrice = Math.max(0, largoLineal * pricePerM);
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => (isMulti ? rest.onToggle(option.id) : rest.onSelect(option.id))}
+                className={`group shrink-0 rounded-2xl border border-primary/10 bg-white p-2.5 text-left shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl sm:p-3 ${
+                  /* 2 visibles en móvil; desde sm, 4 visibles en el ancho del carril (entre flechas) */
+                  "w-[calc((100cqw-0.75rem)/2)] sm:w-[calc((100cqw-3*1rem)/4)]"
+                } ${
+                  isActive ? "ring-2 ring-[#8B1C1C] ring-offset-2 ring-offset-white" : ""
+                }`}
+              >
+                <div className="relative overflow-hidden rounded-2xl">
+                  <div className="relative aspect-[16/17] w-full overflow-hidden bg-primary/[0.04]">
+                    <img
+                      src={imageSrc}
+                      alt={option.name}
+                      className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      onError={(event) => {
+                        event.currentTarget.src = "/images/hero-placeholder.svg";
+                      }}
+                    />
+                  </div>
+                  <div className="pointer-events-none absolute left-3 top-3 z-[1] max-w-[calc(100%-1.5rem)] truncate rounded-full bg-white/70 px-3 py-1 text-[11px] font-semibold text-primary shadow-md backdrop-blur">
+                    {option.name}
+                  </div>
+                  {isActive ? (
+                    <span className="absolute right-3 top-3 z-[1] rounded-full bg-[#8B1C1C] p-1 text-white shadow-md">
+                      <Check className="h-3 w-3" />
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-3 line-clamp-2 text-xs font-medium text-secondary">{option.name}</p>
+                <p className="mt-2 text-[11px] font-medium tabular-nums text-secondary">
+                  {formatCurrency(pricePerM)} / m
+                </p>
+                <p className="mt-2 text-xs font-semibold text-[#8B1C1C]">
+                  Estimado con tus medidas {formatCurrency(optionPrice)}
+                </p>
+              </button>
+            );
+          })}
+        </HorizontalScrollStrip>
+      )}
     </div>
   );
 };
@@ -381,15 +376,12 @@ export default function CotizadorPreliminarPage() {
   );
   const [selectedScenario, setSelectedScenario] = useState<AutoScenarioId>("esencial");
   const [materialSearch, setMaterialSearch] = useState("");
-  const [pages, setPages] = useState({ cubiertas: 1, frentes: 1, herrajes: 1 });
   const [finishError, setFinishError] = useState<string | null>(null);
   const [levantamiento, setLevantamiento] = useState<LevantamientoDetalle>(() => defaultLevantamientoDetalle());
   /** Índice 0-based de la pared actual en el flujo dinámico (Sección B). */
   const [currentWallIndex, setCurrentWallIndex] = useState(0);
   /** Búsqueda en el catálogo de tipos de muro (Sección B). */
   const [wallSearch, setWallSearch] = useState("");
-  /** Pantalla inicial de cantidad de paredes: muestra 4 tarjetas y un botón «+ opciones» hasta expandir. */
-  const [showAllInitialWallOptions, setShowAllInitialWallOptions] = useState(false);
   /** Diálogo in-app al cambiar cantidad de paredes (sustituye `window.confirm`). */
   const [confirmChangeWallCountOpen, setConfirmChangeWallCountOpen] = useState(false);
   /** Un paso por electrodoméstico (orden por categoría); el último índice es «Otro». */
@@ -430,7 +422,6 @@ export default function CotizadorPreliminarPage() {
   };
 
   const applyWallSlotCount = (n: number) => {
-    setShowAllInitialWallOptions(false);
     setWallSearch("");
     setLevantamiento((prev) => {
       const wm = { ...prev.wallMeasures };
@@ -443,22 +434,60 @@ export default function CotizadorPreliminarPage() {
         const idx = Number(key.slice(5));
         if (Number.isFinite(idx) && idx >= n) delete wm[key];
       }
-      return { ...prev, wallSlotCount: n, wallMeasures: wm };
+      return {
+        ...prev,
+        wallSlotCount: n,
+        wallMeasures: wm,
+        wallMedidasModoLibre: false,
+        wallOtro: emptyOtro(),
+      };
     });
     setCurrentWallIndex(0);
   };
 
   const clearWallFlowAndSlots = () => {
-    setShowAllInitialWallOptions(false);
     setWallSearch("");
     setLevantamiento((prev) => {
       const wm = { ...prev.wallMeasures };
       for (const key of Object.keys(wm)) {
         if (isWallSlotKey(key)) delete wm[key];
       }
-      return { ...prev, wallSlotCount: 0, wallMeasures: wm };
+      return {
+        ...prev,
+        wallSlotCount: 0,
+        wallMeasures: wm,
+        wallMedidasModoLibre: false,
+        wallOtro: emptyOtro(),
+      };
     });
     setCurrentWallIndex(0);
+  };
+
+  const startWallMedidasLibre = () => {
+    setWallSearch("");
+    setLevantamiento((prev) => {
+      const wm = { ...prev.wallMeasures };
+      for (const k of Object.keys(wm)) {
+        if (isWallSlotKey(k)) delete wm[k];
+      }
+      return {
+        ...prev,
+        wallSlotCount: 0,
+        wallMeasures: wm,
+        wallMedidasModoLibre: true,
+        wallOtro: emptyOtro(),
+      };
+    });
+    setCurrentWallIndex(0);
+  };
+
+  const volverAElegirCantidadParedes = () => {
+    setWallSearch("");
+    setLevantamiento((prev) => ({
+      ...prev,
+      wallMedidasModoLibre: false,
+      wallOtro: emptyOtro(),
+    }));
   };
 
   useEffect(() => {
@@ -977,7 +1006,6 @@ export default function CotizadorPreliminarPage() {
     setSelectedHerraje(null);
     setLevantamiento(defaultLevantamientoDetalle());
     setCurrentWallIndex(0);
-    setShowAllInitialWallOptions(false);
     setWallSearch("");
     setApplianceStep(0);
     setApplianceSearch("");
@@ -1017,9 +1045,13 @@ export default function CotizadorPreliminarPage() {
     const costoCubiertas = largoValue * precioCubiertaM;
     const costoFrentes = largoValue * precioFrentesPorM * factorActivo;
     const costoHerrajes = largoValue * precioHerrajeM * factorActivo;
-    const costoIluminacion = cotizacionIluminacionTotal(levantamiento);
-    const costoAccesoriosEspeciales = cotizacionSpecialAccessoriesTotal(levantamiento);
-    const costoExtras = cotizacionExtrasTotal(levantamiento);
+    const ep = levantamientoConfig.extrasPrecios;
+    const costoIluminacion = cotizacionIluminacionTotal(levantamiento, ep.iluminacion);
+    const costoAccesoriosEspeciales = cotizacionSpecialAccessoriesTotal(
+      levantamiento,
+      ep.accesoriosEspeciales,
+    );
+    const costoExtras = cotizacionExtrasTotal(levantamiento, ep);
 
     const nuevoSubtotal = costoCubiertas + costoFrentes + costoHerrajes + costoExtras;
     const costoMateriales = costoCubiertas + costoFrentes + costoHerrajes;
@@ -1129,10 +1161,6 @@ export default function CotizadorPreliminarPage() {
     };
   }, [levantamientoConfig.materiales]);
 
-  useEffect(() => {
-    setPages({ cubiertas: 1, frentes: 1, herrajes: 1 });
-  }, [materialSearch]);
-
   const handleGeneratePdf = () => {
     const data = buildPreliminarDataFromForm();
     downloadPreliminarPdf(data, "levantamiento-detallado.pdf");
@@ -1238,12 +1266,21 @@ export default function CotizadorPreliminarPage() {
   }, [levantamiento.wallSlotCount]);
 
   const allProjectWallsComplete = useMemo(() => {
+    if (levantamiento.wallMedidasModoLibre === true) {
+      const o = levantamiento.wallOtro;
+      return o.descripcion.trim() !== "" && medidasCamposTieneValor(o);
+    }
     const n = levantamiento.wallSlotCount;
     if (!n) return false;
     return Array.from({ length: n }, (_, i) => wallSlotIsComplete(levantamiento.wallMeasures[wallSlotKey(i)])).every(
       Boolean,
     );
-  }, [levantamiento.wallSlotCount, levantamiento.wallMeasures]);
+  }, [
+    levantamiento.wallMedidasModoLibre,
+    levantamiento.wallOtro,
+    levantamiento.wallSlotCount,
+    levantamiento.wallMeasures,
+  ]);
 
   const wallCatalogItems = useMemo(() => {
     const norm = wallSearch.trim().toLowerCase();
@@ -1351,7 +1388,6 @@ export default function CotizadorPreliminarPage() {
                       <CatalogProjectTypeField
                         value={projectType}
                         onChange={(next) => {
-                          setShowAllInitialWallOptions(false);
                           setProjectType(next);
                           if (!isCocinasProjectTypeForConIsla(next)) {
                             setLevantamiento((prev) => ({
@@ -1648,16 +1684,14 @@ export default function CotizadorPreliminarPage() {
                 Sección B · Medidas de paredes
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Indica <strong className="font-semibold text-primary">cuántas paredes</strong> tiene el espacio y usa el{" "}
-                <strong className="font-semibold text-primary">croquis</strong> para elegir en cuál trabajas. Luego define
-                el tipo (recta, L, ventana, etc.) y las medidas; las{" "}
-                <strong className="font-semibold text-primary">cotas</strong> del tipo elegido coinciden con las letras del
-                formulario. En obras, «
-                <strong className="font-semibold text-primary">vano</strong>» es el{" "}
-                <strong className="font-semibold text-primary">hueco</strong> de puerta o ventana. Unidades en metros. Si
-                nada encaja en el catálogo, elige el tipo{" "}
-                <strong className="font-semibold text-primary">«Otro tipo de muro o situación especial»</strong> en esa
-                pared.
+                Indica <strong className="font-semibold text-primary">cuántas paredes</strong> tiene el espacio (hasta
+                cuatro) y usa el <strong className="font-semibold text-primary">croquis</strong> para elegir en cuál
+                trabajas. Luego define el tipo (recta, ventana, etc.) y las{" "}
+                <strong className="font-semibold text-primary">cotas</strong> del tipo elegido. Si la planta no se
+                describe bien con hasta cuatro muros del catálogo, usa{" "}
+                <strong className="font-semibold text-primary">«Otra situación de muros»</strong>: texto libre y medidas
+                de referencia en metros. En obras, «<strong className="font-semibold text-primary">vano</strong>» es el{" "}
+                <strong className="font-semibold text-primary">hueco</strong> de puerta o ventana.
               </p>
               <Link
                 href="/dashboard/referencia-tipos-pared"
@@ -1667,50 +1701,123 @@ export default function CotizadorPreliminarPage() {
               </Link>
             </div>
 
-            {!levantamiento.wallSlotCount ? (
+            {!levantamiento.wallSlotCount && !levantamiento.wallMedidasModoLibre ? (
               <div className="space-y-5">
                 <p className="text-lg font-semibold text-primary">¿Cuántas paredes tiene el proyecto?</p>
                 <p className="text-sm text-secondary">
-                  Elige un número para comenzar. Podrás cambiarlo después (se pedirá confirmación si ya había datos).
+                  Elige de 1 a 4 para el flujo por pared y croquis. Podrás cambiar después (se pedirá confirmación si ya
+                  había datos). Si no aplica, elige «Otra situación de muros».
                 </p>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                  {WALL_COUNT_OPTIONS.map((count, index) => {
-                    if (!showAllInitialWallOptions && index >= 4) {
-                      return null;
-                    }
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                  {WALL_COUNT_OPTIONS.map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => applyWallSlotCount(count)}
+                      className="group flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-3xl border border-primary/10 bg-white p-6 text-center shadow-md transition duration-300 ease-out hover:-translate-y-0.5 hover:border-[#8B1C1C]/30 hover:shadow-lg"
+                    >
+                      <div className="flex h-24 w-full max-w-[8.5rem] items-center justify-center rounded-2xl bg-primary/[0.06] text-primary transition duration-300 group-hover:bg-primary/10">
+                        <WallCountIcon count={count} className="h-11 w-11 shrink-0" />
+                      </div>
+                      <div>
+                        <span className="text-3xl font-bold tabular-nums text-[#8B1C1C]">{count}</span>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-secondary">
+                          {count === 1 ? "pared" : "paredes"}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={startWallMedidasLibre}
+                    className="flex min-h-[140px] flex-col items-center justify-center gap-1.5 rounded-3xl border border-dashed border-primary/25 bg-stone-50 p-5 text-center transition-colors hover:border-[#8B1C1C]/40 hover:bg-[#8B1C1C]/[0.04]"
+                  >
+                    <FilePenLine className="h-8 w-8 shrink-0 text-[#8B1C1C]" aria-hidden />
+                    <span className="text-sm font-bold text-primary">Otra situación de muros</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-secondary">
+                      Texto + medidas
+                    </span>
+                    <span className="mt-1 max-w-[12rem] text-[11px] leading-snug text-secondary">
+                      Más de cuatro muros, planta irregular o caso que no encaja en el flujo por pared.
+                    </span>
+                  </button>
+                </div>
+              </div>
+            ) : levantamiento.wallMedidasModoLibre ? (
+              <div className="space-y-6 rounded-3xl border border-primary/15 bg-white/90 p-6 shadow-md">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-lg font-semibold text-primary">Otra situación de muros</p>
+                    <p className="mt-2 text-sm text-secondary">
+                      Describe con claridad la configuración real (cantidad de tramos, vanos, ángulos, etc.) y registra
+                      medidas de referencia en metros. Esto sustituye el flujo por pared 1–4 para este proyecto.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={volverAElegirCantidadParedes}
+                    className="shrink-0 rounded-2xl border border-primary/15 bg-white px-4 py-2 text-xs font-semibold text-[#8B1C1C] transition hover:border-primary/30"
+                  >
+                    Volver a 1–4 paredes
+                  </button>
+                </div>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  {WALL_LIBRE_FIELD_DEFS.map((field) => {
+                    const fk = field.key as keyof LevantamientoDetalle["wallOtro"];
+                    const rawVal = levantamiento.wallOtro[fk];
+                    const value = typeof rawVal === "string" ? rawVal : "";
                     return (
-                      <button
-                        key={count}
-                        type="button"
-                        onClick={() => applyWallSlotCount(count)}
-                        className="group flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-3xl border border-primary/10 bg-white p-6 text-center shadow-md transition duration-300 ease-out hover:-translate-y-0.5 hover:border-[#8B1C1C]/30 hover:shadow-lg"
+                      <label
+                        key={field.key}
+                        className={`text-xs font-semibold uppercase tracking-[0.2em] text-secondary ${field.key === "descripcion" ? "sm:col-span-2" : ""}`}
                       >
-                        <div className="flex h-24 w-full max-w-[8.5rem] items-center justify-center rounded-2xl bg-primary/[0.06] text-primary transition duration-300 group-hover:bg-primary/10">
-                          <WallCountIcon count={count} className="h-11 w-11 shrink-0" />
-                        </div>
-                        <div>
-                          <span className="text-3xl font-bold tabular-nums text-[#8B1C1C]">{count}</span>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-secondary">
-                            {count === 1 ? "pared" : "paredes"}
-                          </p>
-                        </div>
-                      </button>
+                        {field.label}
+                        {field.verifyHint ? (
+                          <span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-secondary/80">
+                            {field.verifyHint}
+                          </span>
+                        ) : null}
+                        {field.key === "descripcion" ? (
+                          <textarea
+                            value={value}
+                            onChange={(e) => patchOtro("wallOtro", fk, e.target.value)}
+                            rows={4}
+                            className="mt-2 w-full resize-y rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm font-normal normal-case tracking-normal outline-none placeholder:text-secondary/45"
+                            placeholder="Ej. Seis tramos en L con muro cortina, dos tabiques nuevos…"
+                          />
+                        ) : (
+                          <input
+                            value={value}
+                            onChange={(e) => patchOtro("wallOtro", fk, e.target.value)}
+                            inputMode="decimal"
+                            placeholder="Metros"
+                            className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm font-normal normal-case tracking-normal outline-none"
+                          />
+                        )}
+                      </label>
                     );
                   })}
-                  {!showAllInitialWallOptions && WALL_COUNT_OPTIONS.length > 4 ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowAllInitialWallOptions(true)}
-                      className="flex min-h-[140px] flex-col items-center justify-center rounded-3xl border border-dashed border-primary/20 bg-stone-50 p-6 text-center transition-colors hover:border-primary/40 hover:bg-stone-100"
-                    >
-                      <Plus className="mb-2 h-8 w-8 text-secondary" aria-hidden />
-                      <span className="text-sm font-bold text-primary">+ 4 Opciones</span>
-                      <span className="text-[10px] font-semibold uppercase tracking-widest text-secondary">
-                        MÁS PAREDES
-                      </span>
-                    </button>
-                  ) : null}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!allProjectWallsComplete) {
+                      window.alert(
+                        "Escribe una descripción de la situación y al menos una medida de referencia (ancho, alto o fondo) en metros.",
+                      );
+                      return;
+                    }
+                    document.getElementById("seccion-electrodomesticos")?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    });
+                  }}
+                  className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-700"
+                >
+                  {allProjectWallsComplete
+                    ? "Listo — ir a la siguiente sección"
+                    : "Completa descripción y medidas para continuar"}
+                </button>
               </div>
             ) : (
               (() => {
@@ -2047,7 +2154,12 @@ export default function CotizadorPreliminarPage() {
                       <ApplianceTypeImage
                         item={currentApplianceItem}
                         alt=""
-                        className="absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
+                        className={
+                          currentApplianceItem.id === "tarja-con-escurridor" ||
+                          currentApplianceItem.id === "tarja-doble"
+                            ? "absolute inset-0 z-0 box-border h-full w-full object-cover object-right p-2"
+                            : "absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
+                        }
                       />
                       <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
                         {currentApplianceItem.categoria ?? "Electrodoméstico"}
@@ -2251,11 +2363,11 @@ export default function CotizadorPreliminarPage() {
                             Ver todos
                           </button>
                         </div>
-                        <div
-                          ref={(el) => {
+                        <HorizontalScrollStrip
+                          scrollClassName={streamScrollClass}
+                          scrollContainerRef={(el) => {
                             applianceRowRefs.current[row.key] = el;
                           }}
-                          className={streamScrollClass}
                         >
                           {row.entries.map(({ item, idx }, rank) => (
                             <div key={item.id} className="flex shrink-0 items-end gap-1">
@@ -2271,7 +2383,7 @@ export default function CotizadorPreliminarPage() {
                                   <ApplianceTypeImage
                                     item={item}
                                     alt=""
-                                    className={streamCatalogThumbImageClass}
+                                    className={applianceStreamCatalogThumbClass(item)}
                                   />
                                   <div className={streamPosterTitleOverlay}>
                                     <p className={streamPosterLabelClass}>{item.label}</p>
@@ -2280,7 +2392,7 @@ export default function CotizadorPreliminarPage() {
                               </button>
                             </div>
                           ))}
-                        </div>
+                        </HorizontalScrollStrip>
                       </div>
                     ))}
                     <div className={streamRowShell}>
@@ -2288,7 +2400,7 @@ export default function CotizadorPreliminarPage() {
                         <p className={streamRowHeading}>Otro</p>
                         <p className={streamRowHint}>No listado en catálogo</p>
                       </div>
-                      <div className={streamScrollClass}>
+                      <HorizontalScrollStrip scrollClassName={streamScrollClass}>
                         <div className="flex shrink-0 items-end gap-1">
                           <span className={`${streamRankClass} pb-2 font-semibold text-zinc-500`} aria-hidden title="Otro">
                             +
@@ -2304,7 +2416,7 @@ export default function CotizadorPreliminarPage() {
                             </div>
                           </button>
                         </div>
-                      </div>
+                      </HorizontalScrollStrip>
                     </div>
                   </div>
                 ) : applianceSearchNorm && applianceCarouselRows.length > 0 ? (
@@ -2325,11 +2437,11 @@ export default function CotizadorPreliminarPage() {
                         Ver todos
                       </button>
                     </div>
-                    <div
-                      ref={(el) => {
+                    <HorizontalScrollStrip
+                      scrollClassName={streamScrollClass}
+                      scrollContainerRef={(el) => {
                         applianceRowRefs.current.busqueda = el;
                       }}
-                      className={streamScrollClass}
                     >
                       {applianceCarouselRows[0]?.entries.map(({ item, idx }, rank) => (
                         <div key={item.id} className="flex shrink-0 items-end gap-1">
@@ -2345,7 +2457,7 @@ export default function CotizadorPreliminarPage() {
                               <ApplianceTypeImage
                                 item={item}
                                 alt=""
-                                className={streamCatalogThumbImageClass}
+                                className={applianceStreamCatalogThumbClass(item)}
                               />
                               <div className={streamPosterTitleOverlay}>
                                 <p className={streamPosterLabelClass}>{item.label}</p>
@@ -2354,7 +2466,7 @@ export default function CotizadorPreliminarPage() {
                           </button>
                         </div>
                       ))}
-                    </div>
+                    </HorizontalScrollStrip>
                   </div>
                 ) : null}
               </>
@@ -2394,8 +2506,6 @@ export default function CotizadorPreliminarPage() {
               options={materialCatalog.cubiertas}
               selectedId={selectedCubierta}
               onSelect={setSelectedCubierta}
-              page={pages.cubiertas}
-              onPageChange={(page) => setPages((prev) => ({ ...prev, cubiertas: page }))}
               category="cubiertas"
               largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
@@ -2407,8 +2517,6 @@ export default function CotizadorPreliminarPage() {
               multiSelect
               selectedIds={selectedFrenteIds}
               onToggle={toggleFrente}
-              page={pages.frentes}
-              onPageChange={(page) => setPages((prev) => ({ ...prev, frentes: page }))}
               category="frentes"
               largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
@@ -2419,8 +2527,6 @@ export default function CotizadorPreliminarPage() {
               options={materialCatalog.herrajes}
               selectedId={selectedHerraje}
               onSelect={setSelectedHerraje}
-              page={pages.herrajes}
-              onPageChange={(page) => setPages((prev) => ({ ...prev, herrajes: page }))}
               category="herrajes"
               largoLineal={metrics.largoValue}
               materialSearch={materialSearch}
@@ -2443,12 +2549,12 @@ export default function CotizadorPreliminarPage() {
           <div ref={lightingSectionRef} className="scroll-mt-6 space-y-6">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">
-                Sección E · Iluminación
+                Sección E · Extras
               </p>
               <p className="mt-2 text-sm text-secondary">
-                Pósters grandes; título sobre la imagen. Clic en el póster activa o anula (1 unidad); usa + / − para
-                varias unidades del mismo tipo. «Medidas opcionales» abre el detalle. La lista definitiva la confirma la
-                empresa.
+                Iluminación y accesorios especiales (Alexa, botelleros, etc.). Los precios unitarios los ajusta el
+                administrador en Gestor de Levantamiento. Clic en el póster activa o anula (1 unidad); usa + / − para
+                varias unidades del mismo tipo. «Medidas opcionales» abre el detalle.
               </p>
             </div>
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
@@ -2695,11 +2801,11 @@ export default function CotizadorPreliminarPage() {
                         Ver todos
                       </button>
                     </div>
-                    <div
-                      ref={(el) => {
+                    <HorizontalScrollStrip
+                      scrollClassName={streamScrollClass}
+                      scrollContainerRef={(el) => {
                         lightingRowRefs.current.busqueda = el;
                       }}
-                      className={streamScrollClass}
                     >
                       {filteredLightingItems.map((item, rank) => (
                         <div key={item.id} className="flex shrink-0 items-end gap-1">
@@ -2764,7 +2870,7 @@ export default function CotizadorPreliminarPage() {
                           </div>
                         </div>
                       ))}
-                    </div>
+                    </HorizontalScrollStrip>
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2">
@@ -2793,7 +2899,9 @@ export default function CotizadorPreliminarPage() {
                 <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
                   <div>
                     <p className={streamRowHeading}>Iluminación</p>
-                    <p className={streamRowHint}>Catálogo de referencia · + / − para varios por tipo</p>
+                    <p className={streamRowHint}>
+                      Precio unitario según configuración · + / − para varios por tipo
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -2806,11 +2914,11 @@ export default function CotizadorPreliminarPage() {
                     Ver todos
                   </button>
                 </div>
-                <div
-                  ref={(el) => {
+                <HorizontalScrollStrip
+                  scrollClassName={streamScrollClass}
+                  scrollContainerRef={(el) => {
                     lightingRowRefs.current.catalogo = el;
                   }}
-                  className={streamScrollClass}
                 >
                   {LIGHTING_ITEMS.map((item, rank) => (
                     <div key={item.id} className="flex shrink-0 items-end gap-1">
@@ -2872,6 +2980,9 @@ export default function CotizadorPreliminarPage() {
                             <Plus className="h-4 w-4" strokeWidth={2.5} />
                           </button>
                         </div>
+                        <p className="text-center text-[10px] font-medium tabular-nums text-zinc-400">
+                          {formatCurrency(levantamientoConfig.extrasPrecios.iluminacion[item.id] ?? 0)} c/u
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -2910,7 +3021,7 @@ export default function CotizadorPreliminarPage() {
                       </button>
                     </div>
                   </div>
-                </div>
+                </HorizontalScrollStrip>
               </div>
             )}
             <div className={streamRowShell}>
@@ -2918,7 +3029,7 @@ export default function CotizadorPreliminarPage() {
                 <div>
                   <p className={streamRowHeading}>Accesorios de Organización y Tecnología</p>
                   <p className={streamRowHint}>
-                    Cantidades con + / − · precios base se definirán en configuración
+                    Cantidades con + / − · precio unitario en Gestor de Levantamiento
                   </p>
                 </div>
                 <button
@@ -2932,11 +3043,11 @@ export default function CotizadorPreliminarPage() {
                   Ver todos
                 </button>
               </div>
-              <div
-                ref={(el) => {
+              <HorizontalScrollStrip
+                scrollClassName={streamScrollClass}
+                scrollContainerRef={(el) => {
                   lightingRowRefs.current.accesoriosCatalogo = el;
                 }}
-                className={streamScrollClass}
               >
                 {SPECIAL_ACCESSORIES_ITEMS.map((item, rank) => {
                   const qty = Math.max(
@@ -2984,11 +3095,17 @@ export default function CotizadorPreliminarPage() {
                             <Plus className="h-4 w-4" strokeWidth={2.5} />
                           </button>
                         </div>
+                        <p className="text-center text-[10px] font-medium tabular-nums text-zinc-400">
+                          {formatCurrency(
+                            levantamientoConfig.extrasPrecios.accesoriosEspeciales[item.id] ?? 0,
+                          )}{" "}
+                          c/u
+                        </p>
                       </div>
                     </div>
                   );
                 })}
-              </div>
+              </HorizontalScrollStrip>
             </div>
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
               Comentarios de esta sección
