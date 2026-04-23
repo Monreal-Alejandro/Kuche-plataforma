@@ -817,7 +817,7 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
     categoria: "Tarjas",
     label: "Con escurridor",
     hint: "Incluyen una superficie integrada para secar los trastes.",
-    image: "/images/electrodomesticos/tarja-con-escurridor.png",
+    image: "/images/electrodomesticos/tarja-con-escurridor.jpeg",
   },
   {
     id: "tarja-simple",
@@ -831,7 +831,7 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
     categoria: "Tarjas",
     label: "Doble",
     hint: "Permite separar tareas (lavar y enjuagar simultáneamente).",
-    image: "/images/electrodomesticos/tarja-doble.png",
+    image: "/images/electrodomesticos/tarja-doble.jpg",
   },
   {
     id: "tarja-trabajo",
@@ -880,7 +880,7 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
     categoria: "Microondas",
     label: "Con campana extractora",
     hint: "Sobre la estufa; también extraen humo y olores.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+    image: "/images/campanas/microcampanas.JPG",
   },
   {
     id: "parrilla-gas",
@@ -922,28 +922,28 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
     categoria: "Campanas",
     label: "Campana telescópica o extraíble",
     hint: "Se oculta en el mueble alto; buena opción si el espacio es limitado.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+    image: "/images/campanas/camapanas-telescopicas.jpeg",
   },
   {
     id: "campana-decorativa-pared",
     categoria: "Campanas",
     label: "Campana decorativa de pared",
     hint: "Visible como elemento de diseño sobre la parrilla.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+    image: "/images/campanas/campanas-de-pared.jpg",
   },
   {
     id: "campana-isla",
     categoria: "Campanas",
     label: "Campana de isla o colgante",
     hint: "Instalación central sobre parrilla en isla o península.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+    image: "/images/campanas/campanas-de-isla.png",
   },
   {
     id: "campana-integrada",
     categoria: "Campanas",
     label: "Campana integrada o empotrable al mueble",
     hint: "Línea limpia; el motor queda oculto tras frentes.",
-    image: APPLIANCE_CATALOGO_IMAGE_FALLBACK,
+    image: "/images/campanas/campanas-integrables.jpg",
   },
   {
     id: "otro-cafetera",
@@ -1009,7 +1009,7 @@ export const APPLIANCE_ITEMS: ItemCatalogo[] = [
 const APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
   "micro-sobremesa": "/images/electrodomesticos/microondas-libre-instalacion.JPEG",
   "micro-empotrable": "/images/electrodomesticos/microondas-empotrables.png",
-  "micro-campana": "/images/electrodomesticos/microondas-con-campana.jpg",
+  "micro-campana": "/images/campanas/microcampanas.JPG",
   "estufa-gas": "/images/electrodomesticos/estufa-gas.jpg",
   "estufa-electrica": "/images/electrodomesticos/estufa-electrica.jpg",
   "estufa-piso-material": "/images/electrodomesticos/estufa-de-piso-diseno.jpg",
@@ -1022,11 +1022,11 @@ const APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
   "tarja-empotrar-sobreponer": "/images/electrodomesticos/tarja-empotrar-sobreponer.jpeg",
   "tarja-submontar-bajo-cubierta": "/images/electrodomesticos/tarja-submontar-bajo-cubierta.jpeg",
   "tarja-farmhouse": "/images/electrodomesticos/tarja-farmhouse.jpeg",
-  "tarja-con-escurridor": "/images/electrodomesticos/tarja-con-escurridor.png",
+  "tarja-con-escurridor": "/images/electrodomesticos/tarja-con-escurridor.jpeg",
   "tarja-granito-cuarzo": "/images/electrodomesticos/tarja-granito-cuarzo.jpeg",
   "tarja-ceramica-arcilla": "/images/electrodomesticos/tarja-ceramica-arcilla.jpeg",
   "tarja-simple": "/images/electrodomesticos/tarja-sencilla.png",
-  "tarja-doble": "/images/electrodomesticos/tarja-doble.png",
+  "tarja-doble": "/images/electrodomesticos/tarja-doble.jpg",
   "tarja-trabajo": "/images/electrodomesticos/tarja-tina-grande.png",
   "tarja-acero-inoxidable": "/images/electrodomesticos/tarja-acero-inoxidable.jpeg",
   "parrilla-gas": "/images/electrodomesticos/parrilla-gas1.jpg",
@@ -1034,6 +1034,10 @@ const APPLIANCE_LEVANTAMIENTO_IMAGE_BY_ID: Record<string, string> = {
   "parrilla-electrica-vitro": "/images/electrodomesticos/parrillas-electricas.jpeg",
   "parrilla-mixta": "/images/electrodomesticos/parrilla-mixta.jpeg",
   "parrilla-domino": "/images/electrodomesticos/parrillas-domino.jpeg",
+  "campana-telescopica": "/images/campanas/camapanas-telescopicas.jpeg",
+  "campana-decorativa-pared": "/images/campanas/campanas-de-pared.jpg",
+  "campana-isla": "/images/campanas/campanas-de-isla.png",
+  "campana-integrada": "/images/campanas/campanas-integrables.jpg",
 };
 
 /** Rutas extra a probar si la principal falla (typos en nombres de archivo, variantes). */
@@ -1057,6 +1061,8 @@ const APPLIANCE_LEVANTAMIENTO_IMAGE_EXTRAS: Record<string, readonly string[]> = 
     "/images/electrodomesticos/tarja-granito-cuarzo-escurridor.jpeg",
   ],
   "tarja-ceramica-arcilla": ["/images/electrodomesticos/tarja-ceramica-arcilla-variante.jpeg"],
+  "campana-isla": ["/images/campanas/campanas-de-techo.jpg"],
+  "campana-integrada": ["/images/campanas/campanas-encimera.jpg"],
 };
 
 const ELECTRO_PUBLIC_PREFIX = "/images/electrodomesticos/";

@@ -204,10 +204,16 @@ const streamRankClass =
   "w-[0.42em] min-w-[1.25rem] shrink-0 select-none self-end pb-1 text-center text-lg font-semibold tabular-nums leading-none text-zinc-500 sm:min-w-[1.4rem] sm:text-xl";
 const streamVerTodosClass =
   "shrink-0 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 underline-offset-2 transition hover:text-zinc-100 hover:underline";
-const streamPosterClass = (selected: boolean) =>
-  `relative z-10 aspect-[2/3] w-[min(10.5rem,52vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(12.5rem,38vw)] lg:w-[min(13.5rem,32vw)] ${
-    selected ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950" : "ring-1 ring-white/10 hover:ring-white/55"
-  }`;
+/** Póster del carrusel: 2:3 por defecto. Tarjas usan 3:2 y un ancho algo menor: las fotos suelen ser horizontales, así con `object-cover` se llena el marco sin tanta caja “alta” que obligue a un zoom extremo. */
+const streamPosterClass = (selected: boolean, item?: ItemCatalogo) => {
+  const ring = selected
+    ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950"
+    : "ring-1 ring-white/10 hover:ring-white/55";
+  if (item?.categoria === "Tarjas") {
+    return `relative z-10 aspect-[3/2] w-[min(17.5rem,92vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(19.5rem,68vw)] lg:w-[min(20.5rem,56vw)] ${ring}`;
+  }
+  return `relative z-10 aspect-[2/3] w-[min(10.5rem,52vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(12.5rem,38vw)] lg:w-[min(13.5rem,32vw)] ${ring}`;
+};
 const streamPosterTitleOverlay =
   "pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent px-2 pb-2.5 pt-14";
 const streamPosterLabelClass =
@@ -217,7 +223,7 @@ const streamCatalogThumbBase = "absolute inset-0 z-0 h-full w-full object-cover"
 const streamCatalogThumbImageClass = `${streamCatalogThumbBase} object-center`;
 /** Filas de tabla anchas (texto | foto): en póster 2:3 con `cover`, el centro cae en el texto; alinear a la derecha. */
 function applianceStreamCatalogThumbClass(item: ItemCatalogo): string {
-  if (item.id === "tarja-con-escurridor" || item.id === "tarja-doble") {
+  if (item.categoria === "Tarjas" && (item.id === "tarja-con-escurridor" || item.id === "tarja-doble")) {
     return `${streamCatalogThumbBase} object-right`;
   }
   return streamCatalogThumbImageClass;
@@ -2151,15 +2157,26 @@ export default function CotizadorPreliminarPage() {
                   Volver al catálogo
                 </button>
                 {currentApplianceItem ? (
-                  <div className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
-                    <div className="relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0">
+                  <div
+                    className={
+                      currentApplianceItem.categoria === "Tarjas"
+                        ? "grid gap-6 lg:grid-cols-[minmax(0,36rem)_1fr]"
+                        : "grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]"
+                    }
+                  >
+                    <div
+                      className={
+                        currentApplianceItem.categoria === "Tarjas"
+                          ? "relative mx-auto aspect-[3/2] w-full max-w-[min(35rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-zinc-950 lg:mx-0"
+                          : "relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0"
+                      }
+                    >
                       <ApplianceTypeImage
                         item={currentApplianceItem}
                         alt=""
                         className={
-                          currentApplianceItem.id === "tarja-con-escurridor" ||
-                          currentApplianceItem.id === "tarja-doble"
-                            ? "absolute inset-0 z-0 box-border h-full w-full object-cover object-right p-2"
+                          currentApplianceItem.categoria === "Tarjas"
+                            ? "absolute inset-0 z-0 h-full w-full object-cover object-center"
                             : "absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
                         }
                       />
@@ -2381,7 +2398,7 @@ export default function CotizadorPreliminarPage() {
                                 onClick={() => openApplianceDetailByIndex(idx)}
                                 className="text-left"
                               >
-                                <div className={streamPosterClass(applianceStep === idx)}>
+                                <div className={streamPosterClass(applianceStep === idx, item)}>
                                   <ApplianceTypeImage
                                     item={item}
                                     alt=""
@@ -2455,7 +2472,7 @@ export default function CotizadorPreliminarPage() {
                             onClick={() => openApplianceDetailByIndex(idx)}
                             className="text-left"
                           >
-                            <div className={streamPosterClass(applianceStep === idx)}>
+                            <div className={streamPosterClass(applianceStep === idx, item)}>
                               <ApplianceTypeImage
                                 item={item}
                                 alt=""
