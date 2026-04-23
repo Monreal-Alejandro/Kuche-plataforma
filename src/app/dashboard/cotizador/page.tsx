@@ -59,6 +59,10 @@ const THICKNESS_FACTORS: Record<string, number> = {
   "18": 1.05,
   "19": 1.08,
 };
+/** Espesor fijo para precio por metro lineal (categoría ESPESOR retirada del cotizador formal). */
+const FORMAL_PRICE_THICKNESS_MM = "16";
+/** Categoría de catálogo que no se muestra en el cotizador formal (solo datos internos / Excel legado). */
+const COTIZADOR_HIDDEN_CATEGORY = "ESPESOR";
 
 /** Ítem del catálogo de materiales (precio por `unitType`, ej. pieza, metro lineal, m²). */
 export type CatalogoItem = {
@@ -239,6 +243,23 @@ function catalogItemUnitLabel(item: { unitType?: string }): string {
   return u || "pieza";
 }
 
+/** Texto corto y natural para mostrar la unidad en tipografía secundaria (sin competir con precio ni nombre). */
+function formatCatalogUnitForHint(unitType?: string): string {
+  const raw = catalogItemUnitLabel({ unitType });
+  const u = raw.toLowerCase();
+  if (u === "pieza" || u === "pza") return "por pieza";
+  if (u === "m²" || u === "m2" || u === "mts2" || u === "mt2") return "por m²";
+  if (u.includes("metro lineal") || u === "ml" || u === "mt lineal") return "por metro lineal";
+  if (u === "hoja") return "por hoja";
+  if (u === "placa") return "por placa";
+  if (u === "pie") return "por pie";
+  if (u === "juego") return "por juego";
+  if (u === "semana") return "por semana";
+  if (u === "mm") return "por mm";
+  if (u === "bote" || u === "bolsa" || u === "rollo" || u === "paquete") return `por ${raw}`;
+  return `por ${raw}`;
+}
+
 function normalizeStoredCatalog(
   parsed: Array<{ category?: string; items?: unknown[] }>,
 ): CatalogoCategoria[] {
@@ -277,10 +298,6 @@ function getDefaultMaterialBaseItemId(): string {
 function getDefaultColorItemId(): string {
   const cat = initialCatalogoKuche.find((c) => c.category === "VISTAS");
   return cat?.items?.[0]?.id ?? "";
-}
-function getDefaultThicknessItemId(): string {
-  const cat = initialCatalogoKuche.find((c) => c.category === "ESPESOR");
-  return cat?.items?.[0]?.id ?? "16";
 }
 
 const MATERIAL_QTY_HOLD_DELAY_MS = 300;
@@ -426,7 +443,6 @@ export default function CotizadorPage() {
   const [alto, setAlto] = useState("");
   const [materialBaseItemId, setMaterialBaseItemId] = useState(getDefaultMaterialBaseItemId);
   const [colorItemId, setColorItemId] = useState(getDefaultColorItemId);
-  const [thicknessItemId, setThicknessItemId] = useState(getDefaultThicknessItemId);
   const [activeTab, setActiveTab] = useState(initialCatalogoKuche[0]?.category ?? "");
   const [materialSearch, setMaterialSearch] = useState("");
 
@@ -484,9 +500,13 @@ export default function CotizadorPage() {
   const metrosValue = Number.parseFloat(largo) || 0;
   const estructuraItems = catalogoKuche.find((c) => c.category === "ESTRUCTURA")?.items ?? [];
   const vistasItems = catalogoKuche.find((c) => c.category === "VISTAS")?.items ?? [];
-  const espesorItems = catalogoKuche.find((c) => c.category === "ESPESOR")?.items ?? [];
 
-  const { effectiveMaterialBaseId, effectiveColorId, effectiveThicknessId } = useMemo(() => {
+  const catalogoTabs = useMemo(
+    () => catalogoKuche.filter((c) => c.category !== COTIZADOR_HIDDEN_CATEGORY),
+    [catalogoKuche],
+  );
+
+  const { effectiveMaterialBaseId, effectiveColorId } = useMemo(() => {
     const q = (id: string) => Math.max(quantities[id] ?? 0, 0);
     const fromCategory = (
       items: { id: string }[],
@@ -503,35 +523,24 @@ export default function CotizadorPage() {
     return {
       effectiveMaterialBaseId: fromCategory(estructuraItems, materialBaseItemId),
       effectiveColorId: fromCategory(vistasItems, colorItemId),
-      effectiveThicknessId: fromCategory(espesorItems, thicknessItemId),
     };
-  }, [
-    quantities,
-    estructuraItems,
-    vistasItems,
-    espesorItems,
-    materialBaseItemId,
-    colorItemId,
-    thicknessItemId,
-  ]);
+  }, [quantities, estructuraItems, vistasItems, materialBaseItemId, colorItemId]);
 
   const materialBaseItem =
     estructuraItems.find((i) => i.id === effectiveMaterialBaseId) ?? estructuraItems[0];
   const colorItem = vistasItems.find((i) => i.id === effectiveColorId) ?? vistasItems[0];
-  const thicknessItem =
-    espesorItems.find((i) => i.id === effectiveThicknessId) ?? espesorItems[0];
   const baseMaterialLabel = materialBaseItem?.label ?? "Material base";
   const colorLabel = colorItem?.label ?? "Color";
-  const thicknessMm = thicknessItem?.id ?? "16";
   const pricePerMeter = effectiveMaterialBaseId
     ? (MATERIAL_BASE_PRICE_PER_METER[effectiveMaterialBaseId] ?? DEFAULT_PRICE_PER_METER)
     : DEFAULT_PRICE_PER_METER;
-  const thicknessFactor = THICKNESS_FACTORS[effectiveThicknessId] ?? 1;
+  const thicknessFactor = THICKNESS_FACTORS[FORMAL_PRICE_THICKNESS_MM] ?? 1;
 
   const materialSubtotal = metrosValue * pricePerMeter * thicknessFactor;
 
   const baseCost = useMemo(() => {
     return catalogoKuche.reduce((acc, category) => {
+      if (category.category === COTIZADOR_HIDDEN_CATEGORY) return acc;
       const categoryTotal = category.items.reduce((itemsAcc, item) => {
         const qty = Math.max(quantities[item.id] ?? 0, 0);
         return itemsAcc + item.unitPrice * qty;
@@ -565,6 +574,7 @@ export default function CotizadorPage() {
   const collectWorkshopPdfBuildInput = useCallback((): WorkshopPdfBuildInput => {
     const lines: WorkshopPdfBuildInput["lines"] = [];
     for (const category of catalogoKuche) {
+      if (category.category === COTIZADOR_HIDDEN_CATEGORY) continue;
       for (const item of category.items) {
         const qty = quantities[item.id] ?? 0;
         if (!qty) continue;
@@ -616,7 +626,14 @@ export default function CotizadorPage() {
   }, []);
 
   const activeCategory =
-    catalogoKuche.find((category) => category.category === activeTab) ?? catalogoKuche[0];
+    catalogoTabs.find((category) => category.category === activeTab) ?? catalogoTabs[0];
+
+  useEffect(() => {
+    if (!catalogoTabs.length) return;
+    if (!catalogoTabs.some((c) => c.category === activeTab)) {
+      setActiveTab(catalogoTabs[0]!.category);
+    }
+  }, [catalogoTabs, activeTab]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -713,18 +730,13 @@ export default function CotizadorPage() {
   useEffect(() => {
     const estructura = catalogoKuche.find((c) => c.category === "ESTRUCTURA");
     const vistas = catalogoKuche.find((c) => c.category === "VISTAS");
-    const espesor = catalogoKuche.find((c) => c.category === "ESPESOR");
     const estructuraIds = new Set(estructura?.items?.map((i) => i.id) ?? []);
     const vistasIds = new Set(vistas?.items?.map((i) => i.id) ?? []);
-    const espesorIds = new Set(espesor?.items?.map((i) => i.id) ?? []);
     if (estructura?.items?.length && !estructuraIds.has(materialBaseItemId)) {
       setMaterialBaseItemId(estructura.items[0].id);
     }
     if (vistas?.items?.length && !vistasIds.has(colorItemId)) {
       setColorItemId(vistas.items[0].id);
-    }
-    if (espesor?.items?.length && !espesorIds.has(thicknessItemId)) {
-      setThicknessItemId(espesor.items[0].id);
     }
   }, [catalogoKuche]);
 
@@ -767,11 +779,12 @@ export default function CotizadorPage() {
         category: activeCategory?.category ?? "",
       }));
     }
-    return catalogoKuche.flatMap((category) =>
-      category.items
+    return catalogoKuche.flatMap((category) => {
+      if (category.category === COTIZADOR_HIDDEN_CATEGORY) return [];
+      return category.items
         .filter((item) => normalizeText(item.label).includes(normalizedSearch))
-        .map((item) => ({ item, category: category.category })),
-    );
+        .map((item) => ({ item, category: category.category }));
+    });
   }, [activeCategory, catalogoKuche, normalizedSearch]);
 
   const selectedItemsSummary = useMemo(() => {
@@ -781,8 +794,10 @@ export default function CotizadorPage() {
       qty: number;
       category: string;
       isHighlighted: boolean;
+      unitLabel: string;
     }> = [];
     catalogoKuche.forEach((cat) => {
+      if (cat.category === COTIZADOR_HIDDEN_CATEGORY) return;
       cat.items.forEach((item) => {
         const qty = quantities[item.id] ?? 0;
         if (qty > 0) {
@@ -792,6 +807,7 @@ export default function CotizadorPage() {
             qty,
             category: cat.category,
             isHighlighted: Boolean(pdfHighlightedItems[item.id]),
+            unitLabel: catalogItemUnitLabel(item),
           });
         }
       });
@@ -810,7 +826,6 @@ export default function CotizadorPage() {
     setActiveTab(initialCatalogoKuche[0]?.category ?? "");
     setMaterialBaseItemId(getDefaultMaterialBaseItemId());
     setColorItemId(getDefaultColorItemId());
-    setThicknessItemId(getDefaultThicknessItemId());
     if (typeof window !== "undefined") {
       window.localStorage.setItem(
         "kuche.catalogoKuche.v1",
@@ -820,7 +835,7 @@ export default function CotizadorPage() {
   };
 
   const downloadExcelTemplate = () => {
-    const headers = ["CATEGORIA", "DESCRIPCIÓN", "CANTIDAD", "PRECIO_UNITARIO"] as const;
+    const headers: string[] = ["CATEGORIA", "DESCRIPCIÓN", "CANTIDAD", "PRECIO_UNITARIO"];
     const worksheet = XLSX.utils.aoa_to_sheet([headers]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Plantilla");
@@ -1436,7 +1451,6 @@ export default function CotizadorPage() {
     setPdfHighlightedItems({});
     setMaterialBaseItemId(getDefaultMaterialBaseItemId());
     setColorItemId(getDefaultColorItemId());
-    setThicknessItemId(getDefaultThicknessItemId());
   };
 
   const getImageDataUrl = async (imageUrl: string) => {
@@ -1528,8 +1542,9 @@ export default function CotizadorPage() {
       unitType: string;
     };
 
-    const selectedLines = catalogoKuche.flatMap((category) =>
-      category.items
+    const selectedLines = catalogoKuche.flatMap((category) => {
+      if (category.category === COTIZADOR_HIDDEN_CATEGORY) return [];
+      return category.items
         .map((item) => {
           const qty = Math.max(quantities[item.id] ?? 0, 0);
           if (!qty) {
@@ -1544,8 +1559,8 @@ export default function CotizadorPage() {
             unitType: catalogItemUnitLabel(item),
           };
         })
-        .filter((line): line is SelectedCatalogLine => line !== null),
-    );
+        .filter((line): line is SelectedCatalogLine => line !== null);
+    });
 
     const dynamicSpecs = selectedLines
       .filter((line) => pdfHighlightedItems[line.id])
@@ -1565,15 +1580,13 @@ export default function CotizadorPage() {
     const largoValue = Number.parseFloat(largo) || 0;
     const altoValue = Number.parseFloat(alto) || 0;
     const metrosLinealesForDescription = largoValue;
-    const basePrice = Math.round(precioTotalSinIva);
     const projectPrice = Math.round(totalNeto);
     const anticipo = Math.round(projectPrice * 0.5);
     const primerDia = Math.round(projectPrice * 0.25);
     const finiquito = projectPrice - anticipo - primerDia;
-    const ivaEstimado = Math.round(montoIva);
 
     const projectDescription =
-      `Proyecto de ${formalProjectType} fabricado en ${baseMaterialLabel} (${thicknessMm}mm), ` +
+      `Proyecto de ${formalProjectType} fabricado en ${baseMaterialLabel}, ` +
       `tono ${colorLabel.toLowerCase()}, con medidas generales de ` +
       `${largoValue.toFixed(1)} m de largo y ${altoValue.toFixed(1)} m de alto, ` +
       `considerando ${metrosLinealesForDescription.toFixed(1)} m lineales. ` +
@@ -1594,7 +1607,6 @@ export default function CotizadorPage() {
         : "La cotización no incluye ningún electrodoméstico salvo que se indique por separado.",
       "Las medidas de los muebles pueden variar dependiendo de las medidas finales del espacio.",
       `Tiempo de entrega estimado: ${deliveryWeeksStr || "Por definir"}.`,
-      `Precio base sin IVA: ${formatCurrency(basePrice)}. IVA estimado: ${formatCurrency(ivaEstimado)}.`,
       "Vigencia de la cotización: 15 días naturales.",
     ];
 
@@ -1656,8 +1668,6 @@ export default function CotizadorPage() {
       body: [
         ["CLIENTE", client || "Pendiente de definir"],
         ["DIRECCIÓN", location || "Pendiente de definir"],
-        ["FECHA", dateLabel],
-        ["TIPO DE PROYECTO", formalProjectType],
         ["TIEMPO DE ENTREGA (SEMANAS APROX.)", deliveryWeeksStr || "Por definir"],
       ],
       theme: "grid",
@@ -1678,10 +1688,17 @@ export default function CotizadorPage() {
     const baseInfoY = getTableFinalY() + 18;
     drawSectionTitle("APARTADO Y DESCRIPCIÓN", baseInfoY);
 
+    /** Separación moderada entre Subtotal, IVA y total (misma celda, sin filas extra). */
+    const precioDesgloseEnCelda = [
+      `Subtotal  ${formatCurrency(precioTotalSinIva)}`,
+      `IVA (16%)  ${formatCurrency(montoIva)}`,
+      `Total  ${formatCurrency(totalNeto)}`,
+    ].join("\n\n");
+
     autoTable(doc, {
       startY: baseInfoY + 8,
       head: [["APARTADO", "DESCRIPCIÓN", "PRECIO"]],
-      body: [["C-1", projectDescription, formatCurrency(projectPrice)]],
+      body: [["C-1", projectDescription, precioDesgloseEnCelda]],
       theme: "grid",
       styles: {
         fontSize: 9,
@@ -1689,12 +1706,19 @@ export default function CotizadorPage() {
         lineColor: lightBorder,
         lineWidth: 0.5,
         cellPadding: 6,
+        valign: "top",
+        overflow: "linebreak",
       },
       headStyles: { fillColor: softFill, textColor: darkColor, fontStyle: "bold" },
       columnStyles: {
         0: { cellWidth: 76, halign: "center", fontStyle: "bold" },
-        1: { cellWidth: contentWidth - 214 },
-        2: { cellWidth: 138, halign: "right", fontStyle: "bold" },
+        1: { cellWidth: contentWidth - 216 },
+        2: {
+          cellWidth: 140,
+          halign: "center",
+          fontStyle: "bold",
+          cellPadding: { top: 10, right: 12, bottom: 10, left: 12 },
+        },
       },
       margin: { left: marginX, right: marginX },
     });
@@ -2247,7 +2271,7 @@ export default function CotizadorPage() {
         {!isExcelViewActive && (
           <>
         <div className="flex flex-wrap gap-3">
-          {catalogoKuche.map((category) => (
+          {catalogoTabs.map((category) => (
             <button
               key={category.category}
               onClick={() => {
@@ -2311,8 +2335,9 @@ export default function CotizadorPage() {
                       {normalizedSearch ? (
                         <p className="text-[10px] text-secondary">{category}</p>
                       ) : null}
-                      <p className="text-[10px] text-secondary">
-                        {formatCurrency(item.unitPrice)}/{catalogItemUnitLabel(item)}
+                      <p className="text-[10px] leading-snug text-stone-500">
+                        <span className="font-medium text-stone-600">{formatCurrency(item.unitPrice)}</span>
+                        <span className="font-normal text-stone-400"> {formatCatalogUnitForHint(item.unitType)}</span>
                       </p>
                     </div>
                     <div className="flex shrink-0 items-start gap-1">
@@ -2397,7 +2422,7 @@ export default function CotizadorPage() {
             <button
               type="button"
               onClick={() => {
-                setNewItemCategory(activeCategory?.category ?? catalogoKuche[0]?.category ?? "");
+                setNewItemCategory(activeCategory?.category ?? catalogoTabs[0]?.category ?? "");
                 setNewItemName("");
                 setNewItemPrice("");
                 setNewItemUnitType("pieza");
@@ -2537,19 +2562,26 @@ export default function CotizadorPage() {
                       {items.map((item) => (
                         <div
                           key={item.id}
-                          className={`flex items-center gap-2 rounded-xl border bg-white px-3 py-1.5 shadow-sm transition-colors ${
+                          className={`flex max-w-[min(100%,280px)] items-start gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm transition-colors ${
                             item.isHighlighted ? "border-guinda/40" : "border-stone-200"
                           }`}
                         >
-                          <span className="flex h-6 min-w-[24px] items-center justify-center rounded-full bg-stone-100 text-[11px] font-bold text-stone-700">
+                          <span className="flex h-6 min-w-[24px] shrink-0 items-center justify-center rounded-full bg-stone-100 text-[11px] font-bold text-stone-700">
                             {item.qty}
                           </span>
-                          <span className="flex items-center gap-1.5 text-[12px] font-semibold text-gray-800">
-                            {item.label}
-                            {item.isHighlighted ? (
-                              <Star className="h-3 w-3 fill-guinda text-guinda" aria-hidden />
-                            ) : null}
-                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-[12px] font-semibold leading-snug text-gray-800">
+                                {item.label}
+                              </span>
+                              {item.isHighlighted ? (
+                                <Star className="h-3 w-3 shrink-0 fill-guinda text-guinda" aria-hidden />
+                              ) : null}
+                            </div>
+                            <p className="mt-0.5 text-[9px] font-normal leading-snug tracking-wide text-stone-400">
+                              {formatCatalogUnitForHint(item.unitLabel)}
+                            </p>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2720,7 +2752,7 @@ export default function CotizadorPage() {
                   onChange={(event) => setNewItemCategory(event.target.value)}
                   className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
                 >
-                  {catalogoKuche.map((category) => (
+                  {catalogoTabs.map((category) => (
                     <option key={category.category} value={category.category}>
                       {category.category}
                     </option>
@@ -2748,13 +2780,16 @@ export default function CotizadorPage() {
                 />
               </label>
               <label className="text-xs font-semibold text-secondary">
-                Tipo de unidad
+                Unidad de medida
+                <span className="mt-0.5 block text-[10px] font-normal text-stone-400">
+                  Texto breve; en listados se muestra de forma discreta (p. ej. «por pieza»).
+                </span>
                 <input
                   value={newItemUnitType}
                   onChange={(event) => setNewItemUnitType(event.target.value)}
                   list="catalogo-unit-type-suggestions"
                   placeholder="Ej. pieza, metro lineal, m²"
-                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none"
+                  className="mt-2 w-full rounded-2xl border border-primary/10 bg-white px-4 py-2.5 text-sm outline-none"
                 />
                 <datalist id="catalogo-unit-type-suggestions">
                   {CATALOGO_UNIT_TYPE_SUGGESTIONS.map((opt) => (
@@ -2882,7 +2917,7 @@ export default function CotizadorPage() {
         <p className="text-xs uppercase tracking-[0.25em] text-secondary">Total Neto</p>
         <p className="mt-2 text-2xl font-semibold text-accent">{formatCurrency(totalNeto)}</p>
         <p className="mt-2 text-[11px] text-secondary">
-          {metrosValue} m lineales · {baseMaterialLabel} · {colorLabel} · {thicknessMm} mm
+          {metrosValue} m lineales · {baseMaterialLabel} · {colorLabel}
         </p>
       </div>
     </div>

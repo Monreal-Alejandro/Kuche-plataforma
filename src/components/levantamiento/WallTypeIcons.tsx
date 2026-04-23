@@ -148,7 +148,7 @@ function WallTypeCotasGroup({ wallId }: { wallId: string }) {
         const d = defs[i];
         if (!d) return null;
         const n = nudgeInteriorCota(i, wallId, seg.x1, seg.y1, seg.x2, seg.y2);
-        const letter = wallMeasureLetter(i);
+        const code = d.acronimo ?? wallMeasureLetter(i);
         return (
           <Cota
             key={d.key}
@@ -156,10 +156,10 @@ function WallTypeCotasGroup({ wallId }: { wallId: string }) {
             y1={n.y1}
             x2={n.x2}
             y2={n.y2}
-            label={letter}
+            label={code}
             labelDx={seg.labelDx}
             labelDy={seg.labelDy}
-            title={`${letter}: ${d.label} (m). ${d.verifyHint ?? ""}`}
+            title={`${code}: ${d.label} (m). ${d.verifyHint ?? ""}`}
           />
         );
       })}

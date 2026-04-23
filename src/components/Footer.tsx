@@ -45,8 +45,8 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/acabados" className="transition hover:text-accent">
-                  Acabados
+                <Link href="/aliados" className="transition hover:text-accent">
+                  Aliados
                 </Link>
               </li>
               <li>

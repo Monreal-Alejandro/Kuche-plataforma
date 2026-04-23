@@ -111,7 +111,7 @@ export default function WallMeasureDiagramOverlay({ wallId }: Props) {
             y2={s.y2}
             labelDx={s.labelDx}
             labelDy={s.labelDy}
-            letter={wallMeasureLetter(i)}
+            letter={d.acronimo ?? wallMeasureLetter(i)}
             label={d.label}
             hint={d.verifyHint}
           />

@@ -262,7 +262,7 @@ function ensureSpace(doc: jsPDF, y: number, needed: number, onNewPage: () => voi
 
 function wallRowsForTable(wallId: string, measures: Record<string, string>): Array<[string, string, string]> {
   const defs = getWallMeasureFieldDefs(wallId);
-  return defs.map((d, i) => [wallMeasureLetter(i), d.label, safeText(measures[d.key], "-")]);
+  return defs.map((d, i) => [d.acronimo ?? wallMeasureLetter(i), d.label, safeText(measures[d.key], "-")]);
 }
 
 function commentsLabelForKey(key: string): string {

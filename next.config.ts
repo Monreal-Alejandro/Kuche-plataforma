@@ -19,6 +19,8 @@ const nextConfig: NextConfig = {
     },
   },
   images: {
+    /** Sustituciones con el mismo nombre en `public/images` se reflejan mejor (menos caché agresivo del optimizador). */
+    minimumCacheTTL: 0,
     localPatterns: [{ pathname: "/images/**" }],
     remotePatterns: [
       {

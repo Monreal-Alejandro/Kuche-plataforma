@@ -99,6 +99,7 @@ export default function ProjectCard({
               src={images[index]}
               alt={title}
               fill
+              unoptimized
               className="object-cover"
               sizes="(min-width: 768px) 320px, 90vw"
             />

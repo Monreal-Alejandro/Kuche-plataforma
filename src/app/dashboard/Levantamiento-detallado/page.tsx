@@ -2009,7 +2009,9 @@ export default function CotizadorPreliminarPage() {
                                     }`}
                                   >
                                     <span className="mb-0.5 block normal-case tracking-normal">
-                                      <span className="font-bold text-primary">{wallMeasureLetter(fi)}</span>
+                                      <span className="font-bold text-primary">
+                                        {field.acronimo ?? wallMeasureLetter(fi)}
+                                      </span>
                                       <span> · {field.label}</span>
                                       {item.id === "pared-otro" && field.key === "descripcion" ? null : (
                                         <span className="font-normal text-secondary/80"> (m)</span>

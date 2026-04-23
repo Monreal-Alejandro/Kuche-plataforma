@@ -32,6 +32,7 @@ export default function History() {
               src="/images/cocina3.jpg"
               alt="Espacio de cocina contemporánea"
               fill
+              unoptimized
               className="object-cover"
               sizes="(min-width: 768px) 50vw, 90vw"
             />

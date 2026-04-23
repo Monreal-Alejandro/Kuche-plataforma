@@ -100,6 +100,11 @@ export type WallMeasureFieldDef = {
   key: string;
   label: string;
   /**
+   * Acrónimo de cota (estilo arquitectónico: L, H, A, AP, AV, HV, hV, HP…).
+   * En UI y diagramas, si falta se usa letra secuencial `wallMeasureLetter(índice)`.
+   */
+  acronimo?: string;
+  /**
    * Dónde cae la medida en el dibujo y términos en palabras simples (validar que A,B… tienen sentido).
    * No va al PDF salvo lo que ya dice `label`.
    */
@@ -116,11 +121,13 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "largo-corrido",
       label: "Largo corrido del muro",
+      acronimo: "L",
       verifyHint: "Cota A: borde inferior del muro en alzado, de extremo a extremo.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
+      acronimo: "H",
       verifyHint: "Cota B: vertical en el borde izquierdo, de piso a techo.",
     },
   ],
@@ -128,31 +135,37 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "largo-muro",
       label: "Largo total del muro",
+      acronimo: "L",
       verifyHint: "Cota A: ancho total del muro en la línea inferior.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
+      acronimo: "H",
       verifyHint: "Cota B: altura total del muro (piso a techo).",
     },
     {
       key: "ancho-vano",
       label: "Ancho del hueco de la ventana",
+      acronimo: "AV",
       verifyHint: "Cota C: ancho del vano (jamba a jamba).",
     },
     {
       key: "alto-vano",
       label: "Alto del hueco de la ventana",
+      acronimo: "HV",
       verifyHint: "Cota D: alto del vano.",
     },
     {
       key: "antepecho",
       label: "Antepecho (piso - parte baja del hueco)",
+      acronimo: "hV",
       verifyHint: "Cota E: desde piso hasta inicio inferior del hueco.",
     },
     {
       key: "dist-inicio-vano",
       label: "Distancia desde inicio del muro hasta el hueco",
+      acronimo: "A",
       verifyHint: "Cota F: desde el extremo de referencia hasta el inicio del vano.",
     },
   ],
@@ -160,26 +173,31 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "largo-muro",
       label: "Largo total del muro",
+      acronimo: "L",
       verifyHint: "Cota A: ancho total del muro.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
+      acronimo: "H",
       verifyHint: "Cota B: altura total del muro (piso a techo).",
     },
     {
       key: "ancho-vano",
       label: "Ancho del hueco de la puerta",
+      acronimo: "AP",
       verifyHint: "Cota C: ancho del vano de la puerta.",
     },
     {
       key: "alto-vano",
       label: "Alto del hueco de la puerta",
+      acronimo: "HP",
       verifyHint: "Cota D: alto del vano.",
     },
     {
       key: "dist-marco-referencia",
       label: "Distancia desde inicio del muro hasta el hueco",
+      acronimo: "A",
       verifyHint: "Cota E: desde el extremo de referencia hasta el inicio del vano.",
     },
   ],
@@ -187,41 +205,49 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "largo-muro",
       label: "Largo total del muro",
+      acronimo: "L",
       verifyHint: "Cota A: ancho total del muro.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
+      acronimo: "H",
       verifyHint: "Cota B: altura total del muro.",
     },
     {
       key: "ancho-ventana-1",
       label: "Ancho ventana 1",
+      acronimo: "AV1",
       verifyHint: "Cota C: ancho del vano de la primera ventana.",
     },
     {
       key: "ancho-ventana-2",
       label: "Ancho ventana 2",
+      acronimo: "AV2",
       verifyHint: "Cota D: ancho del vano de la segunda ventana.",
     },
     {
       key: "alto-vano",
       label: "Alto del hueco (ventanas)",
+      acronimo: "HV",
       verifyHint: "Cota E: alto común de los vanos (si aplica).",
     },
     {
       key: "antepecho",
       label: "Antepecho (piso - parte baja del hueco)",
+      acronimo: "hV",
       verifyHint: "Cota F: antepecho hasta el inicio del vano.",
     },
     {
       key: "dist-extremo-ventana-1",
       label: "Distancia desde extremo del muro al inicio de ventana 1",
+      acronimo: "A",
       verifyHint: "Cota G: alineación desde el extremo al primer vano.",
     },
     {
       key: "dist-entre-ventanas",
       label: "Distancia entre ventana 1 y ventana 2",
+      acronimo: "d",
       verifyHint: "Cota H: tramo libre entre vanos (eje a eje o jamba según tu criterio).",
     },
   ],
@@ -229,36 +255,43 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "largo-muro",
       label: "Largo total del muro",
+      acronimo: "L",
       verifyHint: "Cota A: ancho total del muro.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
+      acronimo: "H",
       verifyHint: "Cota B: altura total del muro.",
     },
     {
       key: "ancho-vano-puerta",
       label: "Ancho del hueco de la puerta",
+      acronimo: "AP",
       verifyHint: "Cota C: ancho del vano de la puerta.",
     },
     {
       key: "ancho-vano-ventana",
       label: "Ancho del hueco de la ventana",
+      acronimo: "AV",
       verifyHint: "Cota D: ancho del vano de la ventana.",
     },
     {
       key: "alto-vano-puerta",
       label: "Alto del hueco de la puerta",
+      acronimo: "HP",
       verifyHint: "Cota E: alto del vano de la puerta.",
     },
     {
       key: "alto-vano-ventana",
       label: "Alto del hueco de la ventana",
+      acronimo: "HV",
       verifyHint: "Cota F: alto del vano de la ventana.",
     },
     {
       key: "dist-extremo-a-puerta",
       label: "Distancia desde extremo del muro al inicio de la puerta",
+      acronimo: "A",
       verifyHint: "Cota G: desde el extremo de referencia al vano de la puerta.",
     },
   ],
@@ -266,41 +299,49 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "largo-muro",
       label: "Largo total del muro",
+      acronimo: "L",
       verifyHint: "Cota A: ancho total del muro.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
+      acronimo: "H",
       verifyHint: "Cota B: altura total del muro.",
     },
     {
       key: "ancho-vano-puerta",
       label: "Ancho del hueco de la puerta",
+      acronimo: "AP",
       verifyHint: "Cota C: ancho del vano de la puerta.",
     },
     {
       key: "ancho-ventana-1",
       label: "Ancho ventana 1",
+      acronimo: "AV1",
       verifyHint: "Cota D: ancho del primer vano de ventana.",
     },
     {
       key: "ancho-ventana-2",
       label: "Ancho ventana 2",
+      acronimo: "AV2",
       verifyHint: "Cota E: ancho del segundo vano de ventana.",
     },
     {
       key: "alto-vano-puerta",
       label: "Alto del hueco de la puerta",
+      acronimo: "HP",
       verifyHint: "Cota F: alto del vano de la puerta.",
     },
     {
       key: "alto-vano-ventana",
       label: "Alto del hueco de las ventanas",
+      acronimo: "HV",
       verifyHint: "Cota G: alto común de los vanos de ventana (si aplica).",
     },
     {
       key: "dist-extremo-a-puerta",
       label: "Distancia desde extremo del muro al inicio de la puerta",
+      acronimo: "A",
       verifyHint: "Cota H: desde el extremo al vano de la puerta.",
     },
   ],
@@ -308,31 +349,37 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "largo-muro",
       label: "Largo total del muro",
+      acronimo: "L",
       verifyHint: "Cota A: ancho total del muro.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
+      acronimo: "H",
       verifyHint: "Cota B: altura total del muro.",
     },
     {
       key: "ancho-puerta-1",
       label: "Ancho puerta 1",
+      acronimo: "AP1",
       verifyHint: "Cota C: ancho del vano de la primera puerta.",
     },
     {
       key: "ancho-puerta-2",
       label: "Ancho puerta 2",
+      acronimo: "AP2",
       verifyHint: "Cota D: ancho del vano de la segunda puerta.",
     },
     {
       key: "alto-vano",
       label: "Alto del hueco (puertas)",
+      acronimo: "HP",
       verifyHint: "Cota E: alto común de los vanos.",
     },
     {
       key: "dist-extremo-a-puerta-1",
       label: "Distancia desde extremo del muro al inicio de puerta 1",
+      acronimo: "A",
       verifyHint: "Cota F: desde el extremo al primer vano.",
     },
   ],
@@ -346,16 +393,19 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
     {
       key: "ancho",
       label: "Ancho",
+      acronimo: "An",
       verifyHint: "Referencia en planta o ancho útil (metros).",
     },
     {
       key: "alto",
       label: "Alto",
+      acronimo: "Al",
       verifyHint: "Referencia vertical o altura (metros).",
     },
     {
       key: "fondo",
       label: "Fondo / espesor",
+      acronimo: "F",
       verifyHint: "Profundidad o espesor del muro si aplica (metros).",
     },
   ],
@@ -381,7 +431,10 @@ export function getWallMeasureFieldDefs(wallId: string): WallMeasureFieldDef[] {
   return WALL_MEASURE_SCHEMA[wallId] ?? [];
 }
 
-/** Letra de referencia en diagrama (A, B, C…) alineada al orden del formulario. */
+/**
+ * Letra secuencial (A, B, C…) si un campo no define `acronimo` en el catálogo.
+ * Preferir mostrar `def.acronimo ?? wallMeasureLetter(índice)`.
+ */
 export function wallMeasureLetter(index: number): string {
   const i = ((index % 26) + 26) % 26;
   return String.fromCharCode(65 + i);
