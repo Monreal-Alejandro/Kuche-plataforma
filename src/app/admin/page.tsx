@@ -1,8 +1,17 @@
- "use client";
+"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, CalendarX, LayoutDashboard, Palette, Tags, CheckCircle2, XCircle } from "lucide-react";
+import {
+  ArrowUpRight,
+  Calendar,
+  CalendarX,
+  CheckCircle2,
+  LayoutDashboard,
+  Palette,
+  Tags,
+  XCircle,
+} from "lucide-react";
 
 type TaskLike = {
   status?: string;
@@ -23,15 +32,22 @@ type AppointmentLike = {
 };
 
 const safeParseArray = <T,>(value: string | null): T[] => {
-  if (!value) {
-    return [];
-  }
+  if (!value) return [];
   try {
     const parsed = JSON.parse(value);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
+};
+
+const getFirstStorageArray = <T,>(keys: string[]): T[] => {
+  if (typeof window === "undefined") return [];
+  for (const key of keys) {
+    const parsed = safeParseArray<T>(window.localStorage.getItem(key));
+    if (parsed.length > 0) return parsed;
+  }
+  return [];
 };
 
 const formatDateLabel = (date: Date) => {
@@ -46,13 +62,16 @@ const formatDateLabel = (date: Date) => {
 
 const getGreeting = (date: Date) => {
   const hour = date.getHours();
-  if (hour < 12) {
-    return "Buenos días";
-  }
-  if (hour < 19) {
-    return "Buenas tardes";
-  }
+  if (hour < 12) return "Buenos días";
+  if (hour < 19) return "Buenas tardes";
   return "Buenas noches";
+};
+
+type AttentionRow = {
+  id: string;
+  label: string;
+  href: string;
+  status: "Pendiente" | "En revisión";
 };
 
 export default function AdminPage() {
@@ -63,23 +82,52 @@ export default function AdminPage() {
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    const storedTasks = window.localStorage.getItem("kuche_kanban_tasks");
-    const storedKanbanTasks = window.localStorage.getItem("kuche-kanban-tasks");
-    const storedAppointments = window.localStorage.getItem("kuche_agenda_events");
-    const storedCatalog = window.localStorage.getItem("kuche_catalogo_precios");
+    const loadDashboardStorage = () => {
+      // Operaciones y seguimiento (nuevo + legado)
+      const kanbanRows = getFirstStorageArray<TaskLike>([
+        "kuche-kanban-tasks",
+        "kuche_kanban_tasks",
+      ]);
+      // Agenda de admin (nuevo + legado booking público)
+      const agendaRows = getFirstStorageArray<AppointmentLike>([
+        "kuche_agenda_events",
+        "kuche_appointments",
+      ]);
+      // Catálogo de precios (nuevo + legado)
+      const catalogRows = getFirstStorageArray<unknown>([
+        "kuche.catalogo.precios.v1",
+        "kuche_catalogo_precios",
+        "kuche.catalogoKuche.v1",
+      ]);
 
-    setTasks(safeParseArray<TaskLike>(storedTasks));
-    setKanbanTasks(safeParseArray<TaskLike>(storedKanbanTasks));
-    setAppointments(safeParseArray<AppointmentLike>(storedAppointments));
-    setCatalogItems(safeParseArray<unknown>(storedCatalog));
+      // `tasks` y `kanbanTasks` se alimentan del mismo origen de board
+      setTasks(kanbanRows);
+      setKanbanTasks(kanbanRows);
+      setAppointments(agendaRows);
+      setCatalogItems(catalogRows);
+    };
+
+    loadDashboardStorage();
     setIsHydrated(true);
+
+    // Mantiene el dashboard en sync si cambian módulos/ventanas.
+    const onStorage = () => loadDashboardStorage();
+    const onFocus = () => loadDashboardStorage();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
 
   const activeTasks = useMemo(
     () =>
       tasks.filter((task) => {
-        const status = task.status ?? task.column ?? "";
-        return status !== "Completado";
+        const rawStatus = task.status ?? task.column ?? "";
+        const status = String(rawStatus).trim().toLowerCase();
+        // Compatibilidad: datos nuevos (`completada`) y legados (`completado`)
+        return status !== "completada" && status !== "completado";
       }).length,
     [tasks],
   );
@@ -113,6 +161,14 @@ export default function AdminPage() {
     () => kanbanTasks.filter((task) => task.followUpStatus === "descartado").length,
     [kanbanTasks],
   );
+  const clientsInProcess = useMemo(
+    () =>
+      kanbanTasks.filter((task) => {
+        const status = (task.followUpStatus ?? "").toLowerCase();
+        return status !== "confirmado" && status !== "descartado";
+      }).length,
+    [kanbanTasks],
+  );
 
   const today = useMemo(() => new Date(), []);
   const todayKey = useMemo(() => today.toISOString().slice(0, 10), [today]);
@@ -130,13 +186,14 @@ export default function AdminPage() {
     [appointments, todayKey],
   );
 
-  const attentionItems = useMemo(() => {
+  const attentionItems = useMemo((): AttentionRow[] => {
     const pendingAgenda = appointments
       .filter((appointment) => appointment.status === "Pendiente" || !appointment.assignedTo)
       .map((appointment) => ({
         id: `agenda-${appointment.client ?? "sin-cliente"}-${appointment.time ?? ""}`,
-        label: `🚨 Cita sin asignar: ${appointment.client ?? "Cliente sin nombre"}`,
+        label: `Cita sin asignar: ${appointment.client ?? "Cliente sin nombre"}`,
         href: "/admin/agenda",
+        status: "Pendiente" as const,
       }));
 
     const reviewDesigns = tasks
@@ -146,168 +203,216 @@ export default function AdminPage() {
       })
       .map((task) => ({
         id: `design-${task.title ?? "sin-titulo"}`,
-        label: `🎨 Diseño listo para aprobar: ${task.title ?? "Proyecto sin título"}`,
+        label: `Diseño listo para aprobar: ${task.title ?? "Proyecto sin título"}`,
         href: "/admin/disenos",
+        status: "En revisión" as const,
       }));
 
     return [...pendingAgenda, ...reviewDesigns];
   }, [appointments, tasks]);
 
+  const agendaRows = todayAppointments;
+  const attentionRows = attentionItems;
+
   const cards = [
     {
-      title: "Tareas activas",
+      title: "Tareas del tablero",
       value: isHydrated ? activeTasks.toString() : "—",
       href: "/admin/operaciones",
       icon: LayoutDashboard,
-      accent: "bg-slate-100 text-slate-600",
+      accent: "bg-stone-100 text-stone-700",
     },
     {
       title: "Diseños por aprobar",
       value: isHydrated ? designsPending.toString() : "—",
       href: "/admin/disenos",
       icon: Palette,
-      accent: "bg-purple-100 text-purple-700",
+      accent: "bg-violet-100 text-violet-700",
     },
     {
-      title: "Citas pendientes de asignar",
+      title: "Citas pendientes",
       value: isHydrated ? pendingAppointments.toString() : "—",
       href: "/admin/agenda",
       icon: Calendar,
-      accent: "bg-rose-100 text-rose-700",
+      accent: "bg-[#8B1C1C]/10 text-[#8B1C1C]",
       attention: pendingAppointments > 0,
     },
     {
-      title: "Total de materiales",
-      value: isHydrated ? totalMaterials.toString() : "—",
-      href: "/admin/precios",
+      title: "En proceso",
+      value: isHydrated ? clientsInProcess.toString() : "—",
+      href: "/admin/operaciones",
       icon: Tags,
-      accent: "bg-amber-100 text-amber-700",
+      accent: "bg-[#8B1C1C]/10 text-[#8B1C1C]",
     },
     {
-      title: "Clientes confirmados",
+      title: "Confirmados",
       value: isHydrated ? confirmedClients.toString() : "—",
       href: "/admin/clientes-confirmados",
       icon: CheckCircle2,
-      accent: "bg-emerald-100 text-emerald-700",
+      accent: "bg-green-100 text-green-700",
     },
     {
-      title: "Proyectos inactivos",
+      title: "Inactivos",
       value: isHydrated ? discardedClients.toString() : "—",
       href: "/admin/clientes-descartados",
       icon: XCircle,
-      accent: "bg-gray-200 text-gray-600",
+      accent: "bg-stone-200 text-stone-700",
     },
   ];
 
+  /* Métricas analíticas (solo lectura; mismos datos que cards / appointments) */
+  const totalClientesEmbudo = confirmedClients + discardedClients;
+  const conversionPorcentaje =
+    isHydrated && totalClientesEmbudo > 0
+      ? Math.round((confirmedClients / totalClientesEmbudo) * 1000) / 10
+      : 0;
+  const conversionBarPct = Math.min(100, Math.max(0, conversionPorcentaje));
+
+  const citasHoyCount = todayAppointments.length;
+  const totalCitasSistema = appointments.length;
+  const citaHoySobreAgendaPct =
+    isHydrated && totalCitasSistema > 0
+      ? Math.min(100, Math.round((citasHoyCount / totalCitasSistema) * 1000) / 10)
+      : 0;
+  const citaPendienteSobreAgendaPct =
+    isHydrated && totalCitasSistema > 0
+      ? Math.min(100, Math.round((pendingAppointments / totalCitasSistema) * 1000) / 10)
+      : 0;
+  const barHoyAncho = Math.min(100, Math.max(0, citaHoySobreAgendaPct));
+  const barPendienteAncho = Math.min(100, Math.max(0, citaPendienteSobreAgendaPct));
+
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold text-gray-900">
-            {greeting}, Admin
-          </h1>
-          <p className="mt-2 text-sm text-gray-500">{dateLabel}</p>
-        </div>
+    <main className="min-h-screen bg-[#F8F1EE]">
+      <div className="bg-gradient-to-r from-[#8B1C1C] to-[#6A1515] px-8 pb-32 pt-10 text-white">
+        <h1 className="text-3xl font-semibold">{greeting}, Admin</h1>
+        <p className="mt-1 text-sm tracking-wide text-white/80">{dateLabel}</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="-mt-20 mb-12 grid grid-cols-1 gap-6 px-8 md:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => {
           const Icon = card.icon;
+          const parsedValue = Number.parseFloat(card.value);
+          const numericValue = Number.isFinite(parsedValue) ? parsedValue : 0;
+          const barWidth = isHydrated
+            ? card.title === "Confirmados"
+              ? conversionBarPct
+              : card.title === "Citas pendientes"
+                ? barPendienteAncho
+                : card.title === "Inactivos"
+                  ? Math.min(100, Math.max(8, 100 - conversionBarPct))
+                  : Math.min(100, Math.max(12, numericValue * 10))
+            : 0;
+
           return (
             <Link
               key={card.title}
               href={card.href}
-              className={`relative rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md transition-all hover:scale-[1.02] hover:shadow-xl ${
-                card.attention ? "ring-1 ring-rose-200" : ""
-              }`}
+              className="rounded-2xl border border-stone-100 bg-white p-6 shadow-[0_8px_30px_rgba(139,28,28,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_10px_34px_rgba(139,28,28,0.1)]"
             >
-              {card.attention ? (
-                <span className="absolute right-4 top-4 flex h-3 w-3">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
-                  <span className="relative inline-flex h-3 w-3 rounded-full bg-rose-500" />
-                </span>
-              ) : null}
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-500">{card.title}</p>
-                  <p className="mt-4 text-4xl font-bold text-gray-900">{card.value}</p>
-                </div>
-                <span className={`rounded-2xl p-2 ${card.accent}`}>
-                  <Icon className="h-5 w-5" />
-                </span>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-stone-500">{card.title}</p>
+                <Icon className="h-4 w-4 text-[#8B1C1C]/60" />
+              </div>
+              <p className="mt-3 text-4xl font-bold text-stone-900">{card.value}</p>
+              <div className="mt-4 h-1.5 w-full rounded-full bg-stone-100">
+                <div
+                  className="h-full rounded-full bg-[#8B1C1C] transition-[width] duration-500"
+                  style={{ width: isHydrated ? `${barWidth}%` : "0%" }}
+                />
               </div>
             </Link>
           );
         })}
-      </div>
+      </section>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Logística</p>
-          <h3 className="mt-2 text-xl font-semibold text-gray-900">Agenda de Hoy</h3>
-          {todayAppointments.length > 0 ? (
-            <div className="mt-6 space-y-4">
-              {todayAppointments.map((appointment) => {
-                const dotClass = typeDotStyles[appointment.type ?? ""] ?? "bg-gray-300";
+      <section className="grid grid-cols-1 gap-8 px-8 pb-10 lg:grid-cols-12">
+        <article className="lg:col-span-8 rounded-3xl border border-stone-100 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-end justify-between">
+            <h2 className="text-xl font-bold text-[#8B1C1C]">Agenda de Hoy</h2>
+            <p className="text-xs text-stone-500">
+              {isHydrated ? `${agendaRows.length} cita(s)` : "Cargando..."}
+            </p>
+          </div>
+
+          {agendaRows.length > 0 ? (
+            <div className="divide-y divide-stone-50">
+              <div className="grid grid-cols-[90px_1.2fr_1fr_1fr] gap-4 border-b border-stone-100 pb-2 text-xs font-semibold uppercase tracking-wider text-stone-500">
+                <p>Hora</p>
+                <p>Cliente</p>
+                <p>Tipo</p>
+                <p>Estado</p>
+              </div>
+              {agendaRows.map((appointment, index) => {
+                const initials = (appointment.client ?? "SN")
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase() ?? "")
+                  .join("");
                 return (
                   <div
-                    key={`${appointment.client ?? "cita"}-${appointment.time ?? ""}`}
-                    className="flex items-start justify-between gap-4 rounded-2xl border border-gray-100 bg-white/70 p-4"
+                    key={`${appointment.client ?? "cita"}-${appointment.time ?? ""}-${index}`}
+                    className="grid grid-cols-[90px_1.2fr_1fr_1fr] items-center gap-4 py-4 text-sm"
                   >
-                    <div className="min-w-[72px] text-lg font-semibold text-gray-900">
-                      {appointment.time ?? "--:--"}
+                    <p className="font-mono text-stone-700">{appointment.time ?? "--:--"}</p>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#8B1C1C]/10 text-[11px] font-semibold text-[#8B1C1C]">
+                        {initials || "SN"}
+                      </span>
+                      <p className="truncate font-medium text-stone-900">{appointment.client ?? "Cliente sin nombre"}</p>
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-gray-900">
-                        {appointment.client ?? "Cliente sin nombre"}
-                      </p>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-                        <span className={`h-2 w-2 rounded-full ${dotClass}`} />
-                        <span>{appointment.type ?? "Visita"}</span>
-                      </div>
-                    </div>
-                    <div className="text-xs font-medium text-gray-500">
-                      {appointment.assignedTo || "Sin asignar"}
-                    </div>
+                    <p className="text-stone-600">{appointment.type ?? "Visita"}</p>
+                    <p className="text-stone-600">{appointment.status ?? "Pendiente"}</p>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="mt-6 flex items-center gap-3 rounded-2xl border border-dashed border-gray-200 bg-white/70 p-4 text-sm text-gray-500">
-              <CalendarX className="h-5 w-5 text-gray-400" />
-              No hay visitas programadas para hoy.
+            <div className="flex min-h-[180px] flex-col items-center justify-center text-center">
+              <CalendarX className="h-10 w-10 text-stone-300" />
+              <p className="mt-2 text-sm text-stone-400">No hay visitas programadas para hoy.</p>
             </div>
           )}
-        </div>
+        </article>
 
-        <div className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-lg backdrop-blur-md">
-          <p className="text-xs uppercase tracking-[0.3em] text-secondary">Cuellos de botella</p>
-          <h3 className="mt-2 text-xl font-semibold text-gray-900">Requiere tu atención</h3>
-          <div className="mt-6">
-            {attentionItems.length > 0 ? (
-              attentionItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="mb-3 flex items-center justify-between gap-4 rounded-2xl border border-red-100 bg-white p-4 shadow-sm"
-                >
-                  <p className="text-sm font-medium text-gray-700">{item.label}</p>
-                  <Link
-                    href={item.href}
-                    className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600 transition hover:border-gray-300"
-                  >
-                    Ir a resolver
-                  </Link>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed border-gray-200 bg-white/70 p-4 text-sm text-gray-500">
-                Todo está bajo control por ahora.
-              </div>
-            )}
+        <article className="lg:col-span-4 rounded-3xl border border-stone-100 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-end justify-between">
+            <h2 className="text-xl font-bold text-[#8B1C1C]">Requiere Atención</h2>
+            <p className="text-xs text-stone-500">
+              {isHydrated ? `${attentionRows.length} item(s)` : "Cargando..."}
+            </p>
           </div>
-        </div>
-      </div>
-    </div>
+
+          {attentionRows.length > 0 ? (
+            <div className="divide-y divide-stone-50">
+              {attentionRows.map((item) => (
+                <div key={item.id} className="py-4 first:pt-0 last:pb-0">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-1.5 h-2 w-2 rounded-full bg-[#8B1C1C]/75" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-stone-900">{item.label}</p>
+                      <p className="mt-1 text-xs text-[#8B1C1C]">{item.status}</p>
+                    </div>
+                    <Link
+                      href={item.href}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#8B1C1C]/70 transition hover:bg-[#8B1C1C]/10 hover:text-[#8B1C1C]"
+                      aria-label="Abrir detalle"
+                      title="Abrir detalle"
+                    >
+                      <ArrowUpRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex min-h-[180px] flex-col items-center justify-center text-center">
+              <CheckCircle2 className="h-10 w-10 text-stone-300" />
+              <p className="mt-2 text-sm text-stone-400">Todo está bajo control por ahora.</p>
+            </div>
+          )}
+        </article>
+      </section>
+    </main>
   );
 }

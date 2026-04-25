@@ -209,8 +209,15 @@ const streamPosterClass = (selected: boolean, item?: ItemCatalogo) => {
   const ring = selected
     ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950"
     : "ring-1 ring-white/10 hover:ring-white/55";
+  if (item?.id === "otro-tostadora" || item?.id === "otro-tarja-extra") {
+    return `relative z-10 aspect-[2/3] w-[min(10.5rem,52vw)] shrink-0 overflow-hidden rounded-lg bg-white shadow-xl transition sm:w-[min(12.5rem,38vw)] lg:w-[min(13.5rem,32vw)] ${ring}`;
+  }
   if (item?.categoria === "Tarjas") {
     return `relative z-10 aspect-[3/2] w-[min(17.5rem,92vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(19.5rem,68vw)] lg:w-[min(20.5rem,56vw)] ${ring}`;
+  }
+  /* Campanas: 40/39; imagen a `cover` rellenando el marco (fondo zinc, sin franjas blancas). */
+  if (item?.categoria === "Campanas") {
+    return `relative z-10 aspect-[40/39] w-[min(12.5rem,58vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(15rem,42vw)] lg:w-[min(16.25rem,35vw)] ${ring}`;
   }
   return `relative z-10 aspect-[2/3] w-[min(10.5rem,52vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(12.5rem,38vw)] lg:w-[min(13.5rem,32vw)] ${ring}`;
 };
@@ -223,6 +230,12 @@ const streamCatalogThumbBase = "absolute inset-0 z-0 h-full w-full object-cover"
 const streamCatalogThumbImageClass = `${streamCatalogThumbBase} object-center`;
 /** Filas de tabla anchas (texto | foto): en póster 2:3 con `cover`, el centro cae en el texto; alinear a la derecha. */
 function applianceStreamCatalogThumbClass(item: ItemCatalogo): string {
+  if (item.categoria === "Campanas") {
+    return `${streamCatalogThumbBase} object-[center_40%]`;
+  }
+  if (item.id === "otro-tostadora" || item.id === "otro-tarja-extra") {
+    return "absolute inset-0 z-0 h-full w-full object-contain object-center";
+  }
   if (item.categoria === "Tarjas" && (item.id === "tarja-con-escurridor" || item.id === "tarja-doble")) {
     return `${streamCatalogThumbBase} object-right`;
   }
@@ -2161,14 +2174,18 @@ export default function CotizadorPreliminarPage() {
                     className={
                       currentApplianceItem.categoria === "Tarjas"
                         ? "grid gap-6 lg:grid-cols-[minmax(0,36rem)_1fr]"
-                        : "grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]"
+                        : currentApplianceItem.categoria === "Campanas"
+                          ? "grid gap-6 lg:grid-cols-[minmax(0,28rem)_1fr]"
+                          : "grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]"
                     }
                   >
                     <div
                       className={
                         currentApplianceItem.categoria === "Tarjas"
                           ? "relative mx-auto aspect-[3/2] w-full max-w-[min(35rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-zinc-950 lg:mx-0"
-                          : "relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0"
+                          : currentApplianceItem.categoria === "Campanas"
+                            ? "relative mx-auto aspect-[40/39] w-full max-w-[min(26rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-zinc-950 lg:mx-0"
+                            : "relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0"
                       }
                     >
                       <ApplianceTypeImage
@@ -2177,7 +2194,9 @@ export default function CotizadorPreliminarPage() {
                         className={
                           currentApplianceItem.categoria === "Tarjas"
                             ? "absolute inset-0 z-0 h-full w-full object-cover object-center"
-                            : "absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
+                            : currentApplianceItem.categoria === "Campanas"
+                              ? "absolute inset-0 z-0 h-full w-full object-cover object-[center_40%]"
+                              : "absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
                         }
                       />
                       <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
