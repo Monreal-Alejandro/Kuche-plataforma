@@ -724,7 +724,7 @@ export function formatWallMeasuresForPdf(wallId: string, values: Record<string, 
 }
 
 /** Respaldo del ítem en catálogo (rutas antiguas render/cocina no existen en `public`). */
-export const APPLIANCE_CATALOGO_IMAGE_FALLBACK = "/images/hero-placeholder.svg";
+export const APPLIANCE_CATALOGO_IMAGE_FALLBACK = "/images/ui/hero-placeholder.svg";
 
 /** Tipos de electrodomésticos (orden de presentación: refrigeración, estufas, tarjas, luego el resto). */
 export const APPLIANCE_ITEMS: ItemCatalogo[] = [

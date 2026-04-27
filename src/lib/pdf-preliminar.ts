@@ -69,7 +69,7 @@ function getContentBottom(doc: jsPDF): number {
 export async function fetchKucheLogoDataUrl(): Promise<string | null> {
   if (typeof window === "undefined") return null;
   try {
-    const res = await fetch("/images/kuche-logo.png");
+    const res = await fetch("/images/marca/kuche-logo.png");
     if (!res.ok) return null;
     const blob = await res.blob();
     return await new Promise((resolve) => {

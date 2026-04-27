@@ -5,7 +5,7 @@ export default function Hero() {
     <section className="px-4 pt-10">
       <div className="relative mx-auto min-h-[560px] max-w-6xl overflow-hidden rounded-2xl shadow-xl">
         <Image
-          src="/images/cocina1.jpg"
+          src="/images/home/hero-section/fondo-cabecera.jpg"
           alt="Cocina contemporánea con luz natural"
           fill
           priority

@@ -12,7 +12,7 @@ const steps = [
     subtitle: "Agendar Cita",
     description:
       "No es solo una visita, es el inicio de tu proyecto. Un experto Küche va a tu domicilio para analizar la luz, el espacio y tus necesidades. Sin compromisos, solo entendimiento puro de lo que buscas.",
-    image: "/images/cocina1.jpg",
+    image: "/images/pagina-experiencia/paso-01/ilustracion.jpg",
     alt: "Libreta, café y muestras de color para agendar una cita.",
   },
   {
@@ -21,7 +21,7 @@ const steps = [
     subtitle: "Diseño y Cotización",
     description:
       "Olvídate de esperar semanas por un precio. Diseñamos contigo en tiempo real. Tú eliges materiales y acabados, y el presupuesto se ajusta al momento. Transparencia total desde el minuto uno.",
-    image: "/images/render2.jpg",
+    image: "/images/pagina-experiencia/paso-02/ilustracion.jpg",
     alt: "Render de planos en una pantalla.",
   },
   {
@@ -30,7 +30,7 @@ const steps = [
     subtitle: "Realidad Virtual",
     description:
       "Prohibido imaginar. En Küche, te pones nuestros lentes VR y caminas dentro de tu cocina antes de que cortemos la primera tabla. Abre cajones, siente las alturas y valida tu inversión con seguridad absoluta.",
-    image: "/images/cocina37.jpg",
+    image: "/images/pagina-experiencia/paso-03/ilustracion.jpg",
     alt: "Persona usando lentes de realidad virtual.",
   },
   {
@@ -39,7 +39,7 @@ const steps = [
     subtitle: "Cortes CNC",
     description:
       "Aquí la artesanía se encuentra con la ingeniería. Nuestra maquinaria de Control Numérico Computarizado (CNC) corta cada pieza con precisión milimétrica. Cero errores humanos, ensambles perfectos.",
-    image: "/images/render5.jpg",
+    image: "/images/pagina-experiencia/paso-04/ilustracion.jpg",
     alt: "Detalle de cortes CNC sobre madera.",
   },
   {
@@ -48,7 +48,7 @@ const steps = [
     subtitle: "Portal privado",
     description:
       "Accede a tu portal privado para ver pagos, renders y avances en tiempo real. Transparencia total durante todo el proceso.",
-    image: "/images/render4.jpg",
+    image: "/images/pagina-experiencia/paso-05/ilustracion.jpg",
     alt: "Vista de un portal digital de seguimiento.",
   },
   {
@@ -57,7 +57,7 @@ const steps = [
     subtitle: "Instalación y Entrega",
     description:
       "El momento mágico. Nuestro equipo de instalación certificado monta tu proyecto con limpieza y rapidez. Te entregamos no solo muebles, sino el corazón de tu nuevo hogar listo para usarse.",
-    image: "/images/cocina11.jpg",
+    image: "/images/pagina-experiencia/paso-06/ilustracion.jpg",
     alt: "Cocina terminada con luz natural.",
   },
 ] as const;

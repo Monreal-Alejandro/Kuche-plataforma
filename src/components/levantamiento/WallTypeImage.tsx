@@ -24,7 +24,7 @@ export default function WallTypeImage({ item, className = "h-full w-full object-
         const el = e.currentTarget;
         if (el.getAttribute("data-wall-img-step") === "1") {
           el.onerror = null;
-          el.src = "/images/hero-placeholder.svg";
+          el.src = "/images/ui/hero-placeholder.svg";
           return;
         }
         el.setAttribute("data-wall-img-step", "1");

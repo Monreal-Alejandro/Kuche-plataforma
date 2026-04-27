@@ -152,6 +152,29 @@ type MaterialOption = {
 
 type MaterialCategory = "cubiertas" | "frentes" | "herrajes";
 
+/**
+ * Fotos en `public/images/cubiertas/`, `frentes/`, `herrajes/` alineadas a los ids de `DEFAULT_LEVANTAMIENTO_MATERIALES`.
+ * Si un material no figura aquí, se usan heurísticas por nombre o el fallback de categoría.
+ */
+const SHOWROOM_MATERIAL_IMAGE_BY_ID: Record<string, string> = {
+  "cub-cuarcita": "/images/cubiertas/cuarcita.jpg",
+  "cub-formaica": "/images/cubiertas/formica.jpeg",
+  "cub-granito": "/images/cubiertas/granito.jpg",
+  "cub-cuarzo": "/images/cubiertas/cuarzo.jpg",
+  "cub-cubierta-solida": "/images/cubiertas/cubierta-solida.jpg",
+  "cub-marmol": "/images/cubiertas/marmol.jpg",
+  "cub-piedra-sinterizada": "/images/cubiertas/piedra-sinterizada.jpg",
+  "fre-enchapados-naturales": "/images/frentes/enchapado-natural.webp",
+  "fre-melamina-1-estandar": "/images/frentes/melamina-estandar.jpg",
+  "fre-melamina-2-tendencia": "/images/frentes/melamina-tendencia.jpg",
+  "fre-altos-brillos": "/images/frentes/altos-brillos.jpg",
+  "fre-supermates": "/images/frentes/supermates.jpg",
+  "her-basico": "/images/herrajes/basico.jpg",
+  "her-intermedio": "/images/herrajes/intermedio.jpg",
+  "her-alta": "/images/herrajes/Alta.jpg",
+  "her-premium": "/images/herrajes/premium.png",
+};
+
 const materialImageMap: Record<MaterialCategory, { match: RegExp; src: string }[]> = {
   cubiertas: [
     { match: /calacatta|m?rmol|marble/i, src: "/images/materiales/calaccata_marble.jpg" },
@@ -182,7 +205,9 @@ const defaultCategoryImage: Record<MaterialCategory, string> = {
   herrajes: "/images/materiales/cabinet_hinge.jpg",
 };
 
-const resolveMaterialImage = (name: string, category: MaterialCategory, fallback?: string) => {
+const resolveMaterialImage = (id: string, name: string, category: MaterialCategory, fallback?: string) => {
+  const fromAsset = SHOWROOM_MATERIAL_IMAGE_BY_ID[id];
+  if (fromAsset) return fromAsset;
   const match = materialImageMap[category].find((entry) => entry.match.test(name));
   if (match) return match.src;
   /** Ignorar URLs externas (p. ej. pollinations): suelen fallar y el <img> cae en el placeholder. */
@@ -202,6 +227,17 @@ const streamRowHeading = "text-xs font-semibold uppercase tracking-[0.28em] text
 const streamRowHint = "mt-1 text-sm font-medium tracking-wide text-zinc-500";
 const streamRankClass =
   "w-[0.42em] min-w-[1.25rem] shrink-0 select-none self-end pb-1 text-center text-lg font-semibold tabular-nums leading-none text-zinc-500 sm:min-w-[1.4rem] sm:text-xl";
+/**
+ * Fila de carrusel (fondo oscuro): el strip estira la celda a la altura del bloque más alto. `items-end` + bloque
+ * más bajo (p. ej. «Otro») bajaba todo el póster; h-full + tramo de rango con `justify-end` mantiene el póster
+ * alineado arriba y el índice al pie de su columna.
+ */
+const streamCatalogItemRowClass =
+  "flex h-full min-h-0 w-max shrink-0 self-stretch gap-1 sm:gap-1";
+const streamRankColumnClass =
+  "flex w-[0.42em] min-w-[1.25rem] shrink-0 flex-col justify-end self-stretch pb-1 sm:min-w-[1.4rem]";
+const streamRankNumberClass =
+  "w-full text-center text-lg font-semibold tabular-nums leading-none text-zinc-500 sm:text-xl select-none";
 const streamVerTodosClass =
   "shrink-0 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 underline-offset-2 transition hover:text-zinc-100 hover:underline";
 /** Póster del carrusel: 2:3 por defecto. Tarjas usan 3:2 y un ancho algo menor: las fotos suelen ser horizontales, así con `object-cover` se llena el marco sin tanta caja “alta” que obligue a un zoom extremo. */
@@ -211,6 +247,13 @@ const streamPosterClass = (selected: boolean, item?: ItemCatalogo) => {
     : "ring-1 ring-white/10 hover:ring-white/55";
   if (item?.id === "otro-tostadora" || item?.id === "otro-tarja-extra") {
     return `relative z-10 aspect-[2/3] w-[min(10.5rem,52vw)] shrink-0 overflow-hidden rounded-lg bg-white shadow-xl transition sm:w-[min(12.5rem,38vw)] lg:w-[min(13.5rem,32vw)] ${ring}`;
+  }
+  /* Estufas compactas y parrilla mixta: póster ancho (misma altura que 2:3). Parrilla dominó: un poco menos ancho que eso; se ajusta por % respecto a esa referencia. */
+  if (item?.id === "estufa-compacta" || item?.id === "parrilla-mixta") {
+    return `relative z-10 h-[calc(min(10.5rem,52vw)*3/2)] w-[min(20rem,92vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:h-[calc(min(12.5rem,38vw)*3/2)] sm:w-[min(21.5rem,80vw)] lg:h-[calc(min(13.5rem,32vw)*3/2)] lg:w-[min(22.5rem,58vw)] ${ring}`;
+  }
+  if (item?.id === "parrilla-domino") {
+    return `relative z-10 h-[calc(min(10.5rem,52vw)*3/2)] w-[min(17.6rem,81vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:h-[calc(min(12.5rem,38vw)*3/2)] sm:w-[min(18.9rem,70vw)] lg:h-[calc(min(13.5rem,32vw)*3/2)] lg:w-[min(19.8rem,51vw)] ${ring}`;
   }
   if (item?.categoria === "Tarjas") {
     return `relative z-10 aspect-[3/2] w-[min(17.5rem,92vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(19.5rem,68vw)] lg:w-[min(20.5rem,56vw)] ${ring}`;
@@ -232,6 +275,13 @@ const streamCatalogThumbImageClass = `${streamCatalogThumbBase} object-center`;
 function applianceStreamCatalogThumbClass(item: ItemCatalogo): string {
   if (item.categoria === "Campanas") {
     return `${streamCatalogThumbBase} object-[center_40%]`;
+  }
+  /* Estufa compacta y parrilla mixta: foto más chica, encuadre completo. Parrilla dominó: `cover` (sin tocar). */
+  if (item.id === "estufa-compacta" || item.id === "parrilla-mixta") {
+    return "absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-3 sm:p-4";
+  }
+  if (item.id === "parrilla-domino") {
+    return streamCatalogThumbImageClass;
   }
   if (item.id === "otro-tostadora" || item.id === "otro-tarja-extra") {
     return "absolute inset-0 z-0 h-full w-full object-contain object-center";
@@ -297,7 +347,7 @@ const MaterialGrid = ({
             const isActive = isMulti
               ? rest.selectedIds.includes(option.id)
               : rest.selectedId !== null && option.id === rest.selectedId;
-            const imageSrc = resolveMaterialImage(option.name, category, option.image);
+            const imageSrc = resolveMaterialImage(option.id, option.name, category, option.image);
             const pricePerM = unitPricePerM(option);
             const optionPrice = Math.max(0, largoLineal * pricePerM);
             return (
@@ -321,7 +371,7 @@ const MaterialGrid = ({
                       loading="lazy"
                       referrerPolicy="no-referrer"
                       onError={(event) => {
-                        event.currentTarget.src = "/images/hero-placeholder.svg";
+                        event.currentTarget.src = "/images/ui/hero-placeholder.svg";
                       }}
                     />
                   </div>
@@ -1144,19 +1194,19 @@ export default function CotizadorPreliminarPage() {
         id: "esencial",
         title: "Estandar",
         subtitle: "Funcional y accesible",
-        image: "/images/cocina1.jpg",
+        image: "/images/escenarios/estimacion-base.jpg",
       },
       {
         id: "tendencia",
         title: "Tendencia",
         subtitle: "Balance moderno",
-        image: "/images/cocina6.jpg",
+        image: "/images/escenarios/estimacion-tendencia.jpg",
       },
       {
         id: "premium",
         title: "Premium",
         subtitle: "Detalles superiores",
-        image: "/images/render3.jpg",
+        image: "/images/escenarios/estimacion-premium.jpg",
       },
     ],
     [],
@@ -2174,18 +2224,28 @@ export default function CotizadorPreliminarPage() {
                     className={
                       currentApplianceItem.categoria === "Tarjas"
                         ? "grid gap-6 lg:grid-cols-[minmax(0,36rem)_1fr]"
-                        : currentApplianceItem.categoria === "Campanas"
-                          ? "grid gap-6 lg:grid-cols-[minmax(0,28rem)_1fr]"
-                          : "grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]"
+                        : currentApplianceItem.id === "estufa-compacta" ||
+                            currentApplianceItem.id === "parrilla-mixta"
+                          ? "grid gap-6 lg:grid-cols-[minmax(0,36rem)_1fr]"
+                          : currentApplianceItem.id === "parrilla-domino"
+                            ? "grid gap-6 lg:grid-cols-[minmax(0,31.7rem)_1fr]"
+                            : currentApplianceItem.categoria === "Campanas"
+                            ? "grid gap-6 lg:grid-cols-[minmax(0,28rem)_1fr]"
+                            : "grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]"
                     }
                   >
                     <div
                       className={
                         currentApplianceItem.categoria === "Tarjas"
                           ? "relative mx-auto aspect-[3/2] w-full max-w-[min(35rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-zinc-950 lg:mx-0"
-                          : currentApplianceItem.categoria === "Campanas"
-                            ? "relative mx-auto aspect-[40/39] w-full max-w-[min(26rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-zinc-950 lg:mx-0"
-                            : "relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0"
+                          : currentApplianceItem.id === "estufa-compacta" ||
+                              currentApplianceItem.id === "parrilla-mixta"
+                            ? "relative mx-auto h-[calc(min(20rem,92vw)*3/2)] w-full max-w-[min(34rem,96vw)] overflow-hidden rounded-2xl border border-primary/10 bg-zinc-950 lg:mx-0"
+                            : currentApplianceItem.id === "parrilla-domino"
+                              ? "relative mx-auto h-[calc(min(20rem,92vw)*3/2)] w-full max-w-[min(29.9rem,85vw)] overflow-hidden rounded-2xl border border-primary/10 bg-zinc-950 lg:mx-0"
+                            : currentApplianceItem.categoria === "Campanas"
+                              ? "relative mx-auto aspect-[40/39] w-full max-w-[min(26rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-zinc-950 lg:mx-0"
+                              : "relative mx-auto aspect-[2/3] w-full max-w-[min(20rem,92vw)] overflow-hidden rounded-2xl border border-primary/10 bg-white lg:mx-0"
                       }
                     >
                       <ApplianceTypeImage
@@ -2194,9 +2254,14 @@ export default function CotizadorPreliminarPage() {
                         className={
                           currentApplianceItem.categoria === "Tarjas"
                             ? "absolute inset-0 z-0 h-full w-full object-cover object-center"
-                            : currentApplianceItem.categoria === "Campanas"
-                              ? "absolute inset-0 z-0 h-full w-full object-cover object-[center_40%]"
-                              : "absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
+                            : currentApplianceItem.id === "estufa-compacta" ||
+                                currentApplianceItem.id === "parrilla-mixta"
+                              ? "absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-4 sm:p-8"
+                              : currentApplianceItem.id === "parrilla-domino"
+                                ? "absolute inset-0 z-0 h-full w-full object-cover object-center"
+                                : currentApplianceItem.categoria === "Campanas"
+                                ? "absolute inset-0 z-0 h-full w-full object-cover object-[center_40%]"
+                                : "absolute inset-0 z-0 box-border h-full w-full object-contain object-center p-2"
                         }
                       />
                       <span className="pointer-events-none absolute left-2 top-2 z-10 rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
@@ -2846,10 +2911,10 @@ export default function CotizadorPreliminarPage() {
                       }}
                     >
                       {filteredLightingItems.map((item, rank) => (
-                        <div key={item.id} className="flex shrink-0 items-end gap-1">
-                          <span className={streamRankClass} aria-hidden>
-                            {rank + 1}
-                          </span>
+                        <div key={item.id} className={streamCatalogItemRowClass}>
+                          <div className={streamRankColumnClass} aria-hidden>
+                            <span className={streamRankNumberClass}>{rank + 1}</span>
+                          </div>
                           <div className="flex w-[min(10.5rem,52vw)] shrink-0 flex-col items-stretch gap-2 sm:w-[min(12.5rem,38vw)]">
                             <button
                               type="button"
@@ -2959,10 +3024,10 @@ export default function CotizadorPreliminarPage() {
                   }}
                 >
                   {LIGHTING_ITEMS.map((item, rank) => (
-                    <div key={item.id} className="flex shrink-0 items-end gap-1">
-                      <span className={streamRankClass} aria-hidden>
-                        {rank + 1}
-                      </span>
+                    <div key={item.id} className={streamCatalogItemRowClass}>
+                      <div className={streamRankColumnClass} aria-hidden>
+                        <span className={streamRankNumberClass}>{rank + 1}</span>
+                      </div>
                       <div className="flex w-[min(10.5rem,52vw)] shrink-0 flex-col items-stretch gap-2 sm:w-[min(12.5rem,38vw)]">
                         <button
                           type="button"
@@ -3024,11 +3089,11 @@ export default function CotizadorPreliminarPage() {
                       </div>
                     </div>
                   ))}
-                  <div className="flex shrink-0 items-end gap-1">
-                    <span className={streamRankClass} aria-hidden>
-                      {LIGHTING_ITEMS.length + 1}
-                    </span>
-                    <div className="flex flex-col items-start gap-1">
+                  <div className={streamCatalogItemRowClass}>
+                    <div className={streamRankColumnClass} aria-hidden>
+                      <span className={streamRankNumberClass}>{LIGHTING_ITEMS.length + 1}</span>
+                    </div>
+                    <div className="flex w-[min(10.5rem,52vw)] shrink-0 flex-col items-stretch gap-2 sm:w-[min(12.5rem,38vw)]">
                       <button
                         type="button"
                         onClick={() => {

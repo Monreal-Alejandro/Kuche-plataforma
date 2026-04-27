@@ -16,38 +16,38 @@ const experienceSteps: ExperienceStep[] = [
     id: "paso-01",
     title: "Agenda tu Cita",
     description: "Vamos a tu domicilio, medimos y entendemos tu espacio.",
-    image: "/images/cocina1.jpg",
+    image: "/images/home/experiencia-3d/slide-01-cita-domicilio.jpg",
   },
   {
     id: "paso-02",
     title: "Diseño y Cotización",
     description: "Personalización total en tiempo real. Presupuesto transparente.",
-    image: "/images/render1.jpg",
+    image: "/images/home/experiencia-3d/slide-02-diseno-cotizacion.jpg",
   },
   {
     id: "paso-03",
     title: "Realidad Virtual (VR)",
     description: "Camina dentro de tu cocina antes de fabricarla. Inmersión total.",
-    image: "/images/render2.jpg",
+    image: "/images/home/experiencia-3d/slide-03-realidad-virtual.jpg",
   },
   {
     id: "paso-04",
     title: "Cortes CNC",
     description: "Precisión robótica milimétrica. Cero errores humanos.",
-    image: "/images/cocina10.jpg",
+    image: "/images/home/experiencia-3d/slide-04-cortes-cnc.jpg",
   },
   {
     id: "paso-05",
     title: "Seguimiento en línea",
     description:
       "Accede a tu portal privado para ver pagos, renders y avances en tiempo real.",
-    image: "/images/render4.jpg",
+    image: "/images/home/experiencia-3d/slide-05-seguimiento-portal.jpg",
   },
   {
     id: "paso-06",
     title: "Instalación y Entrega",
     description: "Montaje limpio y garantía de satisfacción.",
-    image: "/images/cocina12.jpg",
+    image: "/images/home/experiencia-3d/slide-06-instalacion-entrega.jpg",
   },
 ];
 

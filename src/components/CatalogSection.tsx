@@ -33,7 +33,7 @@ export default function CatalogSection() {
             >
               <div className="relative h-64 w-full">
                 <Image
-                  src="/images/cocina1.jpg"
+                  src="/images/pagina-catalogo/muestra-bloque-seccion/ilustracion.jpg"
                   alt={item.title}
                   fill
                   className="object-cover transition-transform duration-500 group-hover:scale-105"

@@ -1355,7 +1355,7 @@ export default function CotizadorPage() {
     let workshopUrl: string;
     try {
       const logoDataUrl = await getImageDataUrl(
-        new URL("/images/kuche-logo.png", window.location.origin).toString(),
+        new URL("/images/marca/kuche-logo.png", window.location.origin).toString(),
       );
       workshopUrl = await buildWorkshopPdfDataUrl(collectWorkshopPdfBuildInput(), logoDataUrl);
     } catch {
@@ -1411,7 +1411,7 @@ export default function CotizadorPage() {
     let workshopUrl: string;
     try {
       const logoDataUrl = await getImageDataUrl(
-        new URL("/images/kuche-logo.png", window.location.origin).toString(),
+        new URL("/images/marca/kuche-logo.png", window.location.origin).toString(),
       );
       workshopUrl = await buildWorkshopPdfDataUrl(collectWorkshopPdfBuildInput(), logoDataUrl);
     } catch {
@@ -1628,7 +1628,7 @@ export default function CotizadorPage() {
       doc.text(title, marginX, y);
     };
 
-    const logoDataUrl = await getImageDataUrl(new URL("/images/kuche-logo.png", window.location.origin).toString());
+    const logoDataUrl = await getImageDataUrl(new URL("/images/marca/kuche-logo.png", window.location.origin).toString());
 
     doc.setFillColor(brandColor[0], brandColor[1], brandColor[2]);
     doc.roundedRect(marginX, 28, contentWidth, 78, 10, 10, "F");
@@ -1869,7 +1869,7 @@ export default function CotizadorPage() {
     setFinishFormalError("");
     try {
       const logoDataUrl = await getImageDataUrl(
-        new URL("/images/kuche-logo.png", window.location.origin).toString(),
+        new URL("/images/marca/kuche-logo.png", window.location.origin).toString(),
       );
       const blob = await buildWorkshopPdfBlob(collectWorkshopPdfBuildInput(), logoDataUrl);
       const objectUrl = URL.createObjectURL(blob);
