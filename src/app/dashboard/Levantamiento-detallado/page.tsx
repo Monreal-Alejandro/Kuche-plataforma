@@ -153,26 +153,28 @@ type MaterialOption = {
 type MaterialCategory = "cubiertas" | "frentes" | "herrajes";
 
 /**
- * Fotos en `public/images/cubiertas/`, `frentes/`, `herrajes/` alineadas a los ids de `DEFAULT_LEVANTAMIENTO_MATERIALES`.
+ * Fotos en `public/images/levantamiento/cubiertas/`, `frentes/`, `herrajes/` alineadas a los ids de `DEFAULT_LEVANTAMIENTO_MATERIALES`.
  * Si un material no figura aquí, se usan heurísticas por nombre o el fallback de categoría.
  */
 const SHOWROOM_MATERIAL_IMAGE_BY_ID: Record<string, string> = {
-  "cub-cuarcita": "/images/cubiertas/cuarcita.jpg",
-  "cub-formaica": "/images/cubiertas/formica.jpeg",
-  "cub-granito": "/images/cubiertas/granito.jpg",
-  "cub-cuarzo": "/images/cubiertas/cuarzo.jpg",
-  "cub-cubierta-solida": "/images/cubiertas/cubierta-solida.jpg",
-  "cub-marmol": "/images/cubiertas/marmol.jpg",
-  "cub-piedra-sinterizada": "/images/cubiertas/piedra-sinterizada.jpg",
-  "fre-enchapados-naturales": "/images/frentes/enchapado-natural.webp",
-  "fre-melamina-1-estandar": "/images/frentes/melamina-estandar.jpg",
-  "fre-melamina-2-tendencia": "/images/frentes/melamina-tendencia.jpg",
-  "fre-altos-brillos": "/images/frentes/altos-brillos.jpg",
-  "fre-supermates": "/images/frentes/supermates.jpg",
-  "her-basico": "/images/herrajes/basico.jpg",
-  "her-intermedio": "/images/herrajes/intermedio.jpg",
-  "her-alta": "/images/herrajes/Alta.jpg",
-  "her-premium": "/images/herrajes/premium.png",
+  "cub-cuarcita": "/images/levantamiento/cubiertas/cuarcita.jpg",
+  "cub-formaica": "/images/levantamiento/cubiertas/formica.jpeg",
+  "cub-granito": "/images/levantamiento/cubiertas/granito.jpg",
+  "cub-cuarzo": "/images/levantamiento/cubiertas/cuarzo.jpg",
+  "cub-cubierta-solida": "/images/levantamiento/cubiertas/cubierta-solida.jpg",
+  "cub-marmol": "/images/levantamiento/cubiertas/marmol.jpg",
+  "cub-piedra-sinterizada": "/images/levantamiento/cubiertas/piedra-sinterizada.jpg",
+  "fre-enchapados-naturales": "/images/levantamiento/frentes/enchapado-natural.webp",
+  "fre-premium": "/images/levantamiento/frentes/premium.jpg",
+  "fre-melamina-1-estandar": "/images/levantamiento/frentes/melamina-estandar.jpg",
+  "fre-madera-solida": "/images/levantamiento/frentes/enchapado-natural.webp",
+  "fre-melamina-2-tendencia": "/images/levantamiento/frentes/melamina-tendencia.jpg",
+  "fre-altos-brillos": "/images/levantamiento/frentes/altos-brillos.jpg",
+  "fre-supermates": "/images/levantamiento/frentes/supermates.jpg",
+  "her-basico": "/images/levantamiento/herrajes/estandar.jpg",
+  "her-intermedio": "/images/levantamiento/herrajes/intermedio.jpg",
+  "her-alta": "/images/levantamiento/herrajes/Alta.jpg",
+  "her-premium": "/images/levantamiento/herrajes/premium.png",
 };
 
 const materialImageMap: Record<MaterialCategory, { match: RegExp; src: string }[]> = {
@@ -201,8 +203,8 @@ const materialImageMap: Record<MaterialCategory, { match: RegExp; src: string }[
 
 const defaultCategoryImage: Record<MaterialCategory, string> = {
   cubiertas: "/images/materiales/stone_texture.jpg",
-  frentes: "/images/materiales/dark_wood_background.jpg",
-  herrajes: "/images/materiales/cabinet_hinge.jpg",
+  frentes: "/images/levantamiento/frentes/melamina-estandar.jpg",
+  herrajes: "/images/levantamiento/herrajes/intermedio.jpg",
 };
 
 const resolveMaterialImage = (id: string, name: string, category: MaterialCategory, fallback?: string) => {

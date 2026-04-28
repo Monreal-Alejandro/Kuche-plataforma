@@ -84,20 +84,24 @@ export default function Footer() {
               Síguenos
             </h3>
             <div className="flex items-center gap-3">
-              <Link
-                href="https://www.instagram.com"
+              <a
+                href="https://www.instagram.com/cocinasinteligenteskuche/"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 text-gray-400 transition hover:text-accent"
                 aria-label="Instagram"
               >
                 <Instagram className="h-5 w-5" />
-              </Link>
-              <Link
-                href="https://www.facebook.com"
+              </a>
+              <a
+                href="https://www.facebook.com/cocinasendurango"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 text-gray-400 transition hover:text-accent"
                 aria-label="Facebook"
               >
                 <Facebook className="h-5 w-5" />
-              </Link>
+              </a>
             </div>
             <Link
               href="/aviso-de-privacidad"

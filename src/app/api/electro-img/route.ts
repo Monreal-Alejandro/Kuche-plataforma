@@ -8,12 +8,16 @@ import sharp from "sharp";
 export const runtime = "nodejs";
 
 function electroDir(): string {
+  const nested = path.join(process.cwd(), "public", "images", "levantamiento", "electrodomesticos");
+  if (existsSync(nested)) return path.resolve(nested);
   const fromCwd = path.join(process.cwd(), "public", "images", "electrodomesticos");
   if (existsSync(fromCwd)) return path.resolve(fromCwd);
   const routeDir = path.dirname(fileURLToPath(import.meta.url));
-  const fromSourceTree = path.resolve(routeDir, "..", "..", "..", "..", "public", "images", "electrodomesticos");
+  const fromSourceTree = path.resolve(routeDir, "..", "..", "..", "..", "public", "images", "levantamiento", "electrodomesticos");
   if (existsSync(fromSourceTree)) return path.resolve(fromSourceTree);
-  return path.resolve(fromCwd);
+  const legacyTree = path.resolve(routeDir, "..", "..", "..", "..", "public", "images", "electrodomesticos");
+  if (existsSync(legacyTree)) return path.resolve(legacyTree);
+  return path.resolve(nested);
 }
 
 /**

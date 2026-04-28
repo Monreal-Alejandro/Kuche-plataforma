@@ -9,6 +9,8 @@ type ExperienceStep = {
   title: string;
   description: string;
   image: string;
+  /** "contain" muestra la imagen completa dentro del marco (útil para capturas/UI); "cover" llena el marco recortando. */
+  imageFit?: "cover" | "contain";
 };
 
 const experienceSteps: ExperienceStep[] = [
@@ -42,6 +44,7 @@ const experienceSteps: ExperienceStep[] = [
     description:
       "Accede a tu portal privado para ver pagos, renders y avances en tiempo real.",
     image: "/images/home/experiencia-3d/slide-05-seguimiento-portal.jpg",
+    imageFit: "contain",
   },
   {
     id: "paso-06",
@@ -120,14 +123,28 @@ function Coverflow3D({
                 pointerEvents: isActive ? "auto" : "none",
               }}
             >
-              <div className="relative h-[420px] w-[560px] overflow-hidden rounded-3xl shadow-2xl">
+              <div
+                className={`relative h-[420px] w-[560px] overflow-hidden rounded-3xl shadow-2xl ${
+                  step.imageFit === "contain" ? "bg-neutral-900" : ""
+                }`}
+              >
                 <img
                   src={step.image}
                   alt={step.title}
-                  className="h-full w-full object-cover"
+                  className={
+                    step.imageFit === "contain"
+                      ? "box-border h-full w-full object-contain object-center"
+                      : "h-full w-full object-cover"
+                  }
                   loading="eager"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                <div
+                  className={
+                    step.imageFit === "contain"
+                      ? "pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent"
+                      : "absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"
+                  }
+                />
                 <div className="absolute bottom-6 left-6 rounded-2xl bg-black/40 px-4 py-2 text-white backdrop-blur">
                   <p className="text-3xl font-semibold tracking-wide">
                     {String(index + 1).padStart(2, "0")}
