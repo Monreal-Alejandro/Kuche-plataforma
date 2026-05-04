@@ -59,7 +59,9 @@ import {
   wallMeasuresTieneValor,
   WALL_SLOT_META_TYPE,
   WALL_SLOT_META_ALIAS,
+  wallMeasureFieldFocusGroup,
   wallMeasureLetter,
+  type WallDiagramFocusGroupId,
   wallSlotIsComplete,
   wallSlotKey,
   type MedidasCampos,
@@ -266,6 +268,48 @@ const streamPosterClass = (selected: boolean, item?: ItemCatalogo) => {
   }
   return `relative z-10 aspect-[2/3] w-[min(10.5rem,52vw)] shrink-0 overflow-hidden rounded-lg bg-zinc-900 shadow-xl transition sm:w-[min(12.5rem,38vw)] lg:w-[min(13.5rem,32vw)] ${ring}`;
 };
+
+type WallFieldWithIndex = {
+  field: ReturnType<typeof getWallMeasureFieldDefs>[number];
+  index: number;
+};
+
+type WallFieldGroup = {
+  id: WallDiagramFocusGroupId;
+  title: string;
+  hint: string;
+  fields: WallFieldWithIndex[];
+};
+
+function groupWallFieldsByPriority(fields: WallFieldWithIndex[]): WallFieldGroup[] {
+  const grouped: Record<WallDiagramFocusGroupId, WallFieldWithIndex[]> = {
+    general: [],
+    vano: [],
+    ubicacion: [],
+  };
+  for (const entry of fields) grouped[wallMeasureFieldFocusGroup(entry.field)].push(entry);
+  const groups: WallFieldGroup[] = [
+    {
+      id: "general",
+      title: "1) Cotas generales",
+      hint: "Primero toma largo total y alturas principales.",
+      fields: grouped.general,
+    },
+    {
+      id: "vano",
+      title: "2) Vano(s): puerta y/o ventana",
+      hint: "Despues captura anchos y altos de cada hueco.",
+      fields: grouped.vano,
+    },
+    {
+      id: "ubicacion",
+      title: "3) Ubicacion y separaciones",
+      hint: "Al final posiciona los vanos y tramos libres.",
+      fields: grouped.ubicacion,
+    },
+  ];
+  return groups.filter((g) => g.fields.length > 0);
+}
 const streamPosterTitleOverlay =
   "pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent px-2 pb-2.5 pt-14";
 const streamPosterLabelClass =
@@ -453,6 +497,8 @@ export default function CotizadorPreliminarPage() {
   const [currentWallIndex, setCurrentWallIndex] = useState(0);
   /** Búsqueda en el catálogo de tipos de muro (Sección B). */
   const [wallSearch, setWallSearch] = useState("");
+  /** Grupo de cotas enfocado en el formulario de pared (progressive disclosure en el diagrama). */
+  const [focusedWallGroup, setFocusedWallGroup] = useState<WallDiagramFocusGroupId | null>(null);
   /** Diálogo in-app al cambiar cantidad de paredes (sustituye `window.confirm`). */
   const [confirmChangeWallCountOpen, setConfirmChangeWallCountOpen] = useState(false);
   /** Un paso por electrodoméstico (orden por categoría); el último índice es «Otro». */
@@ -469,6 +515,11 @@ export default function CotizadorPreliminarPage() {
   /** Al pasar de carrusel → detalle el documento se acorta y el scroll absoluto deja la vista en la sección siguiente; se reencuadra la sección C. */
   const applianceSectionRef = useRef<HTMLDivElement | null>(null);
   const lightingSectionRef = useRef<HTMLDivElement | null>(null);
+  const catalogScrollPositions = useRef({ appliance: 0, lighting: 0 });
+
+  useEffect(() => {
+    setFocusedWallGroup(null);
+  }, [currentWallIndex]);
 
   const setSectionComment = (key: "a" | "b" | "c" | "d" | "e", value: string) => {
     setLevantamiento((prev) => ({
@@ -679,6 +730,9 @@ export default function CotizadorPreliminarPage() {
   const openApplianceDetailByIndex = useCallback((idx: number) => {
     const item = APPLIANCE_ITEMS[idx];
     if (!item) return;
+    if (typeof window !== "undefined") {
+      catalogScrollPositions.current.appliance = window.scrollY;
+    }
     setApplianceStep(idx);
     setApplianceBrowseMode(false);
     setLevantamiento((prev) => ({
@@ -687,12 +741,27 @@ export default function CotizadorPreliminarPage() {
         ? prev.applianceDocumentIds
         : [...prev.applianceDocumentIds, item.id],
     }));
+    setTimeout(() => {
+      if (typeof window !== "undefined" && applianceSectionRef.current) {
+        const absoluteY = applianceSectionRef.current.getBoundingClientRect().top + window.scrollY;
+        window.scrollTo({ top: absoluteY - 80, behavior: "instant" as ScrollBehavior });
+      }
+    }, 10);
   }, []);
 
   const openApplianceOtroDetail = useCallback(() => {
+    if (typeof window !== "undefined") {
+      catalogScrollPositions.current.appliance = window.scrollY;
+    }
     setApplianceStep(APPLIANCE_OTRO_STEP_INDEX);
     setApplianceBrowseMode(false);
     setLevantamiento((prev) => ({ ...prev, applianceOtroInDocument: true }));
+    setTimeout(() => {
+      if (typeof window !== "undefined" && applianceSectionRef.current) {
+        const absoluteY = applianceSectionRef.current.getBoundingClientRect().top + window.scrollY;
+        window.scrollTo({ top: absoluteY - 80, behavior: "instant" as ScrollBehavior });
+      }
+    }, 10);
   }, []);
 
   const setLightingInDocument = useCallback((id: string, included: boolean) => {
@@ -1318,18 +1387,6 @@ export default function CotizadorPreliminarPage() {
     }
   }, [lightingFocusedId]);
 
-  useLayoutEffect(() => {
-    if (!applianceBrowseMode) {
-      applianceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [applianceBrowseMode]);
-
-  useLayoutEffect(() => {
-    if (!lightingBrowseMode && lightingFocusedId) {
-      lightingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [lightingBrowseMode, lightingFocusedId]);
-
   useEffect(() => {
     const n = levantamiento.wallSlotCount;
     if (n <= 0) return;
@@ -1900,6 +1957,11 @@ export default function CotizadorPreliminarPage() {
                   ? { ...emptyWallMeasuresForId(item.id), ...slotData }
                   : slotData;
                 const wallFields = item ? getWallMeasureFieldDefs(item.id) : [];
+                const wallFieldsWithIndex: WallFieldWithIndex[] = wallFields.map((field, index) => ({
+                  field,
+                  index,
+                }));
+                const wallFieldGroups = groupWallFieldsByPriority(wallFieldsWithIndex);
                 const canGoNext = currentWallIndex < levantamiento.wallSlotCount - 1;
                 const totalWallSlots = levantamiento.wallSlotCount;
                 return (
@@ -2020,11 +2082,11 @@ export default function CotizadorPreliminarPage() {
                                   key={wItem.id}
                                   type="button"
                                   onClick={() => setWallSlotType(currentWallIndex, wItem.id)}
-                                  className="overflow-hidden rounded-2xl border border-primary/10 bg-white text-left shadow-md transition hover:-translate-y-0.5 hover:border-[#8B1C1C]/35 hover:shadow-lg"
+                                  className="rounded-2xl border border-primary/10 bg-white text-left shadow-md transition hover:-translate-y-0.5 hover:border-[#8B1C1C]/35 hover:shadow-lg"
                                 >
-                                  <div className="relative aspect-[4/3] w-full bg-primary/[0.05]">
-                                    <WallTypeIcon wallId={wItem.id} className="h-full w-full" />
-                                    <span className="absolute bottom-2 left-2 z-[4] rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                                  <div className="relative flex min-h-[160px] items-center justify-center bg-primary/[0.05] p-4">
+                                    <WallTypeIcon wallId={wItem.id} className="h-auto w-full max-h-[180px] text-primary" />
+                                    <span className="pointer-events-none absolute bottom-3 left-3 z-[4] rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
                                       {wItem.label}
                                     </span>
                                   </div>
@@ -2062,79 +2124,110 @@ export default function CotizadorPreliminarPage() {
                           </div>
                           {item.hint ? <p className="text-xs text-secondary">{item.hint}</p> : null}
                           <div className="grid gap-4 lg:grid-cols-[60%_40%] lg:items-start lg:gap-6">
-                            <div className="relative aspect-[4/3] w-full min-w-0 lg:max-w-none lg:aspect-auto lg:h-[360px]">
-                              <div className="absolute inset-0 overflow-hidden rounded-2xl border border-primary/10 bg-primary/5">
-                                <WallTypeIcon wallId={item.id} className="h-full w-full" />
-                                <span className="absolute bottom-2 left-2 z-[4] rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
+                            <div className="relative min-h-[400px] w-full min-w-0 lg:max-w-none lg:min-h-[480px]">
+                              <div className="relative flex h-full min-h-[inherit] items-center justify-center overflow-visible rounded-2xl border border-primary/10 bg-primary/5 p-6 lg:p-8">
+                                <WallTypeIcon
+                                  wallId={item.id}
+                                  focusedGroup={focusedWallGroup}
+                                  className="h-auto w-full max-h-[560px] shrink-0 text-primary"
+                                />
+                                <span className="pointer-events-none absolute bottom-4 left-4 z-[4] rounded-lg bg-black/55 px-2 py-1 text-[10px] font-semibold text-white">
                                   {item.label}
                                 </span>
                               </div>
                             </div>
-                            <div className="min-w-0 space-y-2">
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                {wallFields.map((field, fi) => (
-                                  <label
-                                    key={field.key}
-                                    className={`block text-[9px] font-semibold uppercase tracking-[0.1em] text-secondary ${
-                                      item.id === "pared-otro" && field.key === "descripcion" ? "sm:col-span-2" : ""
-                                    }`}
-                                  >
-                                    <span className="mb-0.5 block normal-case tracking-normal">
-                                      <span className="font-bold text-primary">
-                                        {field.acronimo ?? wallMeasureLetter(fi)}
-                                      </span>
-                                      <span> · {field.label}</span>
-                                      {item.id === "pared-otro" && field.key === "descripcion" ? null : (
-                                        <span className="font-normal text-secondary/80"> (m)</span>
-                                      )}
-                                    </span>
-                                    {item.id === "pared-puerta" && field.key === "altura-techo" ? (
-                                      (() => {
-                                        const alt = parseMeasure(m["altura-techo"]);
-                                        const vano = parseMeasure(m["alto-vano"]);
-                                        if (alt === null || vano === null) return null;
-                                        const sobreVano = Math.max(0, alt - vano);
-                                        return (
-                                          <span className="mb-0.5 block text-[9px] font-semibold normal-case leading-snug text-secondary/90">
-                                            Sobre el vano (techo − alto vano):{" "}
-                                            <span className="font-bold text-primary">{sobreVano.toFixed(2)} m</span>
+                            <div className="min-w-0 space-y-3">
+                              {wallFieldGroups.map((group) => (
+                                <div
+                                  key={group.id}
+                                  tabIndex={-1}
+                                  onFocusCapture={() => setFocusedWallGroup(group.id)}
+                                  onBlurCapture={(e) => {
+                                    const next = e.relatedTarget as Node | null;
+                                    if (next && e.currentTarget.contains(next)) return;
+                                    setFocusedWallGroup(null);
+                                  }}
+                                  className="rounded-2xl border border-primary/10 bg-stone-50/70 p-2.5 outline-none ring-[#8B1C1C]/25 focus-within:ring-2"
+                                >
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8B1C1C]">
+                                    {group.title}
+                                  </p>
+                                  <p className="mt-0.5 text-[10px] text-secondary">{group.hint}</p>
+                                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                    {group.fields.map(({ field, index: fi }) => (
+                                      <label
+                                        key={field.key}
+                                        className={`block text-[9px] font-semibold uppercase tracking-[0.1em] text-secondary ${
+                                          item.id === "pared-otro" && field.key === "descripcion" ? "sm:col-span-2" : ""
+                                        }`}
+                                      >
+                                        <span className="mb-0.5 block normal-case tracking-normal">
+                                          <span className="font-bold text-primary">
+                                            {field.acronimo ?? wallMeasureLetter(fi)}
                                           </span>
-                                        );
-                                      })()
-                                    ) : null}
-                                    {item.id === "pared-ventana" && field.key === "altura-techo" ? (
-                                      (() => {
-                                        const alt = parseMeasure(m["altura-techo"]);
-                                        const vano = parseMeasure(m["alto-vano"]);
-                                        const antepecho = parseMeasure(m["antepecho"]);
-                                        if (alt === null || vano === null || antepecho === null) return null;
-                                        const sobreVano = Math.max(0, alt - (antepecho + vano));
-                                        return (
-                                          <span className="mb-0.5 block text-[9px] font-semibold normal-case leading-snug text-secondary/90">
-                                            Sobre el vano (techo − (antepecho + alto vano)):{" "}
-                                            <span className="font-bold text-primary">{sobreVano.toFixed(2)} m</span>
-                                          </span>
-                                        );
-                                      })()
-                                    ) : null}
-                                    {item.id === "pared-otro" && field.key === "descripcion" ? (
-                                      <textarea
-                                        value={m[field.key] ?? ""}
-                                        onChange={(e) => patchWallSlotField(currentWallIndex, field.key, e.target.value)}
-                                        rows={3}
-                                        className="mt-1 w-full resize-y rounded-xl border border-primary/10 bg-white px-2.5 py-1.5 text-sm font-normal outline-none placeholder:text-secondary/45"
-                                      />
-                                    ) : (
-                                      <input
-                                        value={m[field.key] ?? ""}
-                                        onChange={(e) => patchWallSlotField(currentWallIndex, field.key, e.target.value)}
-                                        inputMode="decimal"
-                                        className="mt-1 w-full rounded-xl border border-primary/10 bg-white px-2.5 py-1.5 text-sm outline-none"
-                                      />
-                                    )}
-                                  </label>
-                                ))}
-                              </div>
+                                          <span> · {field.label}</span>
+                                          {item.id === "pared-otro" && field.key === "descripcion" ? null : (
+                                            <span className="font-normal text-secondary/80"> (m)</span>
+                                          )}
+                                        </span>
+                                        {item.id === "pared-puerta" && field.key === "altura-techo" ? (
+                                          (() => {
+                                            const alt = parseMeasure(m["altura-techo"]);
+                                            const vano = parseMeasure(m["alto-vano"]);
+                                            if (alt === null || vano === null) return null;
+                                            const sobreVano = Math.max(0, alt - vano);
+                                            return (
+                                              <span className="mb-0.5 block text-[9px] font-semibold normal-case leading-snug text-secondary/90">
+                                                Sobre el vano (techo − alto vano):{" "}
+                                                <span className="font-bold text-primary">{sobreVano.toFixed(2)} m</span>
+                                              </span>
+                                            );
+                                          })()
+                                        ) : null}
+                                        {item.id === "pared-ventana" && field.key === "altura-techo" ? (
+                                          (() => {
+                                            const alt = parseMeasure(m["altura-techo"]);
+                                            const vano = parseMeasure(m["alto-vano"]);
+                                            const antepecho = parseMeasure(m["antepecho"]);
+                                            if (alt === null || vano === null || antepecho === null) return null;
+                                            const sobreVano = Math.max(0, alt - (antepecho + vano));
+                                            return (
+                                              <span className="mb-0.5 block text-[9px] font-semibold normal-case leading-snug text-secondary/90">
+                                                Sobre el vano (techo − (antepecho + alto vano)):{" "}
+                                                <span className="font-bold text-primary">{sobreVano.toFixed(2)} m</span>
+                                              </span>
+                                            );
+                                          })()
+                                        ) : null}
+                                        {item.id === "pared-otro" && field.key === "descripcion" ? (
+                                          <textarea
+                                            value={m[field.key] ?? ""}
+                                            onChange={(e) =>
+                                              patchWallSlotField(currentWallIndex, field.key, e.target.value)
+                                            }
+                                            rows={3}
+                                            className="mt-1 w-full resize-y rounded-xl border border-primary/10 bg-white px-2.5 py-1.5 text-sm font-normal outline-none placeholder:text-secondary/45"
+                                          />
+                                        ) : (
+                                          <input
+                                            value={m[field.key] ?? ""}
+                                            onChange={(e) =>
+                                              patchWallSlotField(currentWallIndex, field.key, e.target.value)
+                                            }
+                                            inputMode="decimal"
+                                            className="mt-1 w-full rounded-xl border border-primary/10 bg-white px-2.5 py-1.5 text-sm outline-none"
+                                          />
+                                        )}
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                              {wallFieldGroups.length === 0 ? (
+                                <div className="rounded-2xl border border-primary/10 bg-primary/5 px-3 py-2 text-xs text-secondary">
+                                  Selecciona un tipo de pared para capturar cotas.
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                           <button
@@ -2215,7 +2308,16 @@ export default function CotizadorPreliminarPage() {
               <div className="space-y-5">
                 <button
                   type="button"
-                  onClick={() => setApplianceBrowseMode(true)}
+                  onClick={() => {
+                    setApplianceBrowseMode(true);
+                    setTimeout(() => {
+                      if (typeof window === "undefined") return;
+                      window.scrollTo({
+                        top: catalogScrollPositions.current.appliance,
+                        behavior: "instant" as ScrollBehavior,
+                      });
+                    }, 0);
+                  }}
                   className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
                 >
                   <ChevronLeft className="h-4 w-4 shrink-0" />
@@ -2766,6 +2868,13 @@ export default function CotizadorPreliminarPage() {
                   onClick={() => {
                     setLightingBrowseMode(true);
                     setLightingFocusedId(null);
+                    setTimeout(() => {
+                      if (typeof window === "undefined") return;
+                      window.scrollTo({
+                        top: catalogScrollPositions.current.lighting,
+                        behavior: "instant" as ScrollBehavior,
+                      });
+                    }, 0);
                   }}
                   className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-white px-4 py-2 text-sm font-semibold text-[#8B1C1C] transition hover:border-primary/30"
                 >
@@ -2943,8 +3052,18 @@ export default function CotizadorPreliminarPage() {
                               type="button"
                               className="text-[10px] font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
                               onClick={() => {
+                                if (typeof window !== "undefined") {
+                                  catalogScrollPositions.current.lighting = window.scrollY;
+                                }
                                 setLightingFocusedId(item.id);
                                 setLightingBrowseMode(false);
+                                setTimeout(() => {
+                                  if (typeof window !== "undefined" && lightingSectionRef.current) {
+                                    const absoluteY =
+                                      lightingSectionRef.current.getBoundingClientRect().top + window.scrollY;
+                                    window.scrollTo({ top: absoluteY - 80, behavior: "instant" as ScrollBehavior });
+                                  }
+                                }, 10);
                               }}
                             >
                               Medidas opcionales
@@ -3056,8 +3175,18 @@ export default function CotizadorPreliminarPage() {
                           type="button"
                           className="text-[10px] font-semibold text-[#8B1C1C] underline-offset-2 hover:underline"
                           onClick={() => {
+                            if (typeof window !== "undefined") {
+                              catalogScrollPositions.current.lighting = window.scrollY;
+                            }
                             setLightingFocusedId(item.id);
                             setLightingBrowseMode(false);
+                            setTimeout(() => {
+                              if (typeof window !== "undefined" && lightingSectionRef.current) {
+                                const absoluteY =
+                                  lightingSectionRef.current.getBoundingClientRect().top + window.scrollY;
+                                window.scrollTo({ top: absoluteY - 80, behavior: "instant" as ScrollBehavior });
+                              }
+                            }, 10);
                           }}
                         >
                           Medidas opcionales

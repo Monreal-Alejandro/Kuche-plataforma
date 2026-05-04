@@ -10,6 +10,10 @@ export const KUCHE_PHONE_LOCAL = "618 101 7363";
 export const KUCHE_PHONE_DISPLAY = "+52 618 101 7363";
 
 export const KUCHE_PHONE_TEL_HREF = "tel:+526181017363";
+export const KUCHE_WHATSAPP_PHONE_E164 = "526181017363";
+export const KUCHE_WHATSAPP_DEFAULT_MESSAGE =
+  "Hola, me gustaria cotizar una cocina con Kueche.";
+export const KUCHE_WHATSAPP_HREF = `https://wa.me/${KUCHE_WHATSAPP_PHONE_E164}?text=${encodeURIComponent(KUCHE_WHATSAPP_DEFAULT_MESSAGE)}`;
 
 export const KUCHE_EMAIL = "cocinasinteligentesdgo@gmail.com";
 

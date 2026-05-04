@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { FaWhatsapp } from "react-icons/fa";
+import { KUCHE_WHATSAPP_HREF } from "@/lib/kuche-contact";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -52,7 +53,9 @@ export default function Hero() {
       </div>
 
       <a
-        href="https://wa.me/5210000000000"
+        href={KUCHE_WHATSAPP_HREF}
+        target="_blank"
+        rel="noopener noreferrer"
         aria-label="WhatsApp Küche"
         className="fixed bottom-6 right-6 z-20 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg shadow-black/10 transition hover:scale-105"
       >
