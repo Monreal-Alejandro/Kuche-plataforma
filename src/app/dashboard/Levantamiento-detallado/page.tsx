@@ -281,13 +281,13 @@ type WallFieldGroup = {
   fields: WallFieldWithIndex[];
 };
 
-function groupWallFieldsByPriority(fields: WallFieldWithIndex[]): WallFieldGroup[] {
+function groupWallFieldsByPriority(fields: WallFieldWithIndex[], wallId: string): WallFieldGroup[] {
   const grouped: Record<WallDiagramFocusGroupId, WallFieldWithIndex[]> = {
     general: [],
     vano: [],
     ubicacion: [],
   };
-  for (const entry of fields) grouped[wallMeasureFieldFocusGroup(entry.field)].push(entry);
+  for (const entry of fields) grouped[wallMeasureFieldFocusGroup(entry.field, wallId)].push(entry);
   const groups: WallFieldGroup[] = [
     {
       id: "general",
@@ -1961,7 +1961,10 @@ export default function CotizadorPreliminarPage() {
                   field,
                   index,
                 }));
-                const wallFieldGroups = groupWallFieldsByPriority(wallFieldsWithIndex);
+                const wallFieldGroups = groupWallFieldsByPriority(
+                  wallFieldsWithIndex,
+                  item?.id ?? selectedTypeId,
+                );
                 const canGoNext = currentWallIndex < levantamiento.wallSlotCount - 1;
                 const totalWallSlots = levantamiento.wallSlotCount;
                 return (

@@ -242,7 +242,7 @@ function WallTypeCotasGroup({
         const n = nudgeInteriorCota(i, wallId, seg.x1, seg.y1, seg.x2, seg.y2);
         const code = (d.acronimo ?? wallMeasureLetter(i)).trim() || wallMeasureLetter(i);
         const internal = expanded && isWallDimensionInteriorLabel(code);
-        const cotaGroup = wallCotaFocusGroup(code);
+        const cotaGroup = wallCotaFocusGroup(code, wallId);
         return (
           <Cota
             key={d.key}
@@ -1484,53 +1484,798 @@ export function WallIcon2Ventanas({ className, focusedGroup, ...rest }: WallIcon
   );
 }
 
-/** Puerta 21–66 ×84 | ventana 93–147 ×42. */
+/** Cotas `pared-puerta-ventana` en 1000×700: r=30 y tipografía en unidades SVG (legible en el lienzo). */
+function WallIconPuertaVentanaCotaHard({
+  focusedGroup,
+  wallKey,
+  groupIndex,
+  tit,
+  ac,
+  grp,
+  main,
+  tickA,
+  tickB,
+  cx,
+  cy,
+}: {
+  focusedGroup?: WallDiagramFocusGroupId | null;
+  wallKey: string;
+  groupIndex: number;
+  tit: (i: number) => string;
+  ac: (i: number) => string;
+  grp: (i: number) => WallDiagramFocusGroupId;
+  main: { x1: number; y1: number; x2: number; y2: number };
+  tickA: { x1: number; y1: number; x2: number; y2: number };
+  tickB: { x1: number; y1: number; x2: number; y2: number };
+  cx: number;
+  cy: number;
+}) {
+  const s = ventanaMegaCotaVisual(focusedGroup, grp(groupIndex));
+  const letter = ac(groupIndex);
+  const highlighted = focusedGroup != null && focusedGroup === grp(groupIndex);
+  const badgeR = 30;
+  const badgeFs = highlighted ? 36 : 32;
+  return (
+    <g
+      className="pointer-events-none transition-all duration-300 ease-out"
+      style={{ isolation: "isolate", opacity: s.groupOpacity }}
+    >
+      <title>{tit(groupIndex)}</title>
+      <line
+        x1={main.x1}
+        y1={main.y1}
+        x2={main.x2}
+        y2={main.y2}
+        stroke={s.lineStroke}
+        strokeWidth={s.swMain}
+        strokeLinecap="square"
+        strokeDasharray={s.dashMain}
+      />
+      <line
+        x1={tickA.x1}
+        y1={tickA.y1}
+        x2={tickA.x2}
+        y2={tickA.y2}
+        stroke={s.lineStroke}
+        strokeWidth={s.swTick}
+        strokeLinecap="square"
+        strokeDasharray={s.dashTick}
+      />
+      <line
+        x1={tickB.x1}
+        y1={tickB.y1}
+        x2={tickB.x2}
+        y2={tickB.y2}
+        stroke={s.lineStroke}
+        strokeWidth={s.swTick}
+        strokeLinecap="square"
+        strokeDasharray={s.dashTick}
+      />
+      <circle
+        id={`wall-cota-circle-${wallKey}-${groupIndex}-${letter}`}
+        className="wall-cota-id-circle"
+        cx={cx}
+        cy={cy}
+        r={badgeR}
+        fill={COTA_FILL}
+        stroke="white"
+        strokeWidth={6}
+        paintOrder="stroke fill"
+      />
+      <text
+        x={cx}
+        y={cy}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill="white"
+        fontSize={badgeFs}
+        fontWeight={700}
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+        style={{ pointerEvents: "none" }}
+      >
+        {letter}
+      </text>
+    </g>
+  );
+}
+
+/** Puerta 220–440 (suelo) | ventana 540–800; lienzo 1000×700 alineado con recta / puerta / 2 ventanas. */
 export function WallIconPuertaVentana({ className, focusedGroup, ...rest }: WallIconInnerProps) {
+  const defs = getWallMeasureFieldDefs("pared-puerta-ventana");
+  const svgBase = svgPropsSimple({ ...rest, className: `${className ?? ""} text-primary` });
+  const ac = (i: number) => (defs[i]?.acronimo ?? wallMeasureLetter(i)).trim() || wallMeasureLetter(i);
+  const tit = (i: number) => {
+    const d = defs[i];
+    const letter = ac(i);
+    return d ? `${letter}: ${d.label} (m). ${d.verifyHint ?? ""}` : letter;
+  };
+  const grp = (i: number) => wallCotaFocusGroup(ac(i), "pared-puerta-ventana");
+  const wk = "pared-puerta-ventana";
+
   return (
-    <svg {...svgPropsExpanded({ ...rest, className: `${className ?? ""} text-primary` })} aria-hidden>
-      <PaddedDiagramLayer>
-        <g className="wall-geometry">
-          <rect x={Wx} y={Wy} width={Ww} height={Wh} {...wallGeomExpanded} />
-          <rect x={21} y={60} width={45} height={84} {...wallGeomExpanded} />
-          <rect x={93} y={57} width={54} height={42} {...wallGeomExpanded} />
-        </g>
-        <WallTypeCotasGroup wallId="pared-puerta-ventana" focusedGroup={focusedGroup} />
-      </PaddedDiagramLayer>
+    <svg {...svgBase} viewBox="0 0 1000 700" aria-hidden>
+      <g className="wall-geometry">
+        <rect x={120} y={60} width={800} height={520} strokeWidth={14} fill="none" stroke="currentColor" />
+        <rect x={220} y={200} width={220} height={380} strokeWidth={10} fill="none" stroke="currentColor" />
+        <rect x={540} y={220} width={260} height={200} strokeWidth={10} fill="none" stroke="currentColor" />
+      </g>
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={0}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 120, y1: 640, x2: 920, y2: 640 }}
+        tickA={{ x1: 120, y1: 620, x2: 120, y2: 660 }}
+        tickB={{ x1: 920, y1: 620, x2: 920, y2: 660 }}
+        cx={520}
+        cy={640}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={1}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 60, y1: 60, x2: 60, y2: 580 }}
+        tickA={{ x1: 40, y1: 60, x2: 80, y2: 60 }}
+        tickB={{ x1: 40, y1: 580, x2: 80, y2: 580 }}
+        cx={60}
+        cy={320}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={2}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 220, y1: 480, x2: 440, y2: 480 }}
+        tickA={{ x1: 220, y1: 460, x2: 220, y2: 500 }}
+        tickB={{ x1: 440, y1: 460, x2: 440, y2: 500 }}
+        cx={330}
+        cy={480}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={3}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 540, y1: 380, x2: 800, y2: 380 }}
+        tickA={{ x1: 540, y1: 360, x2: 540, y2: 400 }}
+        tickB={{ x1: 800, y1: 360, x2: 800, y2: 400 }}
+        cx={670}
+        cy={380}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={4}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 170, y1: 200, x2: 170, y2: 580 }}
+        tickA={{ x1: 150, y1: 200, x2: 190, y2: 200 }}
+        tickB={{ x1: 150, y1: 580, x2: 190, y2: 580 }}
+        cx={170}
+        cy={320}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={5}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 860, y1: 220, x2: 860, y2: 420 }}
+        tickA={{ x1: 840, y1: 220, x2: 880, y2: 220 }}
+        tickB={{ x1: 840, y1: 420, x2: 880, y2: 420 }}
+        cx={860}
+        cy={320}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={6}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 120, y1: 460, x2: 220, y2: 460 }}
+        tickA={{ x1: 120, y1: 440, x2: 120, y2: 480 }}
+        tickB={{ x1: 220, y1: 440, x2: 220, y2: 480 }}
+        cx={170}
+        cy={460}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={7}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 440, y1: 460, x2: 540, y2: 460 }}
+        tickA={{ x1: 440, y1: 440, x2: 440, y2: 480 }}
+        tickB={{ x1: 540, y1: 440, x2: 540, y2: 480 }}
+        cx={490}
+        cy={460}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={8}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 120, y1: 540, x2: 540, y2: 540 }}
+        tickA={{ x1: 120, y1: 520, x2: 120, y2: 560 }}
+        tickB={{ x1: 540, y1: 520, x2: 540, y2: 560 }}
+        cx={330}
+        cy={540}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={9}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 800, y1: 460, x2: 920, y2: 460 }}
+        tickA={{ x1: 800, y1: 440, x2: 800, y2: 480 }}
+        tickB={{ x1: 920, y1: 440, x2: 920, y2: 480 }}
+        cx={860}
+        cy={460}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={10}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 670, y1: 420, x2: 670, y2: 580 }}
+        tickA={{ x1: 650, y1: 420, x2: 690, y2: 420 }}
+        tickB={{ x1: 650, y1: 580, x2: 690, y2: 580 }}
+        cx={670}
+        cy={500}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={11}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 330, y1: 60, x2: 330, y2: 200 }}
+        tickA={{ x1: 310, y1: 60, x2: 350, y2: 60 }}
+        tickB={{ x1: 310, y1: 200, x2: 350, y2: 200 }}
+        cx={330}
+        cy={130}
+      />
+      <WallIconPuertaVentanaCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={12}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 670, y1: 60, x2: 670, y2: 220 }}
+        tickA={{ x1: 650, y1: 60, x2: 690, y2: 60 }}
+        tickB={{ x1: 650, y1: 220, x2: 690, y2: 220 }}
+        cx={670}
+        cy={140}
+      />
     </svg>
   );
 }
 
-/** V1 21–51 | puerta 57–105 | V2 129–159. */
+/** Cotas fijas `pared-puerta-2-ventanas` (1000×700): r=28, `stroke="white"` `strokeWidth={6}` en badge. */
+function WallIconPuerta2VentanasCotaHard({
+  focusedGroup,
+  wallKey,
+  groupIndex,
+  tit,
+  ac,
+  grp,
+  main,
+  tickA,
+  tickB,
+  cx,
+  cy,
+}: {
+  focusedGroup?: WallDiagramFocusGroupId | null;
+  wallKey: string;
+  groupIndex: number;
+  tit: (i: number) => string;
+  ac: (i: number) => string;
+  grp: (i: number) => WallDiagramFocusGroupId;
+  main: { x1: number; y1: number; x2: number; y2: number };
+  tickA: { x1: number; y1: number; x2: number; y2: number };
+  tickB: { x1: number; y1: number; x2: number; y2: number };
+  cx: number;
+  cy: number;
+}) {
+  const s = ventanaMegaCotaVisual(focusedGroup, grp(groupIndex));
+  const letter = ac(groupIndex);
+  const highlighted = focusedGroup != null && focusedGroup === grp(groupIndex);
+  const badgeR = 28;
+  const badgeFs = highlighted ? 32 : 27;
+  return (
+    <g
+      className="pointer-events-none transition-all duration-300 ease-out"
+      style={{ isolation: "isolate", opacity: s.groupOpacity }}
+    >
+      <title>{tit(groupIndex)}</title>
+      <line
+        x1={main.x1}
+        y1={main.y1}
+        x2={main.x2}
+        y2={main.y2}
+        stroke={s.lineStroke}
+        strokeWidth={s.swMain}
+        strokeLinecap="square"
+        strokeDasharray={s.dashMain}
+      />
+      <line
+        x1={tickA.x1}
+        y1={tickA.y1}
+        x2={tickA.x2}
+        y2={tickA.y2}
+        stroke={s.lineStroke}
+        strokeWidth={s.swTick}
+        strokeLinecap="square"
+        strokeDasharray={s.dashTick}
+      />
+      <line
+        x1={tickB.x1}
+        y1={tickB.y1}
+        x2={tickB.x2}
+        y2={tickB.y2}
+        stroke={s.lineStroke}
+        strokeWidth={s.swTick}
+        strokeLinecap="square"
+        strokeDasharray={s.dashTick}
+      />
+      <circle
+        id={`wall-cota-circle-${wallKey}-${groupIndex}-${letter}`}
+        className="wall-cota-id-circle"
+        cx={cx}
+        cy={cy}
+        r={badgeR}
+        fill={COTA_FILL}
+        stroke="white"
+        strokeWidth={6}
+        paintOrder="stroke fill"
+      />
+      <text
+        x={cx}
+        y={cy}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill="#fff"
+        fontSize={badgeFs}
+        fontWeight={700}
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+        style={{ pointerEvents: "none" }}
+      >
+        {letter}
+      </text>
+    </g>
+  );
+}
+
+/** Ventana 1 (200,220) | puerta (440,200) | ventana 2 (680,220); lienzo 1000×700, cotas simétricas fijas. */
 export function WallIconPuerta2Ventanas({ className, focusedGroup, ...rest }: WallIconInnerProps) {
+  const defs = getWallMeasureFieldDefs("pared-puerta-2-ventanas");
+  const svgBase = svgPropsSimple({ ...rest, className: `${className ?? ""} text-primary` });
+  const ac = (i: number) => (defs[i]?.acronimo ?? wallMeasureLetter(i)).trim() || wallMeasureLetter(i);
+  const tit = (i: number) => {
+    const d = defs[i];
+    const letter = ac(i);
+    return d ? `${letter}: ${d.label} (m). ${d.verifyHint ?? ""}` : letter;
+  };
+  const grp = (i: number) => wallCotaFocusGroup(ac(i));
+  const wk = "pared-puerta-2-ventanas";
+
   return (
-    <svg {...svgPropsExpanded({ ...rest, className: `${className ?? ""} text-primary` })} aria-hidden>
-      <PaddedDiagramLayer>
-        <g className="wall-geometry">
-          <rect x={Wx} y={Wy} width={Ww} height={Wh} {...wallGeomExpanded} />
-          <rect x={21} y={60} width={30} height={39} {...wallGeomExpanded} />
-          <rect x={57} y={57} width={48} height={87} {...wallGeomExpanded} />
-          <rect x={129} y={60} width={30} height={39} {...wallGeomExpanded} />
-        </g>
-        <WallTypeCotasGroup wallId="pared-puerta-2-ventanas" focusedGroup={focusedGroup} />
-      </PaddedDiagramLayer>
+    <svg {...svgBase} viewBox="0 0 1000 700" aria-hidden>
+      <g className="wall-geometry">
+        <rect x={120} y={60} width={800} height={520} strokeWidth={14} fill="none" stroke="currentColor" />
+        <rect x={200} y={220} width={160} height={200} strokeWidth={10} fill="none" stroke="currentColor" />
+        <rect x={440} y={200} width={160} height={380} strokeWidth={10} fill="none" stroke="currentColor" />
+        <rect x={680} y={220} width={160} height={200} strokeWidth={10} fill="none" stroke="currentColor" />
+      </g>
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={0}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 120, y1: 640, x2: 920, y2: 640 }}
+        tickA={{ x1: 120, y1: 620, x2: 120, y2: 660 }}
+        tickB={{ x1: 920, y1: 620, x2: 920, y2: 660 }}
+        cx={520}
+        cy={640}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={1}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 60, y1: 60, x2: 60, y2: 580 }}
+        tickA={{ x1: 40, y1: 60, x2: 80, y2: 60 }}
+        tickB={{ x1: 40, y1: 580, x2: 80, y2: 580 }}
+        cx={60}
+        cy={320}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={2}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 200, y1: 380, x2: 360, y2: 380 }}
+        tickA={{ x1: 200, y1: 360, x2: 200, y2: 400 }}
+        tickB={{ x1: 360, y1: 360, x2: 360, y2: 400 }}
+        cx={280}
+        cy={380}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={3}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 680, y1: 380, x2: 840, y2: 380 }}
+        tickA={{ x1: 680, y1: 360, x2: 680, y2: 400 }}
+        tickB={{ x1: 840, y1: 360, x2: 840, y2: 400 }}
+        cx={760}
+        cy={380}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={4}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 440, y1: 480, x2: 600, y2: 480 }}
+        tickA={{ x1: 440, y1: 460, x2: 440, y2: 500 }}
+        tickB={{ x1: 600, y1: 460, x2: 600, y2: 500 }}
+        cx={520}
+        cy={480}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={5}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 150, y1: 220, x2: 150, y2: 420 }}
+        tickA={{ x1: 130, y1: 220, x2: 170, y2: 220 }}
+        tickB={{ x1: 130, y1: 420, x2: 170, y2: 420 }}
+        cx={150}
+        cy={320}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={6}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 890, y1: 220, x2: 890, y2: 420 }}
+        tickA={{ x1: 870, y1: 220, x2: 910, y2: 220 }}
+        tickB={{ x1: 870, y1: 420, x2: 910, y2: 420 }}
+        cx={890}
+        cy={320}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={7}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 570, y1: 200, x2: 570, y2: 580 }}
+        tickA={{ x1: 550, y1: 200, x2: 590, y2: 200 }}
+        tickB={{ x1: 550, y1: 580, x2: 590, y2: 580 }}
+        cx={570}
+        cy={390}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={8}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 120, y1: 460, x2: 200, y2: 460 }}
+        tickA={{ x1: 120, y1: 440, x2: 120, y2: 480 }}
+        tickB={{ x1: 200, y1: 440, x2: 200, y2: 480 }}
+        cx={160}
+        cy={460}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={9}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 840, y1: 460, x2: 920, y2: 460 }}
+        tickA={{ x1: 840, y1: 440, x2: 840, y2: 480 }}
+        tickB={{ x1: 920, y1: 440, x2: 920, y2: 480 }}
+        cx={880}
+        cy={460}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={10}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 360, y1: 460, x2: 440, y2: 460 }}
+        tickA={{ x1: 360, y1: 440, x2: 360, y2: 480 }}
+        tickB={{ x1: 440, y1: 440, x2: 440, y2: 480 }}
+        cx={400}
+        cy={460}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={11}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 600, y1: 460, x2: 680, y2: 460 }}
+        tickA={{ x1: 600, y1: 440, x2: 600, y2: 480 }}
+        tickB={{ x1: 680, y1: 440, x2: 680, y2: 480 }}
+        cx={640}
+        cy={460}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={12}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 280, y1: 60, x2: 280, y2: 220 }}
+        tickA={{ x1: 260, y1: 60, x2: 300, y2: 60 }}
+        tickB={{ x1: 260, y1: 220, x2: 300, y2: 220 }}
+        cx={280}
+        cy={140}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={13}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 760, y1: 60, x2: 760, y2: 220 }}
+        tickA={{ x1: 740, y1: 60, x2: 780, y2: 60 }}
+        tickB={{ x1: 740, y1: 220, x2: 780, y2: 220 }}
+        cx={760}
+        cy={140}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={14}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 520, y1: 60, x2: 520, y2: 200 }}
+        tickA={{ x1: 500, y1: 60, x2: 540, y2: 60 }}
+        tickB={{ x1: 500, y1: 200, x2: 540, y2: 200 }}
+        cx={520}
+        cy={130}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={15}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 280, y1: 420, x2: 280, y2: 580 }}
+        tickA={{ x1: 260, y1: 420, x2: 300, y2: 420 }}
+        tickB={{ x1: 260, y1: 580, x2: 300, y2: 580 }}
+        cx={280}
+        cy={500}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={16}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 760, y1: 420, x2: 760, y2: 580 }}
+        tickA={{ x1: 740, y1: 420, x2: 780, y2: 420 }}
+        tickB={{ x1: 740, y1: 580, x2: 780, y2: 580 }}
+        cx={760}
+        cy={500}
+      />
     </svg>
   );
 }
 
-/** Puertas 27–69 y 111–153. */
+/** P1 (220,200) | P2 (600,200); lienzo 1000×700; A2 desde jamba izquierda P2 al extremo derecho del muro. */
 export function WallIcon2Puertas({ className, focusedGroup, ...rest }: WallIconInnerProps) {
-  const pw = 42;
-  const ph = Wbottom - 57;
+  const defs = getWallMeasureFieldDefs("pared-2-puertas");
+  const svgBase = svgPropsSimple({ ...rest, className: `${className ?? ""} text-primary` });
+  const ac = (i: number) => (defs[i]?.acronimo ?? wallMeasureLetter(i)).trim() || wallMeasureLetter(i);
+  const tit = (i: number) => {
+    const d = defs[i];
+    const letter = ac(i);
+    return d ? `${letter}: ${d.label} (m). ${d.verifyHint ?? ""}` : letter;
+  };
+  const grp = (i: number) => wallCotaFocusGroup(ac(i));
+  const wk = "pared-2-puertas";
+
   return (
-    <svg {...svgPropsExpanded({ ...rest, className: `${className ?? ""} text-primary` })} aria-hidden>
-      <PaddedDiagramLayer>
-        <g className="wall-geometry">
-          <rect x={Wx} y={Wy} width={Ww} height={Wh} {...wallGeomExpanded} />
-          <rect x={27} y={57} width={pw} height={ph} {...wallGeomExpanded} />
-          <rect x={111} y={57} width={pw} height={ph} {...wallGeomExpanded} />
-        </g>
-        <WallTypeCotasGroup wallId="pared-2-puertas" focusedGroup={focusedGroup} />
-      </PaddedDiagramLayer>
+    <svg {...svgBase} viewBox="0 0 1000 700" aria-hidden>
+      <g className="wall-geometry">
+        <rect x={120} y={60} width={800} height={520} strokeWidth={14} fill="none" stroke="currentColor" />
+        <rect x={220} y={200} width={200} height={380} strokeWidth={10} fill="none" stroke="currentColor" />
+        <rect x={600} y={200} width={200} height={380} strokeWidth={10} fill="none" stroke="currentColor" />
+      </g>
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={0}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 120, y1: 640, x2: 920, y2: 640 }}
+        tickA={{ x1: 120, y1: 620, x2: 120, y2: 660 }}
+        tickB={{ x1: 920, y1: 620, x2: 920, y2: 660 }}
+        cx={520}
+        cy={640}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={1}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 60, y1: 60, x2: 60, y2: 580 }}
+        tickA={{ x1: 40, y1: 60, x2: 80, y2: 60 }}
+        tickB={{ x1: 40, y1: 580, x2: 80, y2: 580 }}
+        cx={60}
+        cy={320}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={2}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 220, y1: 480, x2: 420, y2: 480 }}
+        tickA={{ x1: 220, y1: 460, x2: 220, y2: 500 }}
+        tickB={{ x1: 420, y1: 460, x2: 420, y2: 500 }}
+        cx={320}
+        cy={480}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={3}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 600, y1: 480, x2: 800, y2: 480 }}
+        tickA={{ x1: 600, y1: 460, x2: 600, y2: 500 }}
+        tickB={{ x1: 800, y1: 460, x2: 800, y2: 500 }}
+        cx={700}
+        cy={480}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={4}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 170, y1: 200, x2: 170, y2: 580 }}
+        tickA={{ x1: 150, y1: 200, x2: 190, y2: 200 }}
+        tickB={{ x1: 150, y1: 580, x2: 190, y2: 580 }}
+        cx={170}
+        cy={390}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={5}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 860, y1: 200, x2: 860, y2: 580 }}
+        tickA={{ x1: 840, y1: 200, x2: 880, y2: 200 }}
+        tickB={{ x1: 840, y1: 580, x2: 880, y2: 580 }}
+        cx={860}
+        cy={390}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={6}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 320, y1: 60, x2: 320, y2: 200 }}
+        tickA={{ x1: 300, y1: 60, x2: 340, y2: 60 }}
+        tickB={{ x1: 300, y1: 200, x2: 340, y2: 200 }}
+        cx={320}
+        cy={130}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={7}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 700, y1: 60, x2: 700, y2: 200 }}
+        tickA={{ x1: 680, y1: 60, x2: 720, y2: 60 }}
+        tickB={{ x1: 680, y1: 200, x2: 720, y2: 200 }}
+        cx={700}
+        cy={130}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={8}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 120, y1: 460, x2: 220, y2: 460 }}
+        tickA={{ x1: 120, y1: 440, x2: 120, y2: 480 }}
+        tickB={{ x1: 220, y1: 440, x2: 220, y2: 480 }}
+        cx={170}
+        cy={460}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={9}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 420, y1: 460, x2: 600, y2: 460 }}
+        tickA={{ x1: 420, y1: 440, x2: 420, y2: 480 }}
+        tickB={{ x1: 600, y1: 440, x2: 600, y2: 480 }}
+        cx={510}
+        cy={460}
+      />
+      <WallIconPuerta2VentanasCotaHard
+        focusedGroup={focusedGroup}
+        wallKey={wk}
+        groupIndex={10}
+        tit={tit}
+        ac={ac}
+        grp={grp}
+        main={{ x1: 800, y1: 460, x2: 920, y2: 460 }}
+        tickA={{ x1: 800, y1: 450, x2: 800, y2: 470 }}
+        tickB={{ x1: 920, y1: 450, x2: 920, y2: 470 }}
+        cx={860}
+        cy={460}
+      />
     </svg>
   );
 }

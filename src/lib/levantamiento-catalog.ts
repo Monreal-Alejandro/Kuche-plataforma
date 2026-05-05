@@ -298,73 +298,79 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
       key: "largo-muro",
       label: "Largo total del muro",
       acronimo: "L",
-      verifyHint: "Cota A: ancho total del muro.",
+      verifyHint: "Cota en línea inferior: ancho total del muro.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
       acronimo: "H",
-      verifyHint: "Cota B: altura total del muro.",
+      verifyHint: "Cota vertical en borde izquierdo: piso a techo.",
     },
     {
       key: "ancho-vano-puerta",
       label: "Ancho del hueco de la puerta",
       acronimo: "AP",
-      verifyHint: "Cota C: ancho del vano de la puerta.",
+      verifyHint: "Ancho del vano de la puerta (jamba a jamba).",
     },
     {
       key: "ancho-vano-ventana",
       label: "Ancho del hueco de la ventana",
       acronimo: "AV",
-      verifyHint: "Cota D: ancho del vano de la ventana.",
+      verifyHint: "Ancho del vano de la ventana.",
     },
     {
       key: "alto-vano-puerta",
       label: "Alto del hueco de la puerta",
       acronimo: "HP",
-      verifyHint: "Cota E: alto del vano de la puerta.",
+      verifyHint: "Alto del vano de la puerta (paramento exterior izquierdo del hueco).",
     },
     {
       key: "alto-vano-ventana",
       label: "Alto del hueco de la ventana",
       acronimo: "HV",
-      verifyHint: "Cota F: alto del vano de la ventana.",
-    },
-    {
-      key: "antepecho-ventana",
-      label: "Distancia del piso a parte baja de la ventana",
-      acronimo: "hV",
-      verifyHint: "Cota G: desde piso terminado hasta arranque inferior de ventana.",
-    },
-    {
-      key: "cabezal-ventana",
-      label: "Distancia de techo a parte alta de la ventana",
-      acronimo: "TV",
-      verifyHint: "Cota H: claro superior entre techo y remate de ventana.",
-    },
-    {
-      key: "cabezal-puerta",
-      label: "Distancia de techo al marco superior de la puerta",
-      acronimo: "TP",
-      verifyHint: "Cota I: claro superior del vano de puerta.",
+      verifyHint: "Alto del vano de la ventana (paramento exterior derecho del hueco).",
     },
     {
       key: "dist-extremo-a-puerta",
       label: "Distancia desde extremo del muro al inicio de la puerta",
       acronimo: "A",
-      verifyHint: "Cota J: desde el extremo de referencia al vano de la puerta.",
+      verifyHint: "Tramo horizontal desde el extremo de referencia al inicio del vano de puerta.",
     },
     {
       key: "dist-puerta-a-ventana",
       label: "Distancia libre entre puerta y ventana",
       acronimo: "dPV",
-      verifyHint: "Cota K: tramo horizontal libre entre jamba de puerta y jamba de ventana.",
+      verifyHint: "Tramo libre entre jamba derecha de puerta y jamba izquierda de ventana.",
     },
     {
       key: "dist-extremo-a-ventana",
       label: "Distancia desde extremo del muro al inicio de la ventana",
       acronimo: "AV0",
-      verifyHint: "Cota L: ubicacion horizontal del vano de ventana respecto al extremo.",
+      verifyHint: "Ubicación horizontal del inicio del vano de ventana respecto al extremo del muro.",
+    },
+    {
+      key: "dist-fin-ventana-extremo-derecho",
+      label: "Distancia desde el extremo derecho del muro al fin de la ventana",
+      acronimo: "AV2",
+      verifyHint: "Tramo horizontal desde jamba derecha de ventana hasta el extremo derecho del muro.",
+    },
+    {
+      key: "antepecho-ventana",
+      label: "Distancia del piso a parte baja de la ventana",
+      acronimo: "hV",
+      verifyHint: "Desde piso terminado hasta arranque inferior del vano de ventana.",
+    },
+    {
+      key: "cabezal-puerta",
+      label: "Distancia de techo al marco superior de la puerta",
+      acronimo: "TP",
+      verifyHint: "Claro entre techo y dintel o marco superior de la puerta.",
+    },
+    {
+      key: "cabezal-ventana",
+      label: "Distancia de techo a parte alta de la ventana",
+      acronimo: "TV",
+      verifyHint: "Claro superior entre techo y remate superior del vano de ventana.",
     },
   ],
   "pared-puerta-2-ventanas": [
@@ -372,79 +378,103 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
       key: "largo-muro",
       label: "Largo total del muro",
       acronimo: "L",
-      verifyHint: "Cota A: ancho total del muro.",
+      verifyHint: "Cota L: ancho total del muro en la línea inferior del alzado.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
       acronimo: "H",
-      verifyHint: "Cota B: altura total del muro.",
+      verifyHint: "Cota H: altura total del muro (piso a techo) en el borde izquierdo.",
+    },
+    {
+      key: "ancho-ventana-1",
+      label: "Ancho del hueco de la ventana 1",
+      acronimo: "AV1",
+      verifyHint: "Cota AV1: ancho del vano de la ventana izquierda (jamba a jamba).",
+    },
+    {
+      key: "ancho-ventana-2",
+      label: "Ancho del hueco de la ventana 2",
+      acronimo: "AV2",
+      verifyHint: "Cota AV2: ancho del vano de la ventana derecha (jamba a jamba).",
     },
     {
       key: "ancho-vano-puerta",
       label: "Ancho del hueco de la puerta",
       acronimo: "AP",
-      verifyHint: "Cota C: ancho del vano de la puerta.",
+      verifyHint: "Cota AP: ancho del vano de la puerta central.",
     },
     {
-      key: "ancho-ventana-1",
-      label: "Ancho ventana 1",
-      acronimo: "AV1",
-      verifyHint: "Cota D: ancho del primer vano de ventana.",
+      key: "alto-ventana-1",
+      label: "Alto del hueco de la ventana 1",
+      acronimo: "HV1",
+      verifyHint: "Cota HV1: alto del vano de la ventana 1 (paramento exterior izquierdo del hueco).",
     },
     {
-      key: "ancho-ventana-2",
-      label: "Ancho ventana 2",
-      acronimo: "AV2",
-      verifyHint: "Cota E: ancho del segundo vano de ventana.",
+      key: "alto-ventana-2",
+      label: "Alto del hueco de la ventana 2",
+      acronimo: "HV2",
+      verifyHint: "Cota HV2: alto del vano de la ventana 2 (paramento exterior derecho del hueco).",
     },
     {
       key: "alto-vano-puerta",
       label: "Alto del hueco de la puerta",
       acronimo: "HP",
-      verifyHint: "Cota F: alto del vano de la puerta.",
+      verifyHint: "Cota HP: alto del vano de la puerta (línea interior del diagrama).",
     },
     {
-      key: "alto-vano-ventana",
-      label: "Alto del hueco de las ventanas",
-      acronimo: "HV",
-      verifyHint: "Cota G: alto común de los vanos de ventana (si aplica).",
+      key: "dist-extremo-izq-v1",
+      label: "Distancia del extremo izquierdo del muro al inicio de la ventana 1",
+      acronimo: "A1",
+      verifyHint: "Cota A1: tramo horizontal desde el arranque del muro hasta la jamba izquierda de V1.",
     },
     {
-      key: "antepecho-ventana",
-      label: "Distancia del piso a parte baja de las ventanas",
-      acronimo: "hV",
-      verifyHint: "Cota H: antepecho de ventanas.",
+      key: "dist-extremo-der-v2",
+      label: "Distancia del extremo derecho del muro al fin de la ventana 2",
+      acronimo: "A2",
+      verifyHint: "Cota A2: tramo horizontal desde la jamba derecha de V2 hasta el extremo derecho del muro.",
     },
     {
-      key: "cabezal-ventana",
-      label: "Distancia de techo a parte alta de las ventanas",
-      acronimo: "TV",
-      verifyHint: "Cota I: claro superior de vanos de ventana.",
+      key: "dist-v1-a-puerta",
+      label: "Distancia libre entre ventana 1 y puerta",
+      acronimo: "dP1",
+      verifyHint: "Cota dP1: tramo libre entre jamba derecha de V1 y jamba izquierda de la puerta.",
+    },
+    {
+      key: "dist-puerta-a-v2",
+      label: "Distancia libre entre puerta y ventana 2",
+      acronimo: "dP2",
+      verifyHint: "Cota dP2: tramo libre entre jamba derecha de la puerta y jamba izquierda de V2.",
+    },
+    {
+      key: "cabezal-ventana-1",
+      label: "Distancia de techo a parte alta de la ventana 1",
+      acronimo: "TV1",
+      verifyHint: "Cota TV1: claro superior entre techo y dintel de la ventana 1.",
+    },
+    {
+      key: "cabezal-ventana-2",
+      label: "Distancia de techo a parte alta de la ventana 2",
+      acronimo: "TV2",
+      verifyHint: "Cota TV2: claro superior entre techo y dintel de la ventana 2.",
     },
     {
       key: "cabezal-puerta",
       label: "Distancia de techo al marco superior de la puerta",
       acronimo: "TP",
-      verifyHint: "Cota J: claro superior del vano de puerta.",
+      verifyHint: "Cota TP: claro entre techo y dintel o marco superior de la puerta.",
     },
     {
-      key: "dist-extremo-a-puerta",
-      label: "Distancia desde extremo del muro al inicio de la puerta",
-      acronimo: "A",
-      verifyHint: "Cota K: desde el extremo al vano de la puerta.",
+      key: "antepecho-ventana-1",
+      label: "Antepecho (piso a parte baja del hueco) · ventana 1",
+      acronimo: "hV1",
+      verifyHint: "Cota hV1: desde piso terminado hasta arranque inferior del vano de la ventana 1.",
     },
     {
-      key: "dist-puerta-a-ventana-1",
-      label: "Distancia libre entre puerta y ventana 1",
-      acronimo: "dP1",
-      verifyHint: "Cota L: tramo libre entre puerta y ventana 1.",
-    },
-    {
-      key: "dist-ventana-1-a-ventana-2",
-      label: "Distancia libre entre ventana 1 y ventana 2",
-      acronimo: "d12",
-      verifyHint: "Cota M: tramo libre entre ambos vanos de ventana.",
+      key: "antepecho-ventana-2",
+      label: "Antepecho (piso a parte baja del hueco) · ventana 2",
+      acronimo: "hV2",
+      verifyHint: "Cota hV2: desde piso terminado hasta arranque inferior del vano de la ventana 2.",
     },
   ],
   "pared-2-puertas": [
@@ -452,55 +482,68 @@ export const WALL_MEASURE_SCHEMA: Record<string, WallMeasureFieldDef[]> = {
       key: "largo-muro",
       label: "Largo total del muro",
       acronimo: "L",
-      verifyHint: "Cota A: ancho total del muro.",
+      verifyHint: "Cota L: ancho total del muro en la línea inferior del alzado.",
     },
     {
       key: "altura-techo",
       label: "Altura hasta techo",
       acronimo: "H",
-      verifyHint: "Cota B: altura total del muro.",
+      verifyHint: "Cota H: altura total del muro (piso a techo) en el borde izquierdo.",
     },
     {
       key: "ancho-puerta-1",
-      label: "Ancho puerta 1",
+      label: "Ancho del hueco de la puerta 1",
       acronimo: "AP1",
-      verifyHint: "Cota C: ancho del vano de la primera puerta.",
+      verifyHint: "Cota AP1: ancho del vano de la puerta izquierda (jamba a jamba).",
     },
     {
       key: "ancho-puerta-2",
-      label: "Ancho puerta 2",
+      label: "Ancho del hueco de la puerta 2",
       acronimo: "AP2",
-      verifyHint: "Cota D: ancho del vano de la segunda puerta.",
+      verifyHint: "Cota AP2: ancho del vano de la puerta derecha (jamba a jamba).",
     },
     {
-      key: "alto-vano",
-      label: "Alto del hueco (puertas)",
-      acronimo: "HP",
-      verifyHint: "Cota E: alto común de los vanos.",
+      key: "alto-vano-puerta-1",
+      label: "Alto del hueco de la puerta 1",
+      acronimo: "HP1",
+      verifyHint: "Cota HP1: alto del vano de la puerta 1 (paramento exterior izquierdo del hueco).",
     },
     {
-      key: "cabezal-puertas",
-      label: "Distancia de techo al marco superior de las puertas",
-      acronimo: "TP",
-      verifyHint: "Cota F: claro superior entre techo y dintel de puertas.",
+      key: "alto-vano-puerta-2",
+      label: "Alto del hueco de la puerta 2",
+      acronimo: "HP2",
+      verifyHint: "Cota HP2: alto del vano de la puerta 2 (paramento exterior derecho del hueco).",
+    },
+    {
+      key: "cabezal-puerta-1",
+      label: "Distancia de techo al marco superior de la puerta 1",
+      acronimo: "TP1",
+      verifyHint: "Cota TP1: claro entre techo y dintel o marco superior de la puerta 1.",
+    },
+    {
+      key: "cabezal-puerta-2",
+      label: "Distancia de techo al marco superior de la puerta 2",
+      acronimo: "TP2",
+      verifyHint: "Cota TP2: claro entre techo y dintel o marco superior de la puerta 2.",
     },
     {
       key: "dist-extremo-a-puerta-1",
-      label: "Distancia desde extremo del muro al inicio de puerta 1",
+      label: "Distancia desde extremo izquierdo del muro al inicio de la puerta 1",
       acronimo: "A",
-      verifyHint: "Cota G: desde el extremo al primer vano.",
+      verifyHint: "Cota A: tramo horizontal desde el arranque izquierdo del muro hasta la jamba izquierda de la puerta 1.",
     },
     {
       key: "dist-entre-puertas",
       label: "Distancia libre entre puerta 1 y puerta 2",
-      acronimo: "dP",
-      verifyHint: "Cota H: separacion horizontal libre entre vanos de puerta.",
+      acronimo: "dPP",
+      verifyHint: "Cota dPP: tramo libre horizontal entre jamba derecha de P1 y jamba izquierda de P2.",
     },
     {
       key: "dist-extremo-a-puerta-2",
-      label: "Distancia desde extremo del muro al inicio de puerta 2",
+      label: "Distancia desde extremo derecho del muro al inicio de la puerta 2",
       acronimo: "A2",
-      verifyHint: "Cota I: desde el extremo de referencia al segundo vano.",
+      verifyHint:
+        "Cota A2: tramo horizontal desde la jamba izquierda de la puerta 2 hasta el extremo derecho del muro (medido desde la derecha).",
     },
   ],
   "pared-otro": [
@@ -562,7 +605,7 @@ export function wallMeasureLetter(index: number): string {
 
 /** Acrónimos de cotas sobre vanos (tipografía más pequeña en diagramas). */
 export function isWallDimensionInteriorLabel(code: string): boolean {
-  if (code === "HP" || code === "HV" || code.startsWith("HV")) return true;
+  if (code.startsWith("HP") || code === "HV" || code.startsWith("HV")) return true;
   if (code === "hV" || code.startsWith("hV")) return true;
   if (code === "AP" || code.startsWith("AP")) return true;
   if (code === "AV" || code.startsWith("AV")) return true;
@@ -576,14 +619,16 @@ export type WallDiagramFocusGroupId = "general" | "vano" | "ubicacion";
 /**
  * Coloca cada acrónimo de cota en el mismo grupo visual que los bloques del formulario.
  * general: L,H · vano: AP/HP/HV y anchos AV* del hueco · ubicacion: posiciones, antepechos, cabezales, distancias (incl. AV0).
+ * En `pared-puerta-ventana`, AV2 es tramo derecho (ubicacion), no ancho de vano.
  */
-export function wallCotaFocusGroup(acronym: string): WallDiagramFocusGroupId {
+export function wallCotaFocusGroup(acronym: string, wallId?: string): WallDiagramFocusGroupId {
   const c = acronym.trim();
   if (c === "L" || c === "H") return "general";
   if (c === "AV0") return "ubicacion";
+  if (wallId === "pared-puerta-ventana" && c === "AV2") return "ubicacion";
   if (
     c === "AP" ||
-    c === "HP" ||
+    c.startsWith("HP") ||
     c === "HV" ||
     c.startsWith("HV") ||
     c.startsWith("AP") ||
@@ -597,9 +642,9 @@ export function wallCotaFocusGroup(acronym: string): WallDiagramFocusGroupId {
  * Misma regla que el diagrama SVG (`wallCotaFocusGroup`): agrupa campos del formulario de pared.
  * Si no hay acrónimo (p. ej. texto libre), se infiere solo por claves obvias L/H.
  */
-export function wallMeasureFieldFocusGroup(field: WallMeasureFieldDef): WallDiagramFocusGroupId {
+export function wallMeasureFieldFocusGroup(field: WallMeasureFieldDef, wallId?: string): WallDiagramFocusGroupId {
   const ac = field.acronimo?.trim();
-  if (ac) return wallCotaFocusGroup(ac);
+  if (ac) return wallCotaFocusGroup(ac, wallId);
   const key = field.key.toLowerCase();
   if (key.startsWith("largo-")) return "general";
   if (key.startsWith("altura-")) return "general";
@@ -626,7 +671,6 @@ const EXPANDED_DIAGRAM_WALL_IDS = new Set([
   "pared-ventana",
   "pared-puerta",
   "pared-2-ventanas",
-  "pared-puerta-ventana",
   "pared-puerta-2-ventanas",
   "pared-2-puertas",
 ]);
@@ -702,48 +746,39 @@ export const WALL_MEASURE_DIMENSION_LINES: Partial<
     { x1: 126, y1: 33, x2: 126, y2: 67.1, labelDx: 12, labelDy: 0 },
     { x1: 144, y1: 118.2, x2: 162, y2: 118.2, labelDx: 0, labelDy: 10 },
   ],
-  /** Puerta 21–66 y60 h84 | ventana 93–147 y57 (AV/AP escalonadas). */
-  "pared-puerta-ventana": [
-    { x1: 18, y1: 168, x2: 162, y2: 168, labelDx: 0, labelDy: 10 },
-    { x1: -6, y1: 144, x2: -6, y2: 33, labelDx: -13, labelDy: 0 },
-    { x1: 21, y1: 48, x2: 66, y2: 48, labelDx: 0, labelDy: -9 },
-    { x1: 93, y1: 56, x2: 147, y2: 56, labelDx: 0, labelDy: -10 },
-    { x1: 132, y1: 60, x2: 132, y2: 144, labelDx: 14, labelDy: 0 },
-    { x1: 154, y1: 57, x2: 154, y2: 99, labelDx: 14, labelDy: 0 },
-    { x1: 118, y1: 144, x2: 118, y2: 99, labelDx: 14, labelDy: 0 },
-    { x1: 168, y1: 33, x2: 168, y2: 57, labelDx: 12, labelDy: 0 },
-    { x1: 40, y1: 33, x2: 40, y2: 60, labelDx: -13, labelDy: 0 },
-    { x1: 18, y1: 158, x2: 21, y2: 158, labelDx: 0, labelDy: 10 },
-    { x1: 66, y1: 118, x2: 93, y2: 118, labelDx: 0, labelDy: -11 },
-    { x1: 18, y1: 130, x2: 93, y2: 130, labelDx: 0, labelDy: 12 },
-  ],
-  /** V1 21–51 | puerta 57–105 | V2 129–159. */
+  /** Alineado al icono 1000×700 (V1–puerta–V2 simétrico); orden = `WALL_MEASURE_SCHEMA["pared-puerta-2-ventanas"]`. */
   "pared-puerta-2-ventanas": [
-    { x1: 18, y1: 168, x2: 162, y2: 168, labelDx: 0, labelDy: 10 },
-    { x1: -6, y1: 144, x2: -6, y2: 33, labelDx: -13, labelDy: 0 },
-    { x1: 57, y1: 46, x2: 105, y2: 46, labelDx: 0, labelDy: -9 },
-    { x1: 21, y1: 48, x2: 51, y2: 48, labelDx: 0, labelDy: -9 },
-    { x1: 129, y1: 60, x2: 159, y2: 60, labelDx: 0, labelDy: -10 },
-    { x1: 81, y1: 57, x2: 81, y2: 144, labelDx: 14, labelDy: 0 },
-    { x1: 44, y1: 60, x2: 44, y2: 99, labelDx: -14, labelDy: 0 },
-    { x1: 138, y1: 99, x2: 138, y2: 144, labelDx: 14, labelDy: 0 },
-    { x1: 168, y1: 33, x2: 168, y2: 60, labelDx: 12, labelDy: 0 },
-    { x1: 40, y1: 33, x2: 40, y2: 57, labelDx: -13, labelDy: 0 },
-    { x1: 18, y1: 158, x2: 57, y2: 158, labelDx: 0, labelDy: 10 },
-    { x1: 51, y1: 124, x2: 57, y2: 124, labelDx: 0, labelDy: -11 },
-    { x1: 51, y1: 138, x2: 129, y2: 138, labelDx: 0, labelDy: 12 },
+    { x1: 18, y1: 156.81, x2: 162, y2: 156.81, labelDx: 0, labelDy: 10 },
+    { x1: 7.2, y1: 33, x2: 7.2, y2: 144, labelDx: -12, labelDy: 0 },
+    { x1: 32.4, y1: 101.31, x2: 61.2, y2: 101.31, labelDx: 0, labelDy: 10 },
+    { x1: 118.8, y1: 101.31, x2: 147.6, y2: 101.31, labelDx: 0, labelDy: 10 },
+    { x1: 75.6, y1: 122.65, x2: 104.4, y2: 122.65, labelDx: 0, labelDy: 10 },
+    { x1: 23.4, y1: 67.15, x2: 23.4, y2: 109.85, labelDx: -12, labelDy: 0 },
+    { x1: 156.6, y1: 67.15, x2: 156.6, y2: 109.85, labelDx: 12, labelDy: 0 },
+    { x1: 99, y1: 62.88, x2: 99, y2: 144, labelDx: 12, labelDy: 0 },
+    { x1: 18, y1: 118.38, x2: 32.4, y2: 118.38, labelDx: 0, labelDy: 10 },
+    { x1: 147.6, y1: 118.38, x2: 162, y2: 118.38, labelDx: 0, labelDy: 10 },
+    { x1: 61.2, y1: 118.38, x2: 75.6, y2: 118.38, labelDx: 0, labelDy: 10 },
+    { x1: 104.4, y1: 118.38, x2: 118.8, y2: 118.38, labelDx: 0, labelDy: 10 },
+    { x1: 46.8, y1: 33, x2: 46.8, y2: 67.15, labelDx: -12, labelDy: 0 },
+    { x1: 133.2, y1: 33, x2: 133.2, y2: 67.15, labelDx: 12, labelDy: 0 },
+    { x1: 90, y1: 33, x2: 90, y2: 62.88, labelDx: -12, labelDy: 0 },
+    { x1: 46.8, y1: 109.85, x2: 46.8, y2: 144, labelDx: -12, labelDy: 0 },
+    { x1: 133.2, y1: 109.85, x2: 133.2, y2: 144, labelDx: 12, labelDy: 0 },
   ],
-  /** Puertas 27–69 y 111–153. */
+  /** Alineado al icono 1000×700 (P1 220,200 | P2 600,200); A2 = jamba izq. P2 → extremo derecho del muro. */
   "pared-2-puertas": [
-    { x1: 18, y1: 166, x2: 162, y2: 166, labelDx: 0, labelDy: 10 },
-    { x1: -4, y1: 144, x2: -4, y2: 33, labelDx: -12, labelDy: 0 },
-    { x1: 27, y1: 48, x2: 69, y2: 48, labelDx: 0, labelDy: -9 },
-    { x1: 111, y1: 54, x2: 153, y2: 54, labelDx: 0, labelDy: -10 },
-    { x1: 90, y1: 57, x2: 90, y2: 144, labelDx: 14, labelDy: 0 },
-    { x1: 168, y1: 33, x2: 168, y2: 57, labelDx: 12, labelDy: 0 },
-    { x1: 18, y1: 156, x2: 27, y2: 156, labelDx: 0, labelDy: 10 },
-    { x1: 69, y1: 114, x2: 111, y2: 114, labelDx: 0, labelDy: -11 },
-    { x1: 18, y1: 130, x2: 111, y2: 130, labelDx: 0, labelDy: 12 },
+    { x1: 18, y1: 156.81, x2: 162, y2: 156.81, labelDx: 0, labelDy: 10 },
+    { x1: 7.2, y1: 33, x2: 7.2, y2: 144, labelDx: -12, labelDy: 0 },
+    { x1: 36, y1: 122.65, x2: 72, y2: 122.65, labelDx: 0, labelDy: 10 },
+    { x1: 104.4, y1: 122.65, x2: 140.4, y2: 122.65, labelDx: 0, labelDy: 10 },
+    { x1: 27, y1: 62.88, x2: 27, y2: 144, labelDx: -12, labelDy: 0 },
+    { x1: 151.2, y1: 62.88, x2: 151.2, y2: 144, labelDx: 12, labelDy: 0 },
+    { x1: 54, y1: 33, x2: 54, y2: 62.88, labelDx: -12, labelDy: 0 },
+    { x1: 122.4, y1: 33, x2: 122.4, y2: 62.88, labelDx: 12, labelDy: 0 },
+    { x1: 18, y1: 118.38, x2: 36, y2: 118.38, labelDx: 0, labelDy: 10 },
+    { x1: 72, y1: 118.38, x2: 104.4, y2: 118.38, labelDx: 0, labelDy: 10 },
+    { x1: 140.4, y1: 118.38, x2: 162, y2: 118.38, labelDx: 0, labelDy: 10 },
   ],
 };
 
@@ -786,40 +821,47 @@ export const WALL_MEASURE_BADGE_POSITIONS: Partial<
     { top: "48%", left: "10%" },
     { top: "56%", left: "28%" },
     { top: "54%", left: "78%" },
-    { top: "40%", left: "36%" },
-    { top: "38%", left: "82%" },
-    { top: "62%", left: "72%" },
-    { top: "24%", left: "82%" },
-    { top: "24%", left: "22%" },
-    { top: "88%", left: "12%" },
-    { top: "76%", left: "52%" },
+    { top: "42%", left: "32%" },
+    { top: "40%", left: "88%" },
+    { top: "88%", left: "14%" },
+    { top: "76%", left: "48%" },
     { top: "88%", left: "52%" },
+    { top: "92%", left: "42%" },
+    { top: "62%", left: "72%" },
+    { top: "24%", left: "38%" },
+    { top: "26%", left: "72%" },
   ],
   "pared-puerta-2-ventanas": [
     { top: "84%", left: "50%" },
     { top: "48%", left: "10%" },
+    { top: "58%", left: "28%" },
+    { top: "58%", left: "78%" },
     { top: "56%", left: "52%" },
-    { top: "52%", left: "22%" },
-    { top: "52%", left: "82%" },
-    { top: "42%", left: "52%" },
-    { top: "38%", left: "22%" },
-    { top: "62%", left: "72%" },
-    { top: "26%", left: "82%" },
-    { top: "26%", left: "38%" },
-    { top: "88%", left: "38%" },
-    { top: "76%", left: "32%" },
-    { top: "76%", left: "62%" },
+    { top: "38%", left: "18%" },
+    { top: "38%", left: "88%" },
+    { top: "44%", left: "52%" },
+    { top: "88%", left: "18%" },
+    { top: "88%", left: "82%" },
+    { top: "76%", left: "40%" },
+    { top: "76%", left: "64%" },
+    { top: "22%", left: "30%" },
+    { top: "22%", left: "76%" },
+    { top: "20%", left: "52%" },
+    { top: "72%", left: "30%" },
+    { top: "72%", left: "76%" },
   ],
   "pared-2-puertas": [
     { top: "84%", left: "50%" },
     { top: "48%", left: "10%" },
-    { top: "54%", left: "28%" },
-    { top: "54%", left: "78%" },
-    { top: "42%", left: "38%" },
-    { top: "24%", left: "85%" },
-    { top: "88%", left: "18%" },
-    { top: "76%", left: "52%" },
-    { top: "88%", left: "62%" },
+    { top: "56%", left: "32%" },
+    { top: "56%", left: "70%" },
+    { top: "42%", left: "22%" },
+    { top: "42%", left: "80%" },
+    { top: "22%", left: "32%" },
+    { top: "22%", left: "70%" },
+    { top: "88%", left: "22%" },
+    { top: "76%", left: "50%" },
+    { top: "88%", left: "78%" },
   ],
 };
 
@@ -891,6 +933,39 @@ export function migrateWallMeasuresEntry(wallId: string, raw: unknown): Record<s
       if (tv) {
         if (!(base["cabezal-ventana-1"] ?? "").trim()) base["cabezal-ventana-1"] = tv;
         if (!(base["cabezal-ventana-2"] ?? "").trim()) base["cabezal-ventana-2"] = tv;
+      }
+    }
+    if (wallId === "pared-puerta-2-ventanas") {
+      const str = (k: string) => (typeof o[k] === "string" ? (o[k] as string).trim() : "");
+      const hvOld = str("alto-vano-ventana");
+      if (hvOld) {
+        if (!(base["alto-ventana-1"] ?? "").trim()) base["alto-ventana-1"] = hvOld;
+        if (!(base["alto-ventana-2"] ?? "").trim()) base["alto-ventana-2"] = hvOld;
+      }
+      const anteOld = str("antepecho-ventana");
+      if (anteOld) {
+        if (!(base["antepecho-ventana-1"] ?? "").trim()) base["antepecho-ventana-1"] = anteOld;
+        if (!(base["antepecho-ventana-2"] ?? "").trim()) base["antepecho-ventana-2"] = anteOld;
+      }
+      const tvOld = str("cabezal-ventana");
+      if (tvOld) {
+        if (!(base["cabezal-ventana-1"] ?? "").trim()) base["cabezal-ventana-1"] = tvOld;
+        if (!(base["cabezal-ventana-2"] ?? "").trim()) base["cabezal-ventana-2"] = tvOld;
+      }
+      const dp1Old = str("dist-puerta-a-ventana-1");
+      if (dp1Old && !(base["dist-v1-a-puerta"] ?? "").trim()) base["dist-v1-a-puerta"] = dp1Old;
+    }
+    if (wallId === "pared-2-puertas") {
+      const str = (k: string) => (typeof o[k] === "string" ? (o[k] as string).trim() : "");
+      const hpOld = str("alto-vano");
+      if (hpOld) {
+        if (!(base["alto-vano-puerta-1"] ?? "").trim()) base["alto-vano-puerta-1"] = hpOld;
+        if (!(base["alto-vano-puerta-2"] ?? "").trim()) base["alto-vano-puerta-2"] = hpOld;
+      }
+      const tpOld = str("cabezal-puertas");
+      if (tpOld) {
+        if (!(base["cabezal-puerta-1"] ?? "").trim()) base["cabezal-puerta-1"] = tpOld;
+        if (!(base["cabezal-puerta-2"] ?? "").trim()) base["cabezal-puerta-2"] = tpOld;
       }
     }
   }
